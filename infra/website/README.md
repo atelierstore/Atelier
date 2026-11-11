@@ -23,7 +23,7 @@ The home page's Get Atelier lists the ways to install Atelier the first time, on
 
 ## For signing services
 
-`/signing-services` is for signing services that want to offer Atelier to their customers, signed with each customer's certificate, as they offer other apps. Get Atelier on the home page links to it (Run a signing service?), and so does every page's footer. It has four steps, in Atelier's terms:
+`/signing-services` is for signing services that want to offer Atelier preconfigured for their customers, signed with each customer's certificate, as they offer other apps. Get Atelier on the home page links to it (Run a signing service?), and so does every page's footer. It has four steps, in Atelier's terms:
 
 1. **Get the newest release:** the newest release's unsigned IPA, as on the sideload page (`sideload.js` fills it in from the same markup), and Atelier's source, to follow new releases: the first of its app's `versions`, with `downloadURL`, `size` and `sha256` (`scripts/update_source.py`).
 2. **Put the certificate inside:** `AtelierCertificate.plist` next to the app's `Info.plist`, before signing, as the certificate page and Install a Copy put it in (`PackagedCertificate` in CertKit, #113, and `packaged.js`), key by key: `p12`, `profile`, `password` and `id`, and the optional `name` and `udid`. Atelier imports it on its first launch, once the profile it was installed with lists the certificate (`CertificatesModel.importPackagedCertificate`). Releases that look for it have `AtelierTakesCertificate` in their `Info.plist`.
