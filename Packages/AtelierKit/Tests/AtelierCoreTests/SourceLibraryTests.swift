@@ -95,12 +95,19 @@ final class SourceLibraryTests: XCTestCase {
 		XCTAssertNil(record.refreshError)
 	}
 
-	/// A source kept in a GitHub repo, which raw.githubusercontent.com
-	/// answers 404 for while the repo is private, without a GitHub account
-	/// to read it with: it asks to sign in, as Atelier's own does while its
-	/// repo is private (#134). Adding one still says what the server said,
-	/// and a 404 elsewhere is the server's, as before.
+	/// A source kept in a private GitHub repo, which raw.githubusercontent.com
+	/// and GitHub's API both answer 404 for without a GitHub account to read
+	/// it with: it asks to sign in (#134). Adding one still says what the
+	/// server said, and a 404 elsewhere is the server's, as before.
 	func testASourceInAGitHubRepoAsksToSignInWithoutAnAccount() async throws {
+		// Signed out, GitHub's API is asked too, without a token, so the
+		// fake server answers for GitHub as well.
+		library = SourceLibrary(
+			context: container.mainContext,
+			fetcher: SourceFetcher(load: server.load),
+			gitHub: GitHubSource(api: GitHubAPI(load: server.load)),
+			prereleases: prereleases
+		)
 		let raw = URL(string: "https://raw.githubusercontent.com/owner/repo/main/source.json")!
 		server.respond(404, Data())
 		do {
@@ -114,6 +121,8 @@ final class SourceLibraryTests: XCTestCase {
 		await library.refresh(builtIn)
 		XCTAssertEqual(builtIn.refreshError, "Sign in to GitHub to load it.")
 		XCTAssertTrue(builtIn.needsGitHubSignIn)
+		XCTAssertEqual(server.lastRequest?.url?.path, "/repos/owner/repo", "it asked GitHub's API whether the repo is there")
+		XCTAssertNil(server.lastRequest?.value(forHTTPHeaderField: "Authorization"))
 
 		let other = try library.addBuiltIn(at: url, name: "Example")
 		await library.refresh(other)
