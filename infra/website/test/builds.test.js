@@ -222,6 +222,28 @@ test("a signed build has the manifest iOS's install alert reads", async () => {
   assert.equal((await request(t, `/builds/${"0".repeat(32)}/manifest.plist`)).status, 404);
 });
 
+test("a signed build's install address opens iOS's install alert, for chats that only link https:// addresses", async () => {
+  const t = await setUp();
+  const { url } = await upload(t, "Atelier.ipa");
+  const token = url.split("/")[4];
+  const alert = `itms-services://?action=download-manifest&url=${encodeURIComponent(`${SITE}/builds/${token}/manifest.plist`)}`;
+  for (const method of ["GET", "HEAD"]) {
+    const response = await request(t, `/builds/${token}/install`, { method });
+    assert.equal(response.status, 302, method);
+    assert.equal(response.headers.get("Location"), alert, method);
+    assert.equal(response.headers.get("Cache-Control"), "no-store", method);
+  }
+  assert.equal((await request(t, `/builds/${token}/install`, { method: "POST" })).status, 405);
+
+  // An unsigned IPA can't be installed that way, and a build that has gone
+  // has nothing to install.
+  const unsigned = await upload(t, "Atelier-unsigned.ipa");
+  assert.equal((await request(t, `/builds/${unsigned.url.split("/")[4]}/install`)).status, 404);
+  assert.equal((await request(t, `/builds/${"0".repeat(32)}/install`)).status, 404);
+  await t.apps.objects.get(`id:${token}`).alarm();
+  assert.equal((await request(t, `/builds/${token}/install`)).status, 404);
+});
+
 test("the build's record lists its files and links, and goes to KV under its commit, branch and pull request", async () => {
   const t = await setUp();
   const signed = await upload(t, "Atelier.ipa");
@@ -248,6 +270,7 @@ test("the build's record lists its files and links, and goes to KV under its com
         signed: true,
         size: atelier().length,
         install: `itms-services://?action=download-manifest&url=${encodeURIComponent(`${SITE}/builds/${signedToken}/manifest.plist`)}`,
+        safari: `${SITE}/builds/${signedToken}/install`,
       },
       { name: "Atelier-unsigned.ipa", url: unsigned.url, signed: false, size: atelier(2000).length },
     ],
@@ -279,6 +302,7 @@ test("main's builds are recorded under main, with the commit pushed", async () =
   assert.equal(build.commit, sha);
   assert.equal(build.files[0].signed, false);
   assert.equal(build.files[0].install, undefined);
+  assert.equal(build.files[0].safari, undefined);
   assert.deepEqual([...t.env.BUILDS.values.keys()].sort(), ["branch/main", `commit/${sha}`]);
 });
 

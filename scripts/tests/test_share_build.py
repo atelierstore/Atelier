@@ -50,7 +50,8 @@ class FakeServices:
                 "build": "1042",
                 "expires": "2026-11-18T13:00:00.000Z",
                 "files": [
-                    *({"name": "Atelier.ipa", "url": file["url"], "signed": True, "install": "itms-services://secret"} for file in signed),
+                    *({"name": "Atelier.ipa", "url": file["url"], "signed": True, "install": "itms-services://secret",
+                       "safari": f"{SITE}/builds/{'0' * 32}/install"} for file in signed),
                     *({"name": "Atelier-unsigned.ipa", "url": file["url"], "signed": False} for file in unsigned),
                 ],
                 "install": f"{SITE}/install?url=unsigned" if unsigned else None,
@@ -102,6 +103,7 @@ class ShareBuildTests(unittest.TestCase):
             self.assertIn(f"{SITE}/install?url=unsigned", text)
             self.assertNotIn(f"{'0' * 32}/Atelier.ipa", text)
             self.assertNotIn("itms-services", text)
+            self.assertNotIn(f"{'0' * 32}/install", text)
             self.assertIn("Atelier 0.5.1 (1042)", text)
 
     def test_a_missing_signed_ipa_is_left_out(self):

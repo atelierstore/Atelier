@@ -24,6 +24,8 @@ export const LIFETIME = 7 * 24 * 60 * 60 * 1000;
 /** The files a build has: the IPA signed with the maintainer's profile, and
  *  the unsigned one, which Atelier signs as it installs it. */
 export const FILES = new Set(["Atelier.ipa", "Atelier-unsigned.ipa"]);
+/** The signed one, the one iOS's install alert can install. */
+const SIGNED = "Atelier.ipa";
 /** The events whose builds are kept: what build.yml's callers run on. */
 const EVENTS = new Set(["push", "pull_request", "workflow_dispatch"]);
 
@@ -45,6 +47,10 @@ const githubKeys = new GitHubKeys();
  *  - GET or HEAD /builds/<token>/<file> is the IPA, or the part a Range
  *    header asks for, and GET /builds/<token>/manifest.plist the manifest
  *    iOS's install alert reads, for a signed IPA.
+ *  - GET or HEAD /builds/<token>/install, for a signed IPA, redirects to its
+ *    itms-services:// link, so that a link to it opens iOS's install alert
+ *    in Safari, as Codemagic's links to its builds did. Chats, and other
+ *    places that only link https:// addresses, can link it.
  *  A token that isn't GitHub's, or is another repo's or workflow's, gets a
  *  401 or 403, and an IPA that isn't Atelier a 422, each with {error}.
  *  `keys` is for tests. */
@@ -72,6 +78,14 @@ export async function builds(request, env, apps, { keys = githubKeys } = {}) {
       ipa: `${url.origin}/builds/${first}/${info.file}`,
       image: `${url.origin}/apple-touch-icon.png`,
     }), { headers: { "Content-Type": "application/xml; charset=utf-8", ...HEADERS } });
+  }
+  if (second === "install") {
+    if (request.method !== "GET" && request.method !== "HEAD") return notAllowed("GET, HEAD");
+    if ((await kept(app))?.file !== SIGNED) return notFound();
+    return new Response(null, {
+      status: 302,
+      headers: { Location: itmsServices(`${url.origin}/builds/${first}/manifest.plist`), ...HEADERS },
+    });
   }
   if (!FILES.has(second)) return notFound();
   if (request.method !== "GET" && request.method !== "HEAD") return notAllowed("GET, HEAD");
@@ -136,15 +150,16 @@ async function upload(request, apps, file) {
 /** Records a build whose files were uploaded, from the job's claims and
  *  what the request says, and answers with its record:
  *  {repository, commit, branch, pr, version, build, run, runID, created,
- *  expires, files: [{name, url, signed, size, install}], install}. `commit`
- *  is the commit the build is of, which the request says, as a pull
- *  request's build is of its merge into main, `pr` its pull request's
+ *  expires, files: [{name, url, signed, size, install, safari}], install}.
+ *  `commit` is the commit the build is of, which the request says, as a
+ *  pull request's build is of its merge into main, `pr` its pull request's
  *  number or null, and `version` and `build` its Info.plist's. A signed
- *  file's `install` is its itms-services:// link, and the record's
- *  `install` is the https:// link that installs the unsigned one with
- *  Atelier. BUILDS keeps it, when the site has it, as commit/<commit>,
- *  branch/<branch> and pr/<pr>, the last two unless a later run's build is
- *  there, until the files go. */
+ *  file's `install` is its itms-services:// link, and its `safari` the
+ *  https:// address that redirects there (/builds/<token>/install), to open
+ *  in Safari. The record's `install` is the https:// link that installs the
+ *  unsigned one with Atelier. BUILDS keeps it, when the site has it, as
+ *  commit/<commit>, branch/<branch> and pr/<pr>, the last two unless a
+ *  later run's build is there, until the files go. */
 async function record(request, env, apps, claims) {
   let body;
   try {
@@ -171,7 +186,10 @@ async function record(request, env, apps, claims) {
       signed,
       size: stored.size,
       expires: stored.expires,
-      ...(signed ? { install: itmsServices(`${origin}/builds/${token}/manifest.plist`) } : {}),
+      ...(signed ? {
+        install: itmsServices(`${origin}/builds/${token}/manifest.plist`),
+        safari: `${origin}/builds/${token}/install`,
+      } : {}),
     });
   }
 
