@@ -103,7 +103,15 @@ function namespace() {
     get(id) {
       if (!objects.has(id)) objects.set(id, new BuildApp({ storage: new Storage() }));
       const object = objects.get(id);
-      return { fetch: (input, init) => object.fetch(new Request(input, init)) };
+      return {
+        // As in the Workers runtime, an object's answer has the address it
+        // was asked at as its url.
+        fetch: async (input, init) => {
+          const response = await object.fetch(new Request(input, init));
+          Object.defineProperty(response, "url", { value: new Request(input).url });
+          return response;
+        },
+      };
     },
   };
 }
