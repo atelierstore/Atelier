@@ -96,6 +96,16 @@ public struct ProvisioningProfile: Codable, Equatable, Sendable {
 	/// bundle IDs too, and they installed (docs/install-routes.md).
 	public var isWildcard: Bool { bundleIDPattern.hasSuffix("*") }
 
+	/// The App Groups the profile has, each by its name, leaving out
+	/// patterns: with a certificate, the app's own are kept in folders in
+	/// one of them (#49, SigningKit's `AppGroups.home(in:)`).
+	public var appGroups: [String] {
+		(entitlements["com.apple.security.application-groups"] ?? "")
+			.split(separator: ",")
+			.map { $0.trimmingCharacters(in: .whitespaces) }
+			.filter { !$0.isEmpty && !$0.contains("*") }
+	}
+
 	/// Whether apps signed with this profile can run on a given device.
 	public enum DeviceCheck: Equatable, Sendable {
 		/// Enterprise: no device list.

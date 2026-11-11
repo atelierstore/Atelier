@@ -28,15 +28,20 @@ extension EntitlementsReport {
 		/// The entitlement keys behind it.
 		public var keys: [String]
 		/// What the app asks for that its signing has under other names, by
-		/// the app's name: App Groups an Apple ID added under its own (#49).
+		/// the app's name: App Groups an Apple ID added under its own, or the
+		/// certificate's group that keeps them (#49).
 		public var renamedValues: [String: String]
+		/// With a certificate, the folder in that group each is kept in, by
+		/// the app's name (#49).
+		public var folders: [String: String]
 
-		public init(name: String, status: Status?, detail: String? = nil, keys: [String], renamedValues: [String: String] = [:]) {
+		public init(name: String, status: Status?, detail: String? = nil, keys: [String], renamedValues: [String: String] = [:], folders: [String: String] = [:]) {
 			self.name = name
 			self.status = status
 			self.detail = detail
 			self.keys = keys
 			self.renamedValues = renamedValues
+			self.folders = folders
 		}
 	}
 
@@ -61,8 +66,12 @@ extension EntitlementsReport {
 				return Capability(name: name, status: .probablyNot, detail: "Your certificate allows it, but it only works in the developer's own copy of the app.", keys: keys)
 			}
 			let renamed = group.compactMap(\.renamedValues).reduce(into: [String: String]()) { $0.merge($1) { first, _ in first } }
+			let folders = group.compactMap(\.folders).reduce(into: [String: String]()) { $0.merge($1) { first, _ in first } }
+			let shared = group.contains { $0.bundles.count > 1 } ? ", which the app and its extensions share" : ""
+			if !folders.isEmpty {
+				return Capability(name: name, status: .supported, detail: "Atelier keeps them in a folder of the app's own, in your certificate's App Group\(shared). Other apps signed with this certificate could read it.", keys: keys, renamedValues: renamed, folders: folders)
+			}
 			if !renamed.isEmpty {
-				let shared = group.contains { $0.bundles.count > 1 } ? ", which the app and its extensions share" : ""
 				let sent = group.contains { $0.redirected == true } ? " Atelier sends the app's own names to them." : ""
 				return Capability(name: name, status: .supported, detail: "Your Apple ID added them under names of its own\(shared).\(sent)", keys: keys, renamedValues: renamed)
 			}
