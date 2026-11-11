@@ -1,0 +1,35 @@
+{
+  "name": "Broken Source",
+  "identifier": "com.example.broken",
+  "tintColor": "not a colour",
+  "featuredApps": ["com.example.good", "com.example.missing", 42],
+  "apps": [
+    {
+      "name": "Good App",
+      "bundleIdentifier": "com.example.good",
+      "developerName": "Example",
+      "category": "spaceships",
+      "tintColor": "#f54f32",
+      "versions": [
+        { "version": "2.0", "date": "not a date", "downloadURL": "https://example.com/good-2.0.ipa", "size": "1234", "minOSVersion": "99.0" },
+        { "version": 1.5, "date": "2024-01-02", "downloadURL": "https://example.com/good-1.5.ipa", "size": 1000.0 },
+        { "version": "1.4", "date": "2024-01-01" },
+        "not a version",
+        { "version": "1.0", "date": "2023-12-01", "downloadURL": "https://example.com/good-1.0.ipa", "size": 900, "maxOSVersion": "16.3" }
+      ],
+      "screenshots": ["https://example.com/1.png", 7, { "width": 100 }, { "imageURL": "https://example.com/2.png", "width": "wide" }],
+      "appPermissions": { "entitlements": "com.apple.developer.siri", "privacy": { "NSCameraUsageDescription": 3 } }
+    },
+    { "name": "No Bundle ID", "versions": [ { "version": "1.0", "downloadURL": "https://example.com/a.ipa" } ] },
+    { "name": "No Versions", "bundleIdentifier": "com.example.noversions", "versions": [] },
+    { "name": "Only Broken Versions", "bundleIdentifier": "com.example.brokenversions", "versions": [ { "version": "1.0" } ] },
+    { "name": "Duplicate Good App", "bundleIdentifier": "com.example.good", "versions": [ { "version": "9.0", "downloadURL": "https://example.com/dup.ipa" } ] },
+    "not an app",
+    { "bundleIdentifier": "com.example.noname", "versions": [ { "version": "1.0", "downloadURL": "https://example.com/n.ipa" } ] }
+  ],
+  "news": [
+    { "title": "Fine", "identifier": "fine", "caption": "A fine item.", "date": "2024-03-01" },
+    { "title": "No identifier", "caption": "Missing its identifier.", "date": "2024-03-02" },
+    { "title": "Duplicate", "identifier": "fine", "caption": "Same identifier.", "date": "2024-03-03" }
+  ]
+}

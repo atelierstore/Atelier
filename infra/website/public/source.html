@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Add a source to Atelier</title>
+<meta name="description" content="Opens Atelier, which shows you this source and its apps before it adds it.">
+<!-- Each source link is its own address, and none belongs in search
+     results, even once the rest of the site does. -->
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#3A5A47">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/site.css">
+<script type="module" src="/source.js"></script>
+</head>
+<body class="install-page">
+<main class="install-main">
+  <!-- Atelier's icon. Once source.js has read the source, the source's
+       icon, above an arrow to Atelier's smaller one. -->
+  <div class="install-icons">
+    <img class="install-app-icon" data-app-icon alt="" width="96" height="96" referrerpolicy="no-referrer" hidden>
+    <div class="install-arrow" data-arrow hidden><svg width="24" height="44" viewBox="0 0 24 44" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v32" stroke-dasharray="1 6"/><path d="M5 34l7 7 7-7"/></svg></div>
+    <img class="install-icon" data-atelier-icon src="/img/icon.png" alt="" width="84" height="84">
+  </div>
+
+  <!-- source.js fills this in from the page's address, then from the
+       source. -->
+  <div id="link-page" hidden>
+    <h1 data-title>Add a source to Atelier</h1>
+    <p class="install-meta" data-meta></p>
+    <div class="install-apps" data-apps hidden></div>
+    <p class="install-what" data-what>Atelier shows you the source and its apps before it adds it.</p>
+    <a class="btn btn-primary" id="link-open" href="/">Open in Atelier</a>
+    <p class="install-note" data-on="ios">If Safari asks to open Atelier, tap Open.</p>
+    <p class="install-note" data-on="other" hidden>Open this link on the iPhone or iPad that has Atelier.</p>
+    <nav class="install-more" aria-label="More">
+      <a class="text-link" href="/#install">Don't have Atelier? Get it</a>
+      <a class="text-link" id="source-file" href="/">See the source's file</a>
+    </nav>
+  </div>
+
+  <div id="link-problem" hidden>
+    <h1>Atelier can't open this link</h1>
+    <p class="install-what" data-reason></p>
+    <nav class="install-more" aria-label="More">
+      <a class="text-link" href="/">Go to Atelier's website</a>
+    </nav>
+  </div>
+
+  <noscript>
+    <h1>Add a source to Atelier</h1>
+    <p class="install-what">This page needs JavaScript to open Atelier.</p>
+  </noscript>
+</main>
+</body>
+</html>

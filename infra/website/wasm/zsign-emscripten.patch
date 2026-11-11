@@ -1,0 +1,47 @@
+diff --git a/src/common/fs.cpp b/src/common/fs.cpp
+index 68f5e44..cb0cb47 100644
+--- a/src/common/fs.cpp
++++ b/src/common/fs.cpp
+@@ -6,6 +6,12 @@
+ 
+ map<void*, void*> ZFile::s_mapFiles;
+ 
++#ifdef __EMSCRIPTEN__
++// Emscripten's munmap writes a shared mapping back to the file through the
++// descriptor it was mapped with, so that stays open until the unmapping.
++static map<void*, int> s_mapDescriptors;
++#endif
++
+ bool ZFile::IsRegularFile(const char* path)
+ {
+ 	struct stat st = { 0 };
+@@ -64,6 +70,12 @@ void* ZFile::MapFile(const char* path, size_t offset, size_t size, size_t* psize
+ 		if (MAP_FAILED == base) {
+ 			base = NULL;
+ 		}
++#ifdef __EMSCRIPTEN__
++		if (NULL != base) {
++			s_mapDescriptors[base] = fd;
++			return base;
++		}
++#endif
+ 		close(fd);
+ 	}
+ 
+@@ -84,7 +96,15 @@ bool ZFile::UnmapFile(void* base, size_t size)
+ 	}
+ 	return false;
+ #else
+-	return (0 == munmap(base, size));
++	bool unmapped = (0 == munmap(base, size));
++#ifdef __EMSCRIPTEN__
++	auto it = s_mapDescriptors.find(base);
++	if (it != s_mapDescriptors.end()) {
++		close(it->second);
++		s_mapDescriptors.erase(it);
++	}
++#endif
++	return unmapped;
+ #endif
+ }
+ 

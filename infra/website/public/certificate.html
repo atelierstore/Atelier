@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install Atelier with a signing service · Atelier</title>
+<meta name="description" content="Sign Atelier with the certificate from your signing service, in Safari on your iPhone, and install it, ready to install your apps.">
+<meta name="theme-color" content="#3A5A47">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Atelier">
+<meta property="og:title" content="Install Atelier with a signing service">
+<meta property="og:description" content="Sign Atelier with the certificate from your signing service, in Safari on your iPhone, and install it.">
+<meta property="og:url" content="https://atelierstore.app/certificate">
+<meta property="og:image" content="https://atelierstore.app/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Atelier's icon and name, with an iPhone showing Atelier resting on an easel">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/site.css">
+<script type="module" src="/certificate.js"></script>
+</head>
+<body>
+<header class="hero page-hero">
+  <div class="wrap">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="/"><img src="/img/icon.png" alt="" width="36" height="36"><span>Atelier</span></a>
+      <div class="nav-links">
+        <a class="gh" href="https://github.com/atelierstore/Atelier"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      </div>
+    </nav>
+    <div class="page-head">
+      <a class="crumb" href="/#install"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg>Get Atelier</a>
+      <h1>Install Atelier with a signing service</h1>
+      <p class="lede">This page signs Atelier with the certificate your signing service gave you, in Safari on your iPhone, and iOS installs it. Atelier then opens with your certificate ready to install your apps and update itself.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="page-body" aria-label="Install Atelier with a signing service">
+    <div class="wrap install-grid">
+      <div>
+        <h2 class="needs-title">You'll need</h2>
+        <ul class="needs">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg><span><strong>An iPhone with iOS 17 or later,</strong> with this page open in Safari on it.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9.5" r="5.5"/><path d="M8.5 14l-1.5 7 5-2.5 5 2.5-1.5-7"/></svg><span><strong>A certificate from a signing service</strong> for this iPhone, and its password.</span></li>
+        </ul>
+        <h2 class="needs-title">Where your certificate goes</h2>
+        <ul class="needs">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="10.5" width="14" height="10" rx="2.5"/><path d="M8.5 10.5V7.8a3.5 3.5 0 0 1 7 0v2.7"/></svg><span><strong>Safari signs Atelier with it,</strong> on your iPhone. It isn't sent anywhere to be signed.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg><span><strong>With Include Certificate on, it goes inside Atelier.</strong> This site keeps the signed Atelier at a private address until iOS downloads it, then deletes it, after 10 minutes at most.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/><path d="M4 4l16 16"/></svg><span><strong>Nothing is logged,</strong> and the page keeps nothing once you leave it.</span></li>
+        </ul>
+      </div>
+
+      <!-- certificate.js runs the steps: the files are checked as Atelier
+           checks a certificate it imports, then Atelier is signed in a
+           background worker (signing-worker.js) and uploaded to this site
+           for iOS to install (/ota, see src/ota.js). -->
+      <ol class="steps">
+        <li>
+          <span class="n" aria-hidden="true">1</span>
+          <div>
+            <div class="callout notice" id="not-here" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
+              <div>
+                <strong>Open this page in Safari on your iPhone</strong>
+                <p>iOS only installs Atelier from Safari on the iPhone itself. You can still check your certificate here.</p>
+              </div>
+            </div>
+            <h3>Choose your certificate</h3>
+            <p>Your signing service should have given you a <span class="file">.p12</span> file, its password and a <span class="file">.mobileprovision</span> file, sometimes in a ZIP. Choose the two files together, or the ZIP.</p>
+            <div class="picker">
+              <div class="picker-row" id="p12-row">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9.5" r="5.5"/><path d="M8.5 14l-1.5 7 5-2.5 5 2.5-1.5-7"/></svg>
+                <span class="what"><strong>Certificate</strong><span>Not chosen yet</span></span>
+                <svg class="tick" viewBox="0 0 22 22" aria-hidden="true" hidden><circle cx="11" cy="11" r="11"/><path d="M6.4 11.3l3 2.9 6.2-6.3"/></svg>
+              </div>
+              <div class="picker-row" id="profile-row">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 2.8h7l4.5 4.5v12.4a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5V4.3A1.5 1.5 0 0 1 7 2.8z"/><path d="M14 2.8v4.5h4.5"/><path d="M9 12.5h6M9 16h6"/></svg>
+                <span class="what"><strong>Profile</strong><span>Not chosen yet</span></span>
+                <svg class="tick" viewBox="0 0 22 22" aria-hidden="true" hidden><circle cx="11" cy="11" r="11"/><path d="M6.4 11.3l3 2.9 6.2-6.3"/></svg>
+              </div>
+              <div class="picker-foot">
+                <button class="btn btn-secondary btn-small" type="button" id="choose-files">Choose Files</button>
+                <span id="choose-hint">From Files, iCloud Drive or a ZIP</span>
+                <input type="file" id="files-input" multiple hidden>
+              </div>
+            </div>
+            <p class="problem-text" id="files-problem" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg><span></span></p>
+            <div class="field" id="password-field">
+              <label for="password">Password</label>
+              <input id="password" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="The .p12's password">
+            </div>
+            <p class="problem-text" id="password-problem" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg><span></span></p>
+            <div class="cert" id="certificate" hidden>
+              <span class="r-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="9.5" r="5.5"/><path d="M9.6 9.6l1.7 1.6 3.2-3.3"/><path d="M8.5 14l-1.5 7 5-2.5 5 2.5-1.5-7"/></svg></span>
+              <div class="cert-text">
+                <strong id="certificate-name"></strong>
+                <span id="certificate-summary"></span>
+                <ul class="cert-checks" id="certificate-checks"></ul>
+              </div>
+            </div>
+          </div>
+        </li>
+
+        <li class="later" id="step-sign">
+          <span class="n" aria-hidden="true">2</span>
+          <div>
+            <h3>Sign and install Atelier</h3>
+            <p id="sign-lede">Choose your certificate first.</p>
+            <div class="release">
+              <img src="/img/icon.png" alt="" width="52" height="52">
+              <span class="release-name"><strong id="release-name">Atelier</strong><span id="release-meta">Newest release</span></span>
+            </div>
+            <!-- Shown when the page can't download the newest release
+                 itself, as when the download fails. The page then takes the
+                 IPA as a file. -->
+            <div id="release-file" hidden>
+              <p class="release-help">Download Atelier's IPA from its releases on GitHub, then choose it here.</p>
+              <div class="actions">
+                <button class="btn btn-secondary btn-small" type="button" id="choose-ipa">Choose IPA File</button>
+                <a class="text-link" href="https://github.com/atelierstore/Atelier/releases">Releases</a>
+                <input type="file" id="ipa-input" hidden>
+              </div>
+            </div>
+            <p class="problem-text" id="ipa-problem" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg><span></span></p>
+            <div class="toggle">
+              <label for="include-certificate">
+                <strong>Include Certificate</strong>
+                <span id="include-text">Atelier imports it when it first opens, so it's ready to install your apps and update itself. Off, you add it in Atelier's Get Ready.</span>
+              </label>
+              <input class="switch" id="include-certificate" type="checkbox" role="switch" checked>
+            </div>
+
+            <div class="go" id="start">
+              <button class="btn btn-primary" type="button" id="sign-install" disabled>Sign and Install</button>
+            </div>
+            <div class="go" id="progress" hidden>
+              <div class="bar">
+                <img src="/img/icon.png" alt="" width="42" height="42">
+                <span class="bar-text"><strong>Atelier</strong><span id="progress-text" aria-live="polite"></span></span>
+                <svg class="ring" id="progress-ring" viewBox="0 0 28 28" aria-hidden="true"><circle class="track" cx="14" cy="14" r="11"/><circle class="fill" id="progress-fill" cx="14" cy="14" r="11" pathLength="100" stroke-dasharray="26 100"/></svg>
+              </div>
+              <div id="install-again" hidden>
+                <a class="btn btn-secondary btn-small again" id="install-link" href="/certificate">Install Atelier</a>
+                <p class="go-note">Tap it if iOS didn't ask, or you tapped Cancel. The signed Atelier is deleted 10 minutes after it's ready.</p>
+              </div>
+            </div>
+            <div class="go" id="done" hidden>
+              <div class="bar">
+                <img src="/img/icon.png" alt="" width="42" height="42">
+                <span class="bar-text"><strong>Atelier</strong><span>Downloaded by iOS</span></span>
+                <svg class="ring" viewBox="0 0 28 28" aria-hidden="true"><circle class="done" cx="14" cy="14" r="12"/><path d="M8.6 14.4l3.4 3.3 7.4-7.4" fill="none" stroke="#fff" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </div>
+              <p class="go-note">iOS installs it now, and it shows up on your Home Screen. This site deletes its copy within a minute. If iOS says it can't install Atelier, check with your signing service that your certificate is for this iPhone.</p>
+            </div>
+            <div id="failed" hidden>
+              <p class="problem-text" role="alert"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg><span id="failed-text"></span></p>
+              <div class="go"><button class="btn btn-primary" type="button" id="try-again">Try Again</button></div>
+            </div>
+          </div>
+        </li>
+
+        <li class="later" id="step-open">
+          <span class="n" aria-hidden="true">3</span>
+          <div>
+            <h3>Open Atelier</h3>
+            <p id="open-text">Open it from your Home Screen. Your certificate is already in it, so Get Ready shows it done, and you can add your sources.</p>
+            <div class="callout" id="open-note" hidden>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
+              <div>
+                <strong id="open-note-title"></strong>
+                <p id="open-note-text"></p>
+              </div>
+            </div>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="brand" href="/"><img src="/img/icon.png" alt="" width="36" height="36"><span>Atelier</span></a>
+      <nav class="foot-links" aria-label="Links">
+        <a href="https://github.com/atelierstore/Atelier">GitHub</a>
+        <a href="https://github.com/atelierstore/Atelier/releases">Releases</a>
+        <a href="https://github.com/atelierstore/Atelier/blob/main/docs/install.md">Install guide</a>
+        <a href="/signing-services">For signing services</a>
+        <a href="https://github.com/atelierstore/Atelier/blob/main/LICENSE">License</a>
+        <a href="https://github.com/atelierstore/Atelier/blob/main/THIRD_PARTY_NOTICES.md">Acknowledgements</a>
+      </nav>
+    </div>
+    <p class="fine">Atelier is free software under the GNU General Public License v3.0. It isn't affiliated with Apple, AltStore, SideStore or Feather. iPhone and iPad are trademarks of Apple Inc. This page signs with zsign (MIT License) and OpenSSL (Apache License 2.0), compiled to WebAssembly: <a href="/licenses/zsign.txt">zsign's license</a> and <a href="/licenses/OpenSSL.txt">OpenSSL's</a>.</p>
+  </div>
+</footer>
+</body>
+</html>

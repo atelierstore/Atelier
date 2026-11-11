@@ -1,0 +1,37 @@
+# Atelier's website: the files in public/, served by a Cloudflare Worker
+# (Workers static assets), whose code (src/) reads the app an install link
+# installs and the source a source or app link names, and keeps the signed
+# Atelier the certificate page uploads for iOS to install. See README.md.
+name = "atelier-website"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+# Each version gets its own URL as well.
+preview_urls = true
+
+# Requests for these files don't run src/index.js; it gets the others, and
+# passes what isn't its own to ASSETS.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+# No logs, as for the manifest Worker.
+[observability]
+enabled = false
+
+# The Durable Object that keeps the signed Atelier the certificate page
+# uploads, until iOS has downloaded it (src/ota.js). The Worker reaches it
+# through ctx.exports, so it needs no binding, and Cloudflare makes it on
+# deploy, in Previews too. It keeps the IPA in SQLite, the only storage
+# Durable Objects have on the Free plan.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["SignedApp"]
+
+# Pull requests' builds run `npx wrangler preview`, which needs this block
+# (it can be empty) and makes a Preview of the site named after the branch.
+# A Preview doesn't take observability from above, so it's turned off here too.
+[previews]
+
+[previews.observability]
+enabled = false

@@ -1,0 +1,268 @@
+{
+  "name": "Quantum Source",
+  "identifier": "com.quarksources.quantumsource",
+  "apiVersion": "v2",
+  "subtitle": "Contains all of your favorite emulators, games, jailbreaks, utilities, and more.",
+  "description": "This source is an automatically kept up-to-date source, powered by GitHub Actions, the Python altparse library, and the support of independent developers. In here, you'll find anything from community maintained forks of Delta Emulator, to tiny Mac utilities that no one's ever heard of. If you have an app you'd like to see here, please use our website to reach out!",
+  "iconURL": "https://quarksources.github.io/assets/ElementQ-Circled.png",
+  "headerURL": "https://quarksources.github.io/assets/quantumsource.png",
+  "website": "https://quarksources.github.io/",
+  "tintColor": "#343a40",
+  "featuredApps": [
+    "com.antique.emuThreeDS"
+  ],
+  "apps": [
+    {
+      "name": "emuThreeDS",
+      "bundleIdentifier": "com.antique.emuThreeDS",
+      "developerName": "Antique",
+      "subtitle": "Nintendo 3DS emulator for iOS.",
+      "localizedDescription": "emuThreeDS is a Nintendo 3DS emulator for Apple TV, iPad and iPhone based on Citra.",
+      "iconURL": "https://i.imgur.com/XUAH0bL.png",
+      "tintColor": "#5CA399",
+      "screenshotURLs": [
+        "https://i.imgur.com/AhhhDIK.png",
+        "https://i.imgur.com/u05omA7.png"
+      ],
+      "versions": [
+        {
+          "absoluteVersion": "1.0.7.1.2",
+          "version": "1.0.7.1",
+          "buildVersion": "2",
+          "date": "2024-03-01T03:47:43Z",
+          "localizedDescription": "# v1.0.7.1.2\n\n",
+          "downloadURL": "https://github.com/emuPlace/emuThreeDS/releases/download/v1.0.7.1.2/emuThreeDS_v1.0.7.1.2.ipa",
+          "size": 35010897,
+          "sha256": "e27a76af0128c1af81f51bfffe8983a461bb76861cf0c93a0388f9c16339bdcf"
+        },
+        {
+          "absoluteVersion": "1.0.6.5.6",
+          "version": "1.0.6.5",
+          "buildVersion": "6",
+          "date": "2023-07-31T11:16:28Z",
+          "localizedDescription": "# v1.0.6.5 (6) is now out!\n\nSee **[CHANGELOG.md](https://github.com/emuplace/emuthreeds/blob/main/resources/markdowns/CHANGELOG.md)** for more information.",
+          "downloadURL": "https://github.com/emuPlace/emuThreeDS/releases/download/1.0.6.5.6/emuThreeDS.v1.0.6.5.6.ipa",
+          "size": 35642893,
+          "sha256": "f1b0d1df9ca3ce907869aa9d18d109e1c2bceb283971f23bf42de3ecd59e28c9"
+        },
+        {
+          "absoluteVersion": "1.0.6.4",
+          "version": "1.0.6",
+          "buildVersion": "4",
+          "date": "2023-06-15T08:42:18Z",
+          "localizedDescription": "# Settings galore, Full controller support, Latest Vulkan and more!\n\nSee **[CHANGELOG.md](https://github.com/emuPlace/emuThreeDS/blob/main/resources/markdowns/CHANGELOG.md)** for more information.\r\n\r\nThis will be the last SwiftUI release as the project is moving back to Swift.",
+          "downloadURL": "https://github.com/emuPlace/emuThreeDS/releases/download/1.0.6.4/emuThreeDS_v1.0.6.4.ipa",
+          "size": 37520848,
+          "sha256": "e63fe50f820286b4124e9e758610c8e707f1d9b76f65301e9ffb1bfcda38566b"
+        },
+        {
+          "absoluteVersion": "1.0.6.3",
+          "version": "1.0.6",
+          "buildVersion": "3",
+          "date": "2023-06-08T08:31:08Z",
+          "localizedDescription": "# Added new virtual controller buttons and added new settings.\n\nChange-logs will go back to normal from here on out... I've not kept track properly for this version.",
+          "downloadURL": "https://github.com/emuPlace/emuThreeDS/releases/download/1.0.6.3/emuThreeDS_v1.0.6.3.ipa",
+          "size": 37590539,
+          "sha256": "2b41c723d5c7512a8787e22fe6029f5c7cb2dfce0f496eb8fdc3cf91f975ce28",
+          "minOSVersion": "15.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": []
+      },
+      "appID": "com.antique.emuThreeDS"
+    },
+    {
+      "name": "WDBRemoveThreeAppLimit",
+      "bundleIdentifier": "com.worthdoingbadly.WDBRemoveThreeAppLimit",
+      "developerName": "Zhuowei",
+      "subtitle": "Removes three app limit from AltStore!",
+      "localizedDescription": "An app that removes the three app limit for free provisioning. Hit \"Go\" just before installing apps. Should work on iOS 16.1.2 and below / iOS 15.7.1 and below.\n\nThis is very limited:\n\n• Apps still expire after a week\n• They still do not get arbitrary entitlements\n• They still must be signed. It's probably not going to be that useful. It's meant more as a demo of what you can do with MacDirtyCow.",
+      "iconURL": "https://i.imgur.com/ODvSw7D.png",
+      "tintColor": "#404040",
+      "screenshotURLs": [
+        "https://i.imgur.com/6pajtgW.png"
+      ],
+      "versions": [
+        {
+          "version": "1.0",
+          "date": "2023-02-16",
+          "localizedDescription": "• Updated WDBRemoveThreeAppLimit to v1.0",
+          "downloadURL": "https://github.com/zhuowei/WDBRemoveThreeAppLimit/releases/download/v1.0/WDBRemoveThreeAppLimit-v1.0.ipa",
+          "size": 88800,
+          "sha256": "428982c14796e7caa66d2743964fa37157d0e9db574ada326aa09a65a11c147c",
+          "maxOSVersion": "16.1.2"
+        }
+      ]
+    },
+    {
+      "name": "Deltroid",
+      "bundleIdentifier": "com.rileytestut.Deltroid",
+      "developerName": "SideStore Team",
+      "subtitle": "Multi-emulator for your classic games on the go!",
+      "localizedDescription": "Deltroid is an all-in-one emulator for iOS. Deltroid builds upon the strengths of its predecessor Delta while improving on it in a community supported fashion. \n\nGithub Repository (https://github.com/lonkelle/Deltroid) \n\nFEATURES\n\nSupported Game Systems\n• Nintendo Entertainment System\n• Super Nintendo Entertainment System\n• Nintendo 64\n• Game Boy (Color)\n• Game Boy Advance\n• Nintendo DS\n• Nintendo DSi\n• Sega Genesis\n• And plenty more to come!\n\nController Support\n• Supports PS4, PS5, Xbox One S, Xbox Series X, and MFi game controllers.\n• Supports bluetooth (and wired) keyboards, as well as the Apple Smart Keyboard.\n• Completely customize button mappings on a per-system, per-controller basis.\n• Map buttons to special “Quick Save”, “Quick Load,” and “Fast Forward” actions.\n\nSave States\n• Save and load save states for any game from the pause menu.\n• Lock save states to prevent them from being accidentally overwritten.\n• Automatically makes backup save states to ensure you never lose your progress.\n• Support for “Quick Saves,” save states that can be quickly saved/loaded with a single button press (requires external controller).\n\nCheats\n• Supports various types of cheat codes for each supported system:\n• NES: Game Genie\n• SNES: Game Genie, Pro Action Replay\n• N64: GameShark\n• GBC: Game Genie, GameShark\n• GBA: Action Replay, Code Breaker, GameShark\n• DS: Action Replay\n\nDeltroid Sync\n• Sync your games, game saves, save states, cheats, controller skins, and controller mappings between devices.\n• View version histories of everything you sync and optionally restore them to earlier versions.\n• Supports both Google Drive and Dropbox.\n\nCustom Controller Skins\n• Beautiful built-in controller skins for all systems.\n• Import controller skins made by others, or even make your own to share with the world!\n\nHold Button\n• Choose buttons for Delta to hold down on your behalf, freeing up your thumbs to press other buttons instead.\n• Perfect for games that typically require one button be held down constantly (ex: run button in Mario games, or the A button in Mario Kart).\n\nFast Forward\n• Speed through slower parts of games by running the game much faster than normal.\n• Easily enable or disable from the pause menu, or optionally with a mapped button on an external controller.\n\n3D/Haptic Touch\n• Use 3D or Haptic Touch to “peek” at games, save states, and cheat codes.\n• App icon shortcuts allow quick access to your most recently played games, or optionally customize the shortcuts to always include certain games.\n\nGame Artwork\n• Automatically displays appropriate box art for imported games.\n• Change a game’s artwork to anything you want, or select from the built-in game artwork database.\n\nMisc.\n• Gyroscope support (WarioWare: Twisted! only)\n• Microphone support (DS only)\n• Support for delta:// URL scheme to jump directly into a specific game.\n\n**Deltroid and Sidestore are in no way affiliated with Nintendo. The name \"Nintendo\" and all associated game console names are registered trademarks of Nintendo Co., Ltd.**",
+      "iconURL": "https://i.imgur.com/Bimx1aO.png",
+      "tintColor": "8A28F7",
+      "screenshotURLs": [
+        "https://user-images.githubusercontent.com/64176728/215964215-34cefad0-7178-4b38-930d-fc3df1c5592b.png",
+        "https://user-images.githubusercontent.com/64176728/215960133-70db5b84-d2e4-4638-9f96-179b9100aa9c.png",
+        "https://user-images.githubusercontent.com/64176728/215962679-1c01f62f-59ab-4e7f-9a2c-d1353fb409c6.png",
+        "https://user-images.githubusercontent.com/64176728/215960144-930836b3-543f-4729-8b6a-e06446aca4c4.png"
+      ],
+      "versions": [
+        {
+          "absoluteVersion": "0.9.1",
+          "version": "1.5",
+          "date": "2023-02-02T10:51:30Z",
+          "localizedDescription": "# v0.9.1\n\n• Fixes default NES / DS skins\r\n• Fixes importing `.md` files from the in-app File Picker.",
+          "downloadURL": "https://github.com/lonkelle/Deltroid/releases/download/v0.9.1/Deltroid.ipa",
+          "size": 48342198,
+          "sha256": "e7334a815833de25221675380d6774a3d2cb6df03fbd56caa80b0d6da553153b"
+        },
+        {
+          "absoluteVersion": "0.1",
+          "version": "0.1",
+          "date": "2023-2-02T03:00:00-05:00",
+          "localizedDescription": "Additions and Bugfixes. More info: https://github.com/lonkelle/Deltroid/releases",
+          "downloadURL": "https://github.com/lonkelle/Deltroid/releases/download/v0.9.1/Deltroid.ipa",
+          "size": 48300000
+        }
+      ],
+      "appID": "com.rileytestut.Deltroid"
+    },
+    {
+      "name": "DolphiniOS (Public Beta)",
+      "bundleIdentifier": "me.oatmealdome.DolphiniOS-njb-patreon-beta",
+      "developerName": "OatmealDome",
+      "subtitle": "Test the latest DolphiniOS.",
+      "localizedDescription": "DolphiniOS is a port of the popular Dolphin emulator to iOS. Dolphin lets you play your favourite GameCube and Wii software with enhancements like higher resolutions, save states, and more. You can even play all of Nintendo's classics from past consoles through the Wii's Virtual Console library.\n\nPlease note that devices with A8 processors and older are not compatible.",
+      "iconURL": "https://cdn.oatmealdome.me/dolphinios/AppIcon.appiconset/BetaAppStore.png",
+      "tintColor": "ffbb3d",
+      "screenshotURLs": [
+        "https://cdn.oatmealdome.me/dolphinios/altstore/screenshots/screenshot_6s_1.PNG",
+        "https://cdn.oatmealdome.me/dolphinios/altstore/screenshots/screenshot_6s_2.PNG",
+        "https://cdn.oatmealdome.me/dolphinios/altstore/screenshots/screenshot_6s_3_reup.PNG",
+        "https://cdn.oatmealdome.me/dolphinios/altstore/screenshots/screenshot_6s_4_edit.png"
+      ],
+      "versions": [
+        {
+          "version": "5.0.0b4",
+          "date": "2025-10-23T02:30:00.0000000Z",
+          "localizedDescription": "Beta 4 attempts to fix crashes when using JIT on devices with an A12, A13, A14, or M1 chip running iOS 26.\n\nBeta 3 adds support for emulating Skylander Portal of Power, fixes JIT on some devices running iOS 17 and 18, and fixes random errors with JIT on iOS 26.\n\nBeta 1 adds support for JIT on iOS 26 using StikDebug.",
+          "downloadURL": "https://github.com/OatmealDome/dolphin-ios/releases/download/v5.0.0b4/Non-Jailbroken.ipa",
+          "size": 17958943,
+          "sha256": "3654f513e01944e4b1e1abe4a44057c7291875fbf5a822f17f36bff74a3ee27c",
+          "minOSVersion": "14.0",
+          "maxOSVersion": "99.0"
+        },
+        {
+          "version": "5.0.0b3",
+          "date": "2025-10-18T00:00:00.0000000Z",
+          "localizedDescription": "Adds support for emulating Skylander Portal of Power, and fixes JIT on some devices running iOS 17 and 18.",
+          "downloadURL": "https://github.com/OatmealDome/dolphin-ios/releases/download/v5.0.0b3/Non-Jailbroken.ipa",
+          "size": 17958943,
+          "sha256": "9016d50856ca21b0f923f8ad4d72c97288a38ba92bea288ec8ccfb0d9388b369",
+          "minOSVersion": "14.0",
+          "maxOSVersion": "99.0"
+        },
+        {
+          "version": "5.0.0b2",
+          "date": "2025-10-13T00:00:00.0000000Z",
+          "localizedDescription": "Adds support for JIT on iOS 26 using StikDebug.",
+          "downloadURL": "https://github.com/OatmealDome/dolphin-ios/releases/download/v5.0.0b2/Non-Jailbroken.ipa",
+          "size": 17958943,
+          "sha256": "9f7e91e76d7aae2c4aa662e4654668dc7a16795af5fdae5da2b4e6d25c66d0bf",
+          "minOSVersion": "14.0",
+          "maxOSVersion": "99.0"
+        },
+        {
+          "version": "5.0.0b1",
+          "date": "2025-10-11T17:00:00.0000000Z",
+          "localizedDescription": "This is the second public beta build based on the rewritten DolphiniOS code.\n\niOS 14 is required to run this build.",
+          "downloadURL": "https://github.com/OatmealDome/dolphin-ios/releases/download/v5.0.0b1/Non-Jailbroken.ipa",
+          "size": 17958943,
+          "sha256": "ea27bd1a7b8f6839c8e8bbdf696cf0c2d79c7d5fc106abbd39795b2a0bc535f1",
+          "minOSVersion": "14.0",
+          "maxOSVersion": "99.0"
+        }
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": [
+          {
+            "name": "LocalNetwork",
+            "usageDescription": "DolphiniOS uses the local network to find and communicate with AltServer."
+          }
+        ]
+      },
+      "beta": false,
+      "appID": "me.oatmealdome.DolphiniOS-njb-patreon-beta"
+    },
+    {
+      "name": "Odyssey",
+      "bundleIdentifier": "org.coolstar.odyssey",
+      "developerName": "Odyssey Team",
+      "subtitle": "A new jailbreak for a new era.",
+      "localizedDescription": "Supporting iOS Versions: 13.0 - 13.7.\nOdyssey is the first jailbreak to be written almost entirely in Swift. Completely open source and welcomes community contributions and pull requests, as a tribute to the dearly departed s0uthwes and his continued optimism and faith in the project. Comes with the open source Procursus bootstrap, designed from the ground up with openness and compatiblity in mind. Along with a new tweak injection platform, libhooker.",
+      "iconURL": "https://theodyssey.dev/assets/images/icon.png",
+      "tintColor": "D287F4",
+      "screenshotURLs": [
+        "https://theodyssey.dev/assets/images/ss-1.png",
+        "https://theodyssey.dev/assets/images/ss-2.png",
+        "https://theodyssey.dev/assets/images/ss-3.png"
+      ],
+      "versions": [
+        {
+          "version": "1.4.3",
+          "date": "2023-04-03",
+          "localizedDescription": "- Update Sileo to 2.3-1",
+          "downloadURL": "https://github.com/Odyssey-Team/Odyssey/releases/download/1.4.3/Odyssey-1.4.3.ipa",
+          "size": 27200000,
+          "sha256": "0019dfc4b32d63c1392aa264aed2253c1e0c2fb09216f8e2cc269bbfb8bb49b5",
+          "minOSVersion": "13.0",
+          "maxOSVersion": "13.7"
+        },
+        {
+          "version": "1.4.2",
+          "date": "2022-02-18",
+          "localizedDescription": "- Update Sileo to 2.3\n- Replace Packix with Havoc as default repo",
+          "downloadURL": "https://github.com/Odyssey-Team/Odyssey/releases/download/1.4.2/Odyssey-1.4.2.ipa",
+          "size": 27200000
+        }
+      ],
+      "appID": "org.coolstar.odyssey"
+    }
+  ],
+  "news": [
+    {
+      "title": "emuThreeDS is on AltStore!",
+      "identifier": "emuThreeDS-initial",
+      "caption": "Early Beta Nintendo 3DS emulation on iOS is here.",
+      "date": "2023-06-10",
+      "tintColor": "#090C0F",
+      "notify": false,
+      "appID": "com.antique.emuThreeDS"
+    },
+    {
+      "title": "Odyssey Now Available!",
+      "identifier": "odyssey-x-altstore",
+      "caption": "A new jailbreak for a new era.",
+      "date": "2020-08-20",
+      "tintColor": "D287F4",
+      "imageURL": "https://theodyssey.dev/assets/images/meta.png",
+      "notify": true,
+      "appID": "org.coolstar.odyssey"
+    },
+    {
+      "title": "Odyssey 1.2 now available!",
+      "identifier": "odyssey-1.2-available",
+      "caption": "Supports iOS 13.0-13.7",
+      "date": "2020-11-24",
+      "tintColor": "D287F4",
+      "imageURL": "https://theodyssey.dev/assets/images/meta.png",
+      "notify": true,
+      "appID": "org.coolstar.odyssey"
+    }
+  ]
+}

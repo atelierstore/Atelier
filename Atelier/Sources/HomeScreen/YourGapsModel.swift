@@ -1,0 +1,236 @@
+import AtelierCore
+import Foundation
+import InstallKit
+import Observation
+import UIKit
+
+/// Open Spaces' pages (7 Nov 2026): the Home Screen as a read finds
+/// it, its apps packed together as iOS reports them, with the spots Offload
+/// keeps empty and the gaps you marked. Tapping an app puts a gap before
+/// it; tapping a gap takes it out. Each page's marks replace the ones it
+/// had, and nothing is written to the iPhone.
+@MainActor
+@Observable
+final class YourGapsModel {
+	enum State: Equatable {
+		case reading
+		case failed(String)
+		case ready
+	}
+
+	/// Where a place goes on its page's grid of 4 columns, as iOS fits
+	/// icons around widgets: each in the first free place, row by row.
+	struct Cell: Identifiable, Equatable {
+		/// Its place in the page's list.
+		var index: Int
+		var column: Int
+		var row: Int
+		var columns = 1
+		var rows = 1
+
+		var id: Int { index }
+	}
+
+	private(set) var state: State = .reading
+	private(set) var screen: HomeScreenState?
+	/// Each page's places, as you mark them.
+	private(set) var pages: [[HomeScreenSlot]] = []
+	/// The page shown, from 0.
+	var page = 0 {
+		didSet {
+			notice = nil
+			Task { await loadIcons() }
+		}
+	}
+	/// SpringBoard's icons, by bundle ID.
+	private(set) var icons: [String: UIImage] = [:]
+	/// Why the last tap didn't put a gap in.
+	private(set) var notice: String?
+
+	/// The gaps kept for each page when it was read, which its marks
+	/// replace: those a write would still keep there, and those last seen
+	/// there that a write wouldn't.
+	private var kept: [Int: [HomeScreenGap]] = [:]
+	/// The icons asked for, got or not.
+	private var asked: Set<String> = []
+	private let installer = RouteASetup.shared.makeInstaller()
+
+	/// Reads the Home Screen, through LocalDevVPN, and lays out its pages.
+	func load() async {
+		state = .reading
+		if case .unavailable(let why) = await installer.check(startingVPN: true) {
+			state = .failed(why)
+			return
+		}
+		do {
+			let screen = try await installer.homeScreen()
+			let plan = screen.layout.plan(YourGaps.gaps(installed: screen.apps))
+			self.screen = screen
+			kept = [:]
+			for (gap, state) in plan.marked {
+				switch state {
+				case .kept(let page), .noRoom(let page): kept[page, default: []].append(gap)
+				case .shrank(let now, _): kept[now.page, default: []].append(gap)
+				case .filled, .moved: kept[gap.page, default: []].append(gap)
+				}
+			}
+			// A page with a widget shows no gaps, as it keeps none.
+			pages = plan.pages.enumerated().map { page, slots in
+				Self.canMark(screen.layout.pages[page]) ? slots : slots.filter { $0 != .gap }
+			}
+			page = min(page, max(pages.count - 1, 0))
+			state = .ready
+			await loadIcons()
+		} catch {
+			state = .failed(HomeScreenSpots.why(error))
+		}
+	}
+
+	// MARK: The page shown
+
+	var slots: [HomeScreenSlot] {
+		pages.indices.contains(page) ? pages[page] : []
+	}
+
+	/// Whether the page shown can keep gaps: icons and folders only.
+	var canMark: Bool {
+		guard let screen, screen.layout.pages.indices.contains(page) else { return false }
+		return Self.canMark(screen.layout.pages[page])
+	}
+
+	/// The gaps marked on the page shown: each empty place counts.
+	var gapCount: Int {
+		slots.filter { $0 == .gap }.count
+	}
+
+	/// The page's places on the grid, and how many rows they take.
+	var cells: (cells: [Cell], rows: Int) {
+		Self.cells(slots)
+	}
+
+	/// Puts a gap before the place at `index`, or takes the gap there out.
+	func tap(_ index: Int) {
+		guard canMark, pages.indices.contains(page), pages[page].indices.contains(index) else { return }
+		var slots = pages[page]
+		if slots[index] == .gap {
+			slots.remove(at: index)
+		} else {
+			slots.insert(.gap, at: index)
+			// Space after the last icon doesn't count: iOS leaves it empty.
+			let trailing = slots.reversed().prefix { $0 == .gap || Self.isHeld($0) }.count
+			if slots.count - trailing > HomeScreenLayout.pagePlaces {
+				let last = slots.last { $0 != .gap }.map(name) ?? "an app"
+				notice = "Page \(page + 1) is full: an open space would push \(last) off it."
+				return
+			}
+		}
+		notice = nil
+		pages[page] = slots
+		save()
+	}
+
+	/// The name under a place: an app's, a folder's, or a widget's app's.
+	func name(_ slot: HomeScreenSlot) -> String {
+		switch slot {
+		case .item(.icon(let id, let raw)):
+			return screen?.names[id] ?? raw.values["displayName"] as? String ?? id
+		case .item(.folder(let name, _, _)):
+			return name
+		case .item(.widget(let raw)):
+			let container = raw.values["containerBundleIdentifier"] as? String
+			return container.flatMap { screen?.names[$0] } ?? "Widget"
+		case .item(.other):
+			return ""
+		case .held(let id):
+			return HomeScreenSpots.noted(id)?.name ?? screen?.names[id] ?? id
+		case .gap:
+			return "Open space"
+		}
+	}
+
+	// MARK: Helpers
+
+	/// Replaces the page's gaps with the ones marked on it now.
+	private func save() {
+		let now = HomeScreenPlan.marked(in: pages[page], page: page)
+		let before = kept[page] ?? []
+		var marked = YourGaps.marked
+		marked.removeAll { before.contains($0) }
+		marked += now
+		YourGaps.marked = marked
+		kept[page] = now
+		// You've seen them, so the first Offload needn't ask.
+		GapsQuestion.isAnswered = true
+	}
+
+	/// Asks SpringBoard for the icons of the page shown not asked for yet:
+	/// its apps' and the first nine of each folder's.
+	private func loadIcons() async {
+		var ids: [String] = []
+		for slot in slots {
+			switch slot {
+			case .item(.icon(let id, _)): ids.append(id)
+			case .item(.folder(_, let folderPages, _)): ids += (folderPages.first ?? []).prefix(9).compactMap(\.id)
+			default: break
+			}
+		}
+		let wanted = ids.filter { !asked.contains($0) }
+		guard !wanted.isEmpty else { return }
+		asked.formUnion(wanted)
+		guard let pngs = try? await installer.homeScreenIcons(wanted) else { return }
+		for (id, png) in pngs {
+			icons[id] = UIImage(data: png)
+		}
+	}
+
+	private static func canMark(_ items: [HomeScreenLayout.Item]) -> Bool {
+		items.allSatisfy { item in
+			switch item {
+			case .icon, .folder: true
+			case .widget, .other: false
+			}
+		}
+	}
+
+	private static func isHeld(_ slot: HomeScreenSlot) -> Bool {
+		if case .held = slot { return true }
+		return false
+	}
+
+	/// Each place in the first free spot of a 4-column grid, row by row:
+	/// a widget takes 2 by 2 (small), 4 by 2 (medium) or 4 by 4 (large).
+	static func cells(_ slots: [HomeScreenSlot]) -> (cells: [Cell], rows: Int) {
+		var taken: Set<[Int]> = []
+		var cells: [Cell] = []
+		var rows = 0
+		for (index, slot) in slots.enumerated() {
+			var size = (columns: 1, rows: 1)
+			if case .item(.widget(let raw)) = slot {
+				switch (raw.values["gridSize"] as? String)?.lowercased() {
+				case "medium": size = (4, 2)
+				case "large", "extralarge": size = (4, 4)
+				default: size = (2, 2)
+				}
+			}
+			var row = 0, column = 0
+			search: while true {
+				for start in 0...(4 - size.columns) {
+					let free = (row..<(row + size.rows)).allSatisfy { r in
+						(start..<(start + size.columns)).allSatisfy { !taken.contains([r, $0]) }
+					}
+					if free {
+						column = start
+						break search
+					}
+				}
+				row += 1
+			}
+			for r in row..<(row + size.rows) {
+				for c in column..<(column + size.columns) { taken.insert([r, c]) }
+			}
+			cells.append(Cell(index: index, column: column, row: row, columns: size.columns, rows: size.rows))
+			rows = max(rows, row + size.rows)
+		}
+		return (cells, rows)
+	}
+}

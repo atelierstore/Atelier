@@ -1,0 +1,247 @@
+# XcodeGen spec: `xcodegen generate` creates Atelier.xcodeproj, which isn't
+# committed.
+name: Atelier
+options:
+  deploymentTarget:
+    iOS: "17.0"
+  createIntermediateGroups: true
+packages:
+  AtelierKit:
+    path: Packages/AtelierKit
+targets:
+  Atelier:
+    type: application
+    platform: iOS
+    scheme: {}
+    sources:
+      - Atelier/Sources
+      - Atelier/Shared
+      - Atelier/Assets.xcassets
+      # The Acknowledgements screen reads these (#3).
+      - path: THIRD_PARTY_NOTICES.md
+        buildPhase: resources
+      - path: LICENSE
+        buildPhase: resources
+      - path: licenses
+        type: folder
+    dependencies:
+      - package: AtelierKit
+        product: AtelierCore
+      - package: AtelierKit
+        product: SourceKit
+      - package: AtelierKit
+        product: CertKit
+      - package: AtelierKit
+        product: SigningKit
+      - package: AtelierKit
+        product: InstallKit
+      - package: AtelierKit
+        product: DownloadKit
+      - package: AtelierKit
+        product: GitHubKit
+      - package: AtelierKit
+        product: AppleIDKit
+      # idevice (MIT) built from source with Atelier's pairing host and
+      # device helpers, for route A (#9). CI runs
+      # Packages/IDeviceBridge/build-rust.sh before `xcodegen generate`. A
+      # static library, so nothing is embedded.
+      - framework: Packages/IDeviceBridge/IDevice.xcframework
+        embed: false
+      # The pairing Live Activity (#54).
+      - target: AtelierLiveActivity
+      # The App Groups library (#49), which Atelier puts in apps it signs
+      # with an Apple ID: copied into its Frameworks, not linked.
+      - target: AtelierAppGroups
+        link: false
+        embed: true
+        codeSign: false
+        copy:
+          destination: frameworks
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atelier.app
+        PRODUCT_NAME: Atelier
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        # CI builds unsigned and signs afterwards (scripts/sign_ipa.py), the
+        # way Atelier will sign other apps.
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+    info:
+      path: Atelier/Info.plist
+      properties:
+        CFBundleDisplayName: Atelier
+        # XcodeGen writes 1.0 and 1 unless told otherwise. CI sets both: the
+        # build number is the commit count, the version the tag's for a
+        # release and the last release's otherwise (codemagic.yaml, #23).
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        # Feather's declaration, which its picker relies on: without it the
+        # picker can't tell an .ipa from any other file (#10).
+        UTExportedTypeDeclarations:
+          - UTTypeIdentifier: com.atelier.app.ipa
+            UTTypeDescription: iOS App Package
+            UTTypeConformsTo: [com.apple.itunes.ipa, public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [ipa]
+              public.mime-type: [application/octet-stream]
+          # TrollStore's .tipa, an .ipa by another name, as Feather declares
+          # it (#93).
+          - UTTypeIdentifier: com.atelier.app.tipa
+            UTTypeDescription: TrollStore App Package
+            UTTypeConformsTo: [com.apple.itunes.ipa, public.data, public.content]
+            UTTypeTagSpecification:
+              public.filename-extension: [tipa]
+              public.mime-type: [application/trollstore-ipa]
+          # iOS has no type for provisioning profiles, so Atelier declares
+          # one, the same way as .ipa, for the picker and the share sheet (#4).
+          - UTTypeIdentifier: com.atelier.app.mobileprovision
+            UTTypeDescription: Provisioning Profile
+            UTTypeConformsTo: [public.data]
+            UTTypeTagSpecification:
+              public.filename-extension: [mobileprovision]
+              public.mime-type: [application/x-apple-aspen-mobileprovision]
+        # Lets other apps' share sheets send certificates, profiles and ZIPs
+        # holding both to Atelier, which opens the import sheet with them
+        # (#4), and .ipa and .tipa files, which it installs (#93). They arrive
+        # as copies, which Atelier deletes once read. With files from the
+        # Files app opened in place instead, to find an IPA again, Share ›
+        # Atelier did nothing for an IPA in Feather's folder on the test
+        # iPhone (iOS 27, 3 Nov 2026, #113).
+        CFBundleDocumentTypes:
+          # Alternate, as AltStore and SideStore declare it.
+          - CFBundleTypeName: iOS App
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.atelier.app.ipa, com.atelier.app.tipa, com.apple.itunes.ipa]
+          - CFBundleTypeName: Signing Certificate
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [com.rsa.pkcs-12]
+          - CFBundleTypeName: Provisioning Profile
+            LSHandlerRank: Owner
+            LSItemContentTypes: [com.atelier.app.mobileprovision]
+          - CFBundleTypeName: ZIP Archive
+            LSHandlerRank: Alternate
+            LSItemContentTypes: [public.zip-archive]
+        LSSupportsOpeningDocumentsInPlace: false
+        # Source links (#13): atelier://source?url=…, and AltStore's,
+        # SideStore's and Feather's schemes, so their "Add to …" buttons on
+        # the web and other apps' requests, such as LiveContainer's for a
+        # certificate, open Atelier too (#93). With one of those apps also
+        # installed, iOS picks which app opens its links.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.atelier.app.source
+            CFBundleURLSchemes: [atelier, altstore, altstore-classic, altstore-pal, sidestore, feather]
+          # LocalDevVPN switches back to Atelier through this one (#9). A copy
+          # of Atelier has the ones above too, so each Atelier has one of its
+          # own, from its bundle ID, and signing one under another bundle ID
+          # gives it that one's (SwitchBackScheme, #113).
+          - CFBundleURLName: com.atelier.app.switch-back
+            CFBundleURLSchemes: ["atelier-$(PRODUCT_BUNDLE_IDENTIFIER)"]
+        # A copy of Atelier imports the certificate Custom Install… puts in
+        # it, when it next opens (#113, #155). Custom Install… only puts one in
+        # a copy whose Info.plist says this, as builds before it don't look
+        # for one.
+        AtelierTakesCertificate: true
+        # The install check (#11): Atelier adds one of these schemes to each
+        # app it signs, and canOpenURL answering for it shows the install
+        # worked. Must match InstallCheck.schemes; iOS 27 allows 25 at most.
+        # localdevvpn shows whether LocalDevVPN is installed (#9).
+        LSApplicationQueriesSchemes: [atelier-check-1, atelier-check-2, atelier-check-3, atelier-check-4, atelier-check-5, atelier-check-6, atelier-check-7, atelier-check-8, atelier-check-9, atelier-check-10, atelier-check-11, atelier-check-12, atelier-check-13, atelier-check-14, atelier-check-15, atelier-check-16, atelier-check-17, atelier-check-18, atelier-check-19, atelier-check-20, atelier-check-21, localdevvpn]
+        # Route A (#9): pairing this iPhone advertises a pairing service on
+        # the local network, and installs connect to it through LocalDevVPN.
+        # Installs look up the port of iOS's own pairing service, which it
+        # announces as _remotepairing._tcp and can move off 49152.
+        NSLocalNetworkUsageDescription: Atelier pairs with this iPhone over the local network, and installs apps through that pairing.
+        NSBonjourServices:
+          - _remotepairing-pairable-host._tcp
+          - _remotepairing._tcp
+        # Scanning a source's QR code (#13).
+        NSCameraUsageDescription: Atelier uses the camera to scan QR codes for sources.
+        # Shows downloads' progress in the system UI while Atelier is in the
+        # background, on iOS 26 and later (BGContinuedProcessingTask, #15).
+        # The downloads themselves run in a background URLSession, which
+        # needs neither.
+        # The background app refresh checks certificates for revocation (#5),
+        # and update checks join it (#19).
+        # audio: silent audio keeps Atelier running while route A pairing
+        # waits in Settings, in place of the pairing task's system bar, which
+        # would fight Atelier's Live Activity for the Dynamic Island (#54),
+        # and while direct installs go on in the background, once iOS ends
+        # the installs task's bar early (#72).
+        UIBackgroundModes: [processing, fetch, audio]
+        # The pairing task keeps Atelier listening while the user types the
+        # code in Settings (#9), when Live Activities are off (#54).
+        # The installs task keeps direct installs going after the user leaves
+        # Atelier, and the autoupdate task installs updates by themselves (#72).
+        BGTaskSchedulerPermittedIdentifiers: [com.atelier.app.downloads, com.atelier.app.refresh, com.atelier.app.pairing, com.atelier.app.installs, com.atelier.app.autoupdate]
+        # Route A's pairing steps and code in Atelier's own Live Activity (#54).
+        NSSupportsLiveActivities: true
+        # Apple's OCSP responders only answer over plain HTTP (an HTTPS
+        # request gets a 404). The answers are signed, and Atelier checks
+        # the signature against Apple's developer CAs (#5).
+        NSAppTransportSecurity:
+          NSExceptionDomains:
+            ocsp.apple.com:
+              NSExceptionAllowsInsecureHTTPLoads: true
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait]
+        UISupportedInterfaceOrientations~ipad: [UIInterfaceOrientationPortrait, UIInterfaceOrientationPortraitUpsideDown, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
+
+  # Sends the names an app asks for its App Groups by to the ones an Apple ID
+  # gave them (#49, Atelier/AppGroups/AtelierAppGroups.m). Atelier keeps it in
+  # its Frameworks, and SigningKit's AppGroupRedirect puts it in the apps it
+  # signs with an Apple ID, which load it. Built unsigned like the app;
+  # scripts/sign_ipa.py, and Atelier when it signs itself, sign it with the
+  # app.
+  AtelierAppGroups:
+    type: library.dynamic
+    platform: iOS
+    sources:
+      - Atelier/AppGroups
+    settings:
+      base:
+        PRODUCT_NAME: AtelierAppGroups
+        # AtelierAppGroups.dylib, not libAtelierAppGroups.dylib.
+        EXECUTABLE_PREFIX: ""
+        LD_DYLIB_INSTALL_NAME: "@rpath/AtelierAppGroups.dylib"
+        # Its replacements pass init's ownership on as it came.
+        CLANG_ENABLE_OBJC_ARC: "NO"
+        OTHER_LDFLAGS: ["-framework", "Foundation", "-lobjc"]
+        SKIP_INSTALL: "YES"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+
+  # Route A's pairing steps and code as a Live Activity (#54): the Lock Screen
+  # and the Dynamic Island. Built unsigned like the app; scripts/sign_ipa.py,
+  # and Atelier when it signs itself, sign it with the app's profile.
+  AtelierLiveActivity:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Atelier/LiveActivity
+      - Atelier/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atelier.app.LiveActivity
+        PRODUCT_NAME: AtelierLiveActivity
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+    info:
+      path: Atelier/LiveActivity/Info.plist
+      properties:
+        CFBundleDisplayName: Atelier
+        # The app's version, which iOS expects an extension to share.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.widgetkit-extension

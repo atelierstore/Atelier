@@ -1,0 +1,13 @@
+name = "atelier-manifest"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[observability]
+enabled = false
+
+# GitHub sign-in (#30, src/github.js). The OAuth app's client ID isn't
+# secret; its client secret is set with `wrangler secret put
+# GITHUB_CLIENT_SECRET` and never goes in this file.
+[vars]
+GITHUB_CLIENT_ID = "Ov23lihRDcwKimthYa2P"

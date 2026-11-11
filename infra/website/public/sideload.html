@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Sideload Atelier yourself · Atelier</title>
+<meta name="description" content="Atelier's unsigned IPA and its source, for Sideloadly, Feather, AltStore, SideStore or another signer, and how to sign it so Atelier can update itself.">
+<meta name="theme-color" content="#3A5A47">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="Atelier">
+<meta property="og:title" content="Sideload Atelier yourself">
+<meta property="og:description" content="Atelier's unsigned IPA and its source, for Sideloadly, Feather, AltStore, SideStore or another signer.">
+<meta property="og:url" content="https://atelierstore.app/sideload">
+<meta property="og:image" content="https://atelierstore.app/img/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Atelier's icon and name, with an iPhone showing Atelier resting on an easel">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/site.css">
+<script type="module" src="/sideload.js"></script>
+</head>
+<body>
+<header class="hero page-hero">
+  <div class="wrap">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="/"><img src="/img/icon.png" alt="" width="36" height="36"><span>Atelier</span></a>
+      <div class="nav-links">
+        <a class="gh" href="https://github.com/atelierstore/Atelier"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>GitHub</a>
+      </div>
+    </nav>
+    <div class="page-head">
+      <a class="crumb" href="/#install"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg>Get Atelier</a>
+      <h1>Sideload Atelier yourself</h1>
+      <p class="lede">Nothing is signed on this page. Get Atelier's unsigned IPA or its source, and sign it with your own signer and certificate.</p>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="page-body" aria-label="How to sideload Atelier">
+    <div class="wrap install-grid">
+      <div>
+        <h2 class="needs-title">You'll need</h2>
+        <ul class="needs">
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg><span><strong>An iPhone with iOS 17 or later.</strong></span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9.5" r="5.5"/><path d="M8.5 14l-1.5 7 5-2.5 5 2.5-1.5-7"/></svg><span><strong>A certificate:</strong> a <span class="file">.p12</span> file, its password, and a <span class="file">.mobileprovision</span> that lists your iPhone.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.5 4.5l5 5L11 18l-5.5.5L6 13z"/></svg><span><strong>An app to sign it with, once:</strong> Sideloadly on a Mac or PC, or Feather, AltStore or SideStore on your iPhone.</span></li>
+        </ul>
+      </div>
+      <ol class="steps">
+        <li>
+          <span class="n" aria-hidden="true">1</span>
+          <div>
+            <h3>Get the IPA or the source</h3>
+            <p>The newest release is unsigned, so your signer signs it with your certificate.</p>
+            <!-- sideload.js fills in the newest release from Atelier's
+                 source. Until then, or if it can't, the button opens the
+                 releases page. -->
+            <div class="release">
+              <img src="/img/icon.png" alt="" width="52" height="52">
+              <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Newest release on GitHub</span></span>
+            </div>
+            <div class="actions">
+              <a class="btn btn-primary" href="https://github.com/atelierstore/Atelier/releases" data-release-download><svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10.5l5 5 5-5M5 20h14"/></svg>Download the IPA</a>
+              <a class="text-link" href="https://github.com/atelierstore/Atelier/releases">All releases</a>
+            </div>
+            <dl class="facts">
+              <div><dt>Bundle ID</dt><dd>com.atelier.app</dd></div>
+              <div data-release-hash hidden><dt>SHA-256</dt><dd></dd><button type="button">Copy</button></div>
+            </dl>
+
+            <h4 class="sub-title" id="source">Or add Atelier's source</h4>
+            <p>Add it to AltStore, SideStore or Feather to install Atelier from there and see its new releases.</p>
+            <div class="url-box">
+              <code id="source-url">https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json</code>
+              <button class="btn btn-primary btn-small" id="copy-source" type="button">Copy</button>
+            </div>
+            <div class="add-row">
+              <a class="btn btn-secondary btn-small" href="altstore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fatelierstore%2FAtelier%2Fsource%2Fsource.json">Add to AltStore</a>
+              <a class="btn btn-secondary btn-small" href="sidestore://source?url=https%3A%2F%2Fraw.githubusercontent.com%2Fatelierstore%2FAtelier%2Fsource%2Fsource.json">Add to SideStore</a>
+              <a class="btn btn-secondary btn-small" href="feather://source/https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json">Add to Feather</a>
+            </div>
+          </div>
+        </li>
+        <li>
+          <span class="n" aria-hidden="true">2</span>
+          <div>
+            <h3>Sign and install it</h3>
+            <p>Open the IPA in your signer, or install Atelier from its source there.</p>
+            <!-- Atelier updates itself with a certificate whose profile is
+                 for the App ID it was installed with (#24). -->
+            <div class="callout">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
+              <div>
+                <strong>Use the certificate you'll sign your apps with</strong>
+                <p>Atelier signs its own updates with it, and iOS only installs an update over Atelier when it's signed for the same App ID.</p>
+              </div>
+            </div>
+            <div class="actions"><a class="text-link" href="https://github.com/atelierstore/Atelier/blob/main/docs/install.md">Step-by-step guide for each app</a></div>
+          </div>
+        </li>
+        <li>
+          <span class="n" aria-hidden="true">3</span>
+          <div>
+            <h3>Open Atelier</h3>
+            <p>If iOS asks, trust the developer in Settings › General › VPN &amp; Device Management, or turn on Developer Mode in Settings › Privacy &amp; Security, which restarts the iPhone. Then Get Ready helps you add your certificate and your sources.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot-top">
+      <a class="brand" href="/"><img src="/img/icon.png" alt="" width="36" height="36"><span>Atelier</span></a>
+      <nav class="foot-links" aria-label="Links">
+        <a href="https://github.com/atelierstore/Atelier">GitHub</a>
+        <a href="https://github.com/atelierstore/Atelier/releases">Releases</a>
+        <a href="https://github.com/atelierstore/Atelier/blob/main/docs/install.md">Install guide</a>
+        <a href="/signing-services">For signing services</a>
+        <a href="https://github.com/atelierstore/Atelier/blob/main/LICENSE">License</a>
+        <a href="https://github.com/atelierstore/Atelier/blob/main/THIRD_PARTY_NOTICES.md">Acknowledgements</a>
+      </nav>
+    </div>
+    <p class="fine">Atelier is free software under the GNU General Public License v3.0. It isn't affiliated with Apple, AltStore, SideStore or Feather. iPhone and iPad are trademarks of Apple Inc.</p>
+  </div>
+</footer>
+</body>
+</html>

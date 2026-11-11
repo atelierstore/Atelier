@@ -1,0 +1,83 @@
+{
+  "name": "Atelier",
+  "identifier": "com.atelier.source",
+  "subtitle": "Atelier's own releases.",
+  "description": "Releases of Atelier, the on-device app signer. Add this source to get Atelier updates.",
+  "iconURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/icon.png",
+  "tintColor": "4B8B65",
+  "apps": [
+    {
+      "name": "Atelier",
+      "bundleIdentifier": "com.atelier.app",
+      "developerName": "Atelier",
+      "subtitle": "Sign and install apps on your iPhone.",
+      "localizedDescription": "Atelier downloads, signs and installs apps from AltStore-compatible sources with your own certificate, all on the device.",
+      "iconURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/icon.png",
+      "tintColor": "4B8B65",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "0.2.0",
+          "buildVersion": "2",
+          "date": "2026-11-01T12:00:00Z",
+          "localizedDescription": "Second release.",
+          "downloadURL": "https://github.com/atelierstore/Atelier/releases/download/v0.2.0/Atelier-0.2.0.ipa",
+          "size": 1366,
+          "sha256": "ef8d09d1f204ec4d2f3ac79285ce0b348d85a044bece5b7b922da8ed3a0ee344",
+          "minOSVersion": "17.0"
+        },
+        {
+          "version": "0.1.0",
+          "buildVersion": "1",
+          "date": "2026-10-22T12:00:00Z",
+          "localizedDescription": "First release.",
+          "downloadURL": "https://github.com/atelierstore/Atelier/releases/download/v0.1.0/Atelier-0.1.0.ipa",
+          "size": 1366,
+          "sha256": "0b40a48726fc577d8aecdefc675fdc042d60d186491b53108986c820d048adaa",
+          "minOSVersion": "17.0"
+        }
+      ],
+      "screenshots": [
+        {
+          "imageURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/screenshots/1-browse.png?v=5d41402a",
+          "width": 1179,
+          "height": 2556
+        },
+        {
+          "imageURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/screenshots/2-app.png?v=7d793037",
+          "width": 1179,
+          "height": 2556
+        }
+      ],
+      "screenshotURLs": [
+        "https://raw.githubusercontent.com/atelierstore/Atelier/source/screenshots/1-browse.png?v=5d41402a",
+        "https://raw.githubusercontent.com/atelierstore/Atelier/source/screenshots/2-app.png?v=7d793037"
+      ],
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSCameraUsageDescription": "Scans QR codes.",
+          "NSLocalNetworkUsageDescription": "Pairs with this iPhone."
+        }
+      }
+    }
+  ],
+  "news": [
+    {
+      "identifier": "release-0.2.0",
+      "title": "Atelier 0.2.0 is out",
+      "caption": "Second release.",
+      "date": "2026-11-01T12:00:00Z",
+      "tintColor": "4B8B65",
+      "appID": "com.atelier.app"
+    },
+    {
+      "identifier": "release-0.1.0",
+      "title": "Atelier 0.1.0 is out",
+      "caption": "First release.",
+      "date": "2026-10-22T12:00:00Z",
+      "tintColor": "4B8B65",
+      "appID": "com.atelier.app"
+    }
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "name": "Atelier",
+  "identifier": "com.atelier.source",
+  "subtitle": "Atelier's own releases.",
+  "description": "Releases of Atelier, the on-device app signer. Add this source to get Atelier updates.",
+  "iconURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/icon.png",
+  "tintColor": "4B8B65",
+  "apps": [
+    {
+      "name": "Atelier",
+      "bundleIdentifier": "com.atelier.app",
+      "developerName": "Atelier",
+      "subtitle": "Sign and install apps on your iPhone.",
+      "localizedDescription": "Atelier downloads, signs and installs apps from AltStore-compatible sources with your own certificate, all on the device.",
+      "iconURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/icon.png",
+      "tintColor": "4B8B65",
+      "category": "utilities",
+      "versions": []
+    }
+  ],
+  "news": []
+}

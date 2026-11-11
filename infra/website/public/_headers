@@ -1,0 +1,33 @@
+# Headers for every file this Worker serves (Workers static assets reads this
+# file; it isn't served itself).
+/*
+  Content-Security-Policy: default-src 'self'; connect-src 'self' https://raw.githubusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Strict-Transport-Security: max-age=31536000
+
+# The source and app link pages show icons from where sources keep them, so
+# these two allow images from other sites over HTTPS too, in place of the
+# policy above.
+/source
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; img-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/viewapp
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; img-src 'self' https:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+# The certificate page signs Atelier with zsign in WebAssembly, in a worker
+# (signing-worker.js), which takes 'wasm-unsafe-eval'. A worker follows its
+# own policy in some browsers and its page's in others, so both have it.
+/certificate
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; connect-src 'self' https://raw.githubusercontent.com; img-src 'self' data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/signing-worker.js
+  ! Content-Security-Policy
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'
+
+/fonts/*
+  Cache-Control: public, max-age=31536000, immutable
