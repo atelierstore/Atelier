@@ -251,10 +251,11 @@ final class CheckupTests: XCTestCase {
 		XCTAssertEqual(try item(.sources, in: checkup).state, .todo, "Atelier's own source isn't one you added")
 		let card = try item(.gitHubSignIn, in: checkup)
 		XCTAssertEqual(card.title, "Atelier needs a GitHub sign-in")
-		XCTAssertEqual(card.text, "Its source is in a private GitHub repo, so Atelier can't see its own updates until you sign in.")
+		// GitHub only says it can't find a source without an account, and
+		// Atelier's own repo is public, so its source says no more.
+		XCTAssertEqual(card.text, "GitHub can't find it without an account. If it's in a private repo, sign in with an account that can see it.")
 		XCTAssertEqual(card.actions, [.signInToGitHub])
 
-		// Of another's, GitHub only says it can't find it.
 		let other = CheckupFacts.Source(name: "Private Builds", refreshError: "Sign in to GitHub to load it.", needsGitHubSignIn: true)
 		let theirs = Checkup(facts(sources: [other]), for: .settings)
 		XCTAssertEqual(try item(.gitHubSignIn, in: theirs).text, "GitHub can't find it without an account. If it's in a private repo, sign in with an account that can see it.")
