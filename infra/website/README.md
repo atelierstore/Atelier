@@ -5,7 +5,7 @@ Atelier's website: static pages in `public/`, served by a Cloudflare Worker ([Wo
 - `public/index.html` is the home page, `public/certificate.html` the certificate page, `public/sideload.html` the sideload page and `public/signing-services.html` the signing services page, with `site.css` beside them and the pages' scripts, `certificate.js` and `sideload.js`, which the signing services page uses too. There's no build step and no framework, and the pages load nothing from other sites but Atelier's own source.
 - The certificate page's other modules check the certificate (`checks.js`, with `profile.js`, `x509.js`, `der.js`, `plist.js` and `zip.js`), ask Apple whether it was revoked (`ocsp.js`), and sign Atelier (`signer.js`, `macho.js` and `packaged.js`, run by `signing-worker.js`) with zsign and OpenSSL in WebAssembly (`zsign.js` and `zsign.wasm`, built by `wasm/build.sh`, below). `public/licenses/` has zsign's and OpenSSL's licenses, which the page links.
 - `public/install.html`, `source.html`, `viewapp.html` and `search.html`, each with its own script, are the link pages (below). Their scripts share `link.js`, and the pages share `site.css`.
-- `src/index.js` answers `/install/app` and `/source/info` for them (below), with `src/ipa.js` and `src/source.js`, and `/ota` and `/ocsp` for the certificate page (below), with `src/ota.js` and `src/ocsp-relay.js`. It passes every other request static assets don't match, such as a 404, back to them. Requests for the site's files don't run it.
+- `src/index.js` answers `/install/app` and `/source/info` for them (below), with `src/ipa.js` and `src/source.js`, and `/ota` and `/ocsp` for the certificate page (below), with `src/ota.js` and `src/ocsp-relay.js`, and `/builds` for CI's builds (below), with `src/builds.js` and `src/github-oidc.js`. It passes every other request static assets don't match, such as a 404, back to them. Requests for the site's files don't run it.
 - `public/img/` holds the icon, the screenshots (`screens/`) and `og.png`, the picture apps show when a link to the site is shared. `og:url` and `og:image` in `index.html`, `certificate.html`, `sideload.html` and `signing-services.html` name the site's address, so they change with it.
 - `public/fonts/` holds Bricolage Grotesque, the headings' typeface, under the SIL Open Font License 1.1 (`OFL.txt` beside it). Everything else is in the system font.
 - `public/_headers` sets the static files' response headers: a content security policy that only allows the site's own files, `data:` images (an app's icon on the install link page) and fetching the source from GitHub, long caching for the fonts, and `noindex`, which keeps the site out of search results until the repo goes public. Remove that line then. The source and app link pages have their own policy, which allows images from any `https://` address too, for the icons sources list. The certificate page and its signing worker have theirs, which let them run WebAssembly (`'wasm-unsafe-eval'`).
@@ -115,13 +115,28 @@ https://atelierstore.app/search?q=emulator
 
 - `+` is a space, as AltStore reads these links, and the first `q` counts.
 
+## Builds
+
+GitHub Actions keeps a run's files behind a GitHub sign-in, which Safari and Atelier's install links don't have, so the builds of pull requests and main (`.github/workflows/build.yml`) upload their IPAs here (`scripts/share_build.py`). The site keeps each for 7 days, as long as Codemagic's links to its builds lasted, in a Durable Object of its own (`BuildApp` in `src/builds.js`, kept like the certificate page's uploads), named by a random 128-bit token in its addresses: `/builds/<token>/Atelier-unsigned.ipa`, or `/builds/<token>/Atelier.ipa` for the copy signed with the Signulous profile, with `/builds/<token>/manifest.plist` for iOS's install alert, so Safari installs it straight away.
+
+The build job proves which repo, workflow and run it is with the OpenID Connect token GitHub gives a job with `id-token: write`, which GitHub signs for the site's origin (`src/github-oidc.js`), so there's no key to keep. The Worker only takes builds from `build.yml` in `BUILDS_REPOSITORY`, with the ID `BUILDS_REPOSITORY_ID` (`wrangler.toml`), on GitHub's own runners, for pushes, pull requests and runs started by hand. Pull requests from forks get no token, so theirs aren't kept.
+
+The job uploads each IPA (`POST /builds/<file>`), then records the build (`POST /builds`): its commit, branch, pull request, version, build number, run, files and when they go, with the `itms-services://` link of the signed one, and the `https://` link that installs the unsigned one with Atelier. Anyone can read a public repo's run logs, so the run only shows the unsigned IPA's links: the signed one's profile lists the maintainer's iPhones. The whole record goes to the `BUILDS` KV namespace instead, which only Cloudflare API tokens for the account can read, under `commit/<commit>` (a pull request's own commit, not its merge), `branch/<branch>` and `pr/<number>`, the last two for the newest run, until the files go:
+
+```sh
+curl -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+  "https://api.cloudflare.com/client/v4/accounts/<account ID>/storage/kv/namespaces/<BUILDS' ID>/values/branch%2Fmain"
+```
+
+`wrangler.toml` binds `BUILDS` without an ID, so the first deploy makes the namespace, named after the Worker; its ID is in the dashboard (Storage & databases › Workers KV) and in `GET /accounts/<account ID>/storage/kv/namespaces`. Without the binding, builds are kept but not recorded. The builds' workflow sends them to `https://atelierstore.app`, or to the Actions variable `BUILDS_SITE` when it's set, such as a Preview's address.
+
 ## Try it locally
 
 ```sh
 npx wrangler dev
 ```
 
-and open http://localhost:8787. The tests (`npm test`, Node 20.12 or later) cover reading IPAs and sources, `/install/app`, `/source/info`, `/ota` and `/ocsp`, the sideload page's newest release (`release.js`), and the certificate page's checks, Apple's answer and signing, with the WebAssembly zsign, on the fixtures Atelier's own tests use; the *Atelier* workflow (`.github/workflows/atelier.yml`) runs them for each pull request.
+and open http://localhost:8787. The tests (`npm test`, Node 20.12 or later) cover reading IPAs and sources, `/install/app`, `/source/info`, `/ota`, `/ocsp` and `/builds`, with tokens signed like GitHub's, the sideload page's newest release (`release.js`), and the certificate page's checks, Apple's answer and signing, with the WebAssembly zsign, on the fixtures Atelier's own tests use; the *Atelier* workflow (`.github/workflows/atelier.yml`) runs them for each pull request.
 
 ## Deploy
 

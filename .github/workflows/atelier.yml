@@ -119,9 +119,16 @@ jobs:
     name: Build
     needs: plan
     if: needs.plan.outputs.app == 'true'
+    # id-token: write lets the build prove to the website which repo and run
+    # it is, to share its IPAs (build.yml). GitHub gives pull requests from
+    # forks no token all the same.
+    permissions:
+      contents: read
+      id-token: write
     uses: ./.github/workflows/build.yml
     with:
       sign: true
+      share: true
     secrets:
       SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
       SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
