@@ -55,7 +55,8 @@ struct CopySheet: View {
 	@State private var picture: Data?
 	@State private var version: String
 	@State private var removesURLSchemes: Bool
-	/// Share App Groups (#49), for an Apple ID.
+	/// Share App Groups (#49), for an Apple ID or a certificate with App
+	/// Groups.
 	@State private var sharesAppGroups: Bool
 	/// The certificate or Apple ID picked (#49); nil while there's none to
 	/// pick.
@@ -140,12 +141,17 @@ struct CopySheet: View {
 		SigningChoice.all(certificates).first { $0.id == certificateID }.flatMap { Self.canSign($0) ? $0 : nil }
 	}
 
-	/// An Apple ID signs it, so its App Groups have the Apple ID's names
-	/// (#49), and Advanced has Share App Groups. Not for Atelier, which has
-	/// none.
-	private var signsWithAppleID: Bool {
-		guard !request.isOwn, case .appleID = certificate else { return false }
-		return true
+	/// Advanced has Share App Groups (#49): with an Apple ID, whose names
+	/// its App Groups have, or a certificate whose profile has App Groups of
+	/// its own, which keeps the app's in folders in one of them. Not for
+	/// Atelier, which has none.
+	private var offersSharedAppGroups: Bool {
+		guard !request.isOwn else { return false }
+		switch certificate {
+		case .appleID?: return true
+		case .certificate(let stored)?: return !stored.profile.appGroups.isEmpty
+		case nil: return false
+		}
 	}
 
 	/// A copy of Atelier comes with the certificate it's signed with (#113),
@@ -276,7 +282,7 @@ struct CopySheet: View {
 								version: $version,
 								removesURLSchemes: $removesURLSchemes,
 								sharesAppGroups: $sharesAppGroups,
-								signsWithAppleID: signsWithAppleID,
+								offersSharedAppGroups: offersSharedAppGroups,
 								appIcon: $appIcon,
 								install: { if let answer { install(answer) } }
 							)
@@ -450,7 +456,7 @@ struct CopySheet: View {
 		if picture != nil { changed.append("Picture") }
 		if !request.isOwn, !trimmedVersion.isEmpty { changed.append("Version") }
 		if removesURLSchemes { changed.append("No URL Schemes") }
-		if signsWithAppleID, !sharesAppGroups { changed.append("App Groups Not Shared") }
+		if offersSharedAppGroups, !sharesAppGroups { changed.append("App Groups Not Shared") }
 		guard changed.isEmpty else { return changed.joined(separator: ", ") }
 		return ((isNewCopy ? ["App ID"] : []) + ["Icon"] + (request.isOwn ? [] : ["Version"])).joined(separator: ", ")
 	}
@@ -824,7 +830,8 @@ private struct TintPicker: View {
 
 /// Advanced, pushed in the same sheet: the App ID, which only a new copy
 /// can change (#155), a picture as its icon, the version it says it is,
-/// its URL schemes (#113), and with an Apple ID, Share App Groups (#49).
+/// its URL schemes (#113), and with an Apple ID, or a certificate whose
+/// profile has App Groups, Share App Groups (#49).
 private struct AdvancedCopyView: View {
 	let request: InstallModel.CopyRequest
 	/// The app or copy it installs over; nil for a new copy, or the app
@@ -842,7 +849,7 @@ private struct AdvancedCopyView: View {
 	@Binding var version: String
 	@Binding var removesURLSchemes: Bool
 	@Binding var sharesAppGroups: Bool
-	let signsWithAppleID: Bool
+	let offersSharedAppGroups: Bool
 	/// The app's own icon, once it's read.
 	@Binding var appIcon: Data?
 	let install: () -> Void
@@ -956,7 +963,7 @@ private struct AdvancedCopyView: View {
 			} footer: {
 				Text(urlSchemesNote)
 			}
-			if signsWithAppleID {
+			if offersSharedAppGroups {
 				Section {
 					Toggle("Share App Groups", isOn: $sharesAppGroups)
 				} footer: {

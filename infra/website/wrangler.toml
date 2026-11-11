@@ -10,10 +10,12 @@ workers_dev = true
 preview_urls = true
 
 # Requests for these files don't run src/index.js; it gets the others, and
-# passes what isn't its own to ASSETS.
+# passes what isn't its own to ASSETS. The home page runs it first, to list
+# AltStore PAL first for visitors where Apple allows it (src/region.js).
 [assets]
 directory = "./public"
 binding = "ASSETS"
+run_worker_first = ["/"]
 
 # No logs, as for the manifest Worker.
 [observability]

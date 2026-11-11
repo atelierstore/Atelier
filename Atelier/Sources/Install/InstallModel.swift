@@ -3415,11 +3415,15 @@ final class InstallModel {
 			signChoices(job, ipa: ipa, identity: identity, options: &options)
 			// The App Groups its profile allows under the team's names (#49),
 			// and the library that sends the app's own names to them, unless
-			// Share App Groups is off for it.
+			// Share App Groups is off for it. With a certificate, the library
+			// keeps them in folders of the app's own in the certificate's
+			// group, when its profile has groups of its own but not the app's.
 			options.appGroups = appleIDSigning?.appGroups ?? [:]
-			if !options.appGroups.isEmpty {
+			if !options.appGroups.isEmpty || appleIDSigning == nil {
 				if signedCopy?.choice.settings.sharesAppGroups == false {
-					log.append("app groups: Share App Groups is off, so the app keeps asking for them by its own names")
+					log.append(appleIDSigning == nil
+						? "app groups: Share App Groups is off, so any the app has aren't kept in the certificate's"
+						: "app groups: Share App Groups is off, so the app keeps asking for them by its own names")
 				} else if let library = Self.appGroupsLibrary {
 					options.appGroupsLibrary = library
 				} else {
@@ -3456,7 +3460,11 @@ final class InstallModel {
 		log.append(String(format: "signed %@ %@ in %.1f s (%@)", signed.info.bundleID, signed.info.version, Date.now.timeIntervalSince(started), size))
 		if signedIcon == nil { log.append("icon: none found in the app, so the Library shows its source's") }
 		if options.icon != nil, !signed.iconChanged { log.append("icon: the app has no icon file to tint, so the copy keeps its own") }
-		switch signed.entitlements?.items.first(where: { $0.key == AppGroups.entitlement })?.redirected {
+		let groupItem = signed.entitlements?.items.first { $0.key == AppGroups.entitlement }
+		switch groupItem?.redirected {
+		case true? where groupItem?.folders != nil:
+			let folders = (groupItem?.folders ?? [:]).sorted { $0.key < $1.key }.map { "\($0.key) in \(groupItem?.renamedValues?[$0.key] ?? "?")/\($0.value)" }
+			log.append("app groups: kept in the certificate's, through \(AppGroupRedirect.fileName): \(folders.joined(separator: "; "))")
 		case true?: log.append("app groups: the app and its extensions send their own names for them to the Apple ID's, through \(AppGroupRedirect.fileName)")
 		case false?: log.append("app groups: the app's executable has no room to load \(AppGroupRedirect.fileName), so it keeps asking for them by its own names")
 		case nil: break
