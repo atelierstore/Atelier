@@ -6,12 +6,17 @@
 // site, and iOS installs it from there (/ota, see src/ota.js) once the
 // visitor taps Install in its alert. Only the signed Atelier leaves the
 // page, with the certificate inside when Include Certificate is on.
+//
+// On a computer, the page signs Atelier the same way, then shows a QR code
+// of the page that installs it (certificate/install.html), which the
+// iPhone's camera opens in Safari, and follows the install from there.
 
 import { CheckError, addFile, examine, revocationRow, summary } from "./checks.js";
-import { formatSize, onIOS } from "./link.js";
+import { formatSize, isSafari, onIOS } from "./link.js";
 import { checkRevocation } from "./ocsp.js";
 import { packagedCertificate } from "./packaged.js";
 import { PlistError } from "./plist.js";
+import { qrCode, qrPath } from "./qr.js";
 import { ATELIER_BUNDLE_ID, newestRelease } from "./release.js";
 import { SignError, readAppInfo } from "./signer.js";
 import { concat } from "./zip.js";
@@ -39,24 +44,30 @@ class Failure extends Error {
 // MARK: Where the page is open
 
 /** "ready" in Safari on an iPhone or iPad with iOS 17 or later, "old" with
- *  an older iOS, and "elsewhere" anywhere else: iOS's install alert only
- *  opens in Safari, not in other browsers or apps' own. */
+ *  an older iOS, "browser" in another browser on one, as iOS's install
+ *  alert only opens in Safari, not in other browsers or apps' own, and
+ *  "computer" anywhere else, where the page shows a code the iPhone scans. */
 const device = (() => {
+  if (!onIOS) return "computer";
   const agent = navigator.userAgent;
-  const safari = /Version\/[\d.]+ .*Safari\//.test(agent)
-    && !/(CriOS|FxiOS|EdgiOS|OPiOS|OPT|GSA|YaBrowser|DuckDuckGo|Brave)\/|FBAN|FBAV|Instagram|Line\/|MicroMessenger|Snapchat|musical_ly|Bytedance/.test(agent);
-  if (!onIOS || !safari) return "elsewhere";
+  if (!isSafari(agent)) return "browser";
   // Safari's version is iOS's.
   return Number(agent.match(/Version\/(\d+)/)[1]) >= 17 ? "ready" : "old";
 })();
+const onComputer = device === "computer";
 
-if (device !== "ready") {
+if (device === "old" || device === "browser") {
   const notice = $("not-here");
   if (device === "old") {
     notice.querySelector("strong").textContent = "Atelier needs iOS 17 or later";
     notice.querySelector("p").textContent = "Update this iPhone in Settings › General › Software Update, then come back. You can still check your certificate here.";
   }
   notice.hidden = false;
+}
+if (onComputer) {
+  $("sign-install").textContent = "Sign and Show Code";
+  $("done-text").textContent = "Downloaded by your iPhone";
+  $("done-note").textContent = "iOS installs it now, and it shows up on your iPhone's Home Screen. This site deletes its copy within a minute. If iOS says it can't install Atelier, check with your signing service that your certificate is for your iPhone.";
 }
 
 // MARK: State
@@ -83,16 +94,21 @@ const state = {
   downloaded: null,
   wantsCertificate: true,
   // "idle", "working" (downloading, signing or uploading), "installing"
-  // (iOS asks, then downloads it), "done" or "failed".
+  // (iOS asks, then downloads it), "code" (on a computer: the code is up
+  // for the iPhone to scan), "done" or "failed".
   stage: "idle",
+  // On a computer, the signed Atelier, {bytes, packaged}, kept for a new
+  // code once the last one's upload has gone.
+  signed: null,
 };
 // The newest check's number, and the newest Sign and Install's, so an
 // older one that finishes late shows nothing.
 let checks = 0;
 let runs = 0;
 
-const OPEN_WITH = $("open-text").textContent;
-const OPEN_WITHOUT = "Open it from your Home Screen, and add your certificate in Get Ready.";
+const HOME_SCREEN = onComputer ? "your iPhone's Home Screen" : "your Home Screen";
+const OPEN_WITH = `Open it from ${HOME_SCREEN}. Your certificate is already in it, so Get Ready shows it done, and you can add your sources.`;
+const OPEN_WITHOUT = `Open it from ${HOME_SCREEN}, and add your certificate in Get Ready.`;
 const INCLUDE_TEXT = $("include-text").textContent;
 
 // MARK: The signer
@@ -301,7 +317,7 @@ function deviceList(devices) {
   }));
   const hint = document.createElement("p");
   hint.className = "cert-hint";
-  hint.textContent = "Settings › General › About shows this iPhone's model.";
+  hint.textContent = onComputer ? "Settings › General › About on your iPhone shows its model." : "Settings › General › About shows this iPhone's model.";
   if (devices.length <= 3) {
     const both = document.createDocumentFragment();
     both.append(list, hint);
@@ -435,11 +451,16 @@ async function signAndInstall() {
       endSigner();
     }
 
+    $("open-text").textContent = packaged ? OPEN_WITH : OPEN_WITHOUT;
+    if (onComputer) {
+      state.signed = { bytes: signed, packaged: Boolean(packaged) };
+      return await showCode(run);
+    }
+
     showProgress("Uploading", ofSize(0, signed.length), 0);
     const install = await upload(signed, (sent, total) => showProgress("Uploading", ofSize(sent, total), sent / total));
 
     $("install-link").href = install.install;
-    $("open-text").textContent = packaged ? OPEN_WITH : OPEN_WITHOUT;
     setStage("installing");
     showProgress("Waiting for you to tap Install");
     // iOS's install alert. If Safari doesn't open it without a tap, the
@@ -449,6 +470,74 @@ async function signAndInstall() {
   } catch (error) {
     fail(error);
   }
+}
+
+// MARK: The code, on a computer
+
+$("new-code").addEventListener("click", async () => {
+  const run = ++runs;
+  setStage("working");
+  try {
+    await showCode(run);
+  } catch (error) {
+    fail(error);
+  }
+});
+
+/** Uploads the signed Atelier, then shows the code of the page that
+ *  installs it, /certificate/install#<its token>, and follows the install
+ *  as the iPhone goes through it. Throws a Failure. */
+async function showCode(run) {
+  const { bytes, packaged } = state.signed;
+  showProgress("Uploading", ofSize(0, bytes.length), 0);
+  const install = await upload(bytes, (sent, total) => showProgress("Uploading", ofSize(sent, total), sent / total));
+  if (run !== runs) return;
+  const token = new URL(install.status).pathname.split("/").pop();
+  drawCode(new URL(`/certificate/install#${token}`, location.origin).href);
+  const until = new Date(install.expires).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  codeNote = `The code works until ${until}.${packaged ? " Anyone with it can download this Atelier and the certificate inside it, so don't share it." : ""}`;
+  setStage("code");
+  showCodeState("waiting");
+  follow(install, Date.now(), () => run !== runs);
+}
+
+let codeNote = "";
+const CODE_TEXT = {
+  waiting: "Waiting for your iPhone",
+  asked: "Your iPhone asks whether to install it",
+  downloading: "Installing on your iPhone",
+};
+
+/** Draws the code of `link`, dark on white, with its quiet zone. */
+function drawCode(link) {
+  const code = qrCode(link);
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("viewBox", `-4 -4 ${code.size + 8} ${code.size + 8}`);
+  svg.setAttribute("shape-rendering", "crispEdges");
+  svg.setAttribute("aria-hidden", "true");
+  const path = document.createElementNS("http://www.w3.org/2000/svg", "path");
+  path.setAttribute("d", qrPath(code));
+  svg.append(path);
+  $("qr").querySelector("svg")?.remove();
+  $("qr").prepend(svg);
+}
+
+/** What the code's card says for the install's state, as this site has it
+ *  (`waiting`, `asked` or `downloading`), or once its upload has `gone`. */
+function showCodeState(phase) {
+  const gone = phase === "gone";
+  const qr = $("qr");
+  qr.classList.toggle("gone", gone);
+  qr.setAttribute("aria-label", gone ? "This code has expired" : "A code that installs this Atelier on your iPhone");
+  $("qr-gone").hidden = !gone;
+  $("code-bar").hidden = gone;
+  $("new-code").hidden = !gone;
+  const text = CODE_TEXT[phase] ?? CODE_TEXT.waiting;
+  // Only when it changes, so it's read out once.
+  if (!gone && $("code-text").textContent !== text) $("code-text").textContent = text;
+  $("code-note").textContent = gone
+    ? "This site deleted the signed Atelier after 10 minutes. A new code uploads it again, without signing it again."
+    : codeNote;
 }
 
 /** The newest release's IPA, through this site (/ota/release), as
@@ -528,9 +617,10 @@ function upload(ipa, progress) {
 }
 
 /** Follows the install until iOS has downloaded Atelier, as this site
- *  sees it: `waiting` until the visitor taps Install, then `downloading`,
- *  then `downloaded`. `uploaded` is when the upload ended, by this
- *  device's clock. */
+ *  sees it: `waiting` until iOS reads the manifest, `asked` while it asks
+ *  the visitor, then `downloading` once they tap Install, then
+ *  `downloaded`. `uploaded` is when the upload ended, by this device's
+ *  clock. */
 async function follow({ status }, uploaded, stale) {
   for (;;) {
     await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL));
@@ -549,9 +639,12 @@ async function follow({ status }, uploaded, stale) {
     // Safari was in the background and asked nothing.
     if (answer?.state === "downloaded" || (gone && Date.now() - uploaded < LIFETIME - 15_000)) return setStage("done");
     if (gone || Date.now() - uploaded > LIFETIME + 60_000) {
+      if (onComputer) return showCodeState("gone");
       return fail(new Failure("The signed Atelier was deleted after 10 minutes. Sign and install it again."), "Sign and Install");
     }
-    if (answer?.state === "downloading") showProgress("Installing");
+    if (onComputer) {
+      if (answer) showCodeState(answer.state);
+    } else if (answer?.state === "downloading") showProgress("Installing");
   }
 }
 
@@ -572,6 +665,7 @@ function messageOf(error) {
  *  as the page doesn't let it. */
 function reset() {
   if (state.stage === "idle" || state.stage === "working") return;
+  state.signed = null;
   runs++;
   setStage("idle");
 }
@@ -580,9 +674,12 @@ function reset() {
 
 function setStage(stage) {
   state.stage = stage;
+  // A new code is only for a code that has gone before the iPhone used it.
+  if (stage === "done") state.signed = null;
   $("start").hidden = stage !== "idle";
   $("progress").hidden = stage !== "working" && stage !== "installing";
   $("install-again").hidden = stage !== "installing";
+  $("code").hidden = stage !== "code";
   $("done").hidden = stage !== "done";
   $("failed").hidden = stage !== "failed";
   update();
@@ -632,10 +729,12 @@ function update() {
   $("step-sign").classList.toggle("later", !ready);
   $("sign-lede").textContent = !ready
     ? "Choose your certificate first."
-    : device === "ready" ? "iOS asks before it installs Atelier. Tap Install." : "Open this page in Safari on your iPhone to install it.";
+    : device === "ready" ? "iOS asks before it installs Atelier. Tap Install."
+      : onComputer ? "Atelier is signed here, then your iPhone scans a code to install it."
+        : "Open this page in Safari on your iPhone to install it.";
   showRelease();
   include.disabled = !ready || working || Boolean(info && !info.takesCertificate);
-  $("sign-install").disabled = !ready || !state.apple || device !== "ready" || !(state.chosen || state.release);
+  $("sign-install").disabled = !ready || !state.apple || !(device === "ready" || onComputer) || !(state.chosen || state.release);
 
   $("step-open").classList.toggle("later", state.stage !== "done");
   if (state.stage === "idle") $("open-text").textContent = includesCertificate() ? OPEN_WITH : OPEN_WITHOUT;

@@ -85,6 +85,28 @@ test("with no keys and GitHub out of reach, tokens can't be checked", async () =
   await assert.rejects(verifyToken(await github.sign(buildClaims(AUDIENCE)), { audience: AUDIENCE, keys: failing }), /HTTP 500/);
 });
 
+test("the site's own GitHubKeys calls fetch as the Workers runtime needs", async () => {
+  // The runtime's fetch throws when it's called as a method of anything but
+  // the global scope, which Node's doesn't check: this one does as it does.
+  const github = await githubSigner();
+  const fetched = [];
+  const nodeFetch = globalThis.fetch;
+  globalThis.fetch = function (input) {
+    if (this !== undefined && this !== globalThis) {
+      throw new TypeError("Illegal invocation: function called with incorrect `this` reference.");
+    }
+    fetched.push(String(input));
+    return github.answer();
+  };
+  try {
+    const claims = buildClaims(AUDIENCE);
+    assert.deepEqual(await verifyToken(await github.sign(claims), { audience: AUDIENCE, keys: new GitHubKeys() }), claims);
+    assert.deepEqual(fetched, [`${ISSUER}/.well-known/jwks`]);
+  } finally {
+    globalThis.fetch = nodeFetch;
+  }
+});
+
 test("GitHub's issuer is token.actions.githubusercontent.com", () => {
   assert.equal(ISSUER, "https://token.actions.githubusercontent.com");
 });

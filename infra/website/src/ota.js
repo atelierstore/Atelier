@@ -1,5 +1,6 @@
 // Installing Atelier from the certificate page (#152), which signs it in
-// Safari. The page uploads the signed IPA here, and iOS's install alert reads
+// Safari, or on a computer, which shows a code the iPhone scans to install it
+// (public/certificate/install.html). The page uploads the signed IPA here, and iOS's install alert reads
 // its manifest and downloads it from here, as route B serves them from
 // Atelier itself (docs/route-b.md). Each upload is kept by a Durable Object
 // of its own (SignedApp), named by a random token in its addresses, and goes
@@ -37,9 +38,11 @@ const RELEASE_IPA = /^https:\/\/github\.com\/atelierstore\/atelier\/releases\/do
  *    iOS's install alert, where the page follows the install, and when the
  *    IPA goes (an ISO date). An IPA over MAX_SIZE gets a 413, and one that
  *    can't be read or isn't Atelier a 422, each with {error}.
- *  - GET /ota/<token> is that install as {state, expires}: `waiting` for the
- *    user to tap Install, `downloading` once iOS asks for the IPA, and
- *    `downloaded` once it has had all of it. A 404 once it's gone.
+ *  - GET /ota/<token> is that install as {state, expires, version, size}:
+ *    `waiting` until iOS reads the manifest, `asked` while iOS asks the user
+ *    whether to install it, `downloading` once iOS asks for the IPA, and
+ *    `downloaded` once it has had all of it, with the app's version and the
+ *    IPA's size. A 404 once it's gone.
  *  - GET /ota/<token>/manifest.plist is the manifest iOS reads, and GET or
  *    HEAD /ota/<token>/Atelier.ipa the IPA.
  *  - GET /ota/release?url=<one of Atelier's releases' IPAs> passes that IPA
@@ -57,12 +60,15 @@ export async function ota(request, apps, fetchImpl = fetch) {
     case undefined: {
       if (request.method !== "GET") return notAllowed("GET");
       const info = await kept(app);
-      return info ? json({ state: info.state, expires: new Date(info.expires).toISOString() }, 200) : notFound();
+      if (!info) return notFound();
+      return json({ state: info.state, expires: new Date(info.expires).toISOString(), version: info.version, size: info.size }, 200);
     }
     case "manifest.plist": {
       if (request.method !== "GET") return notAllowed("GET");
       const info = await kept(app);
       if (!info) return notFound();
+      // iOS reads it before it asks whether to install the app.
+      if (info.state === "waiting") await app.fetch("https://signed-app/asked", { method: "POST" });
       return new Response(manifest({ ...info, ipa: `${base}/Atelier.ipa`, image: `${url.origin}/apple-touch-icon.png` }), {
         headers: { "Content-Type": "application/xml; charset=utf-8", ...HEADERS },
       });
@@ -253,6 +259,8 @@ export function byteRange(header, size) {
  *  - PUT /ipa, with the IPA as the body, and optionally ?file=<its name>:
  *    keeps it, and answers 201 with `app`, or 413 or 422 with {error}.
  *  - GET /app: `app`, or a 404 once it's gone.
+ *  - POST /asked: iOS has read the manifest, so the state goes from
+ *    `waiting` to `asked`.
  *  - GET or HEAD /ipa: the IPA, or the part a Range header asks for; with
  *    ?file=<name>, a 404 unless that's the upload's file name.
  *  BuildApp (builds.js) keeps builds the same way, for longer. */
@@ -270,6 +278,13 @@ export class SignedApp {
     const app = await this.storage.get("app");
     if (!app) return notFound();
     if (pathname === "/app") return Response.json(app);
+    if (pathname === "/asked" && request.method === "POST") {
+      if (app.state === "waiting") {
+        app.state = "asked";
+        await this.storage.put("app", app);
+      }
+      return new Response(null, { status: 204 });
+    }
     if (pathname === "/ipa") {
       // An address with another file name than the upload's isn't its.
       const file = new URL(request.url).searchParams.get("file");
@@ -343,7 +358,7 @@ export class SignedApp {
   }
 
   async send(request, app) {
-    if (app.state === "waiting") {
+    if (app.state === "waiting" || app.state === "asked") {
       app.state = "downloading";
       await this.storage.put("app", app);
     }
