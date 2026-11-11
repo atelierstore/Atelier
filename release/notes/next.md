@@ -4,6 +4,8 @@
 
 ## Fixes
 
+- When a source's GitHub repo doesn't have the branch or file the source points to, Atelier says which is missing, instead of saying your GitHub account can't see the repo. For a public repo, it no longer asks you to sign in (#13).
+
 ## Behind the scenes
 
 - Each signed build's record has an install link that opens iOS's install alert from Safari (#10).
