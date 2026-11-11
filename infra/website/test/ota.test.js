@@ -162,7 +162,7 @@ test("an upload answers with iOS's install link, and is kept until its alarm", a
 
   const status = await get(apps, `/ota/${token}`);
   assert.equal(status.headers.get("Cache-Control"), "no-store");
-  assert.deepEqual(await status.json(), { state: "waiting", expires: answer.expires });
+  assert.deepEqual(await status.json(), { state: "waiting", expires: answer.expires, version: "0.5.0-alpha", size: atelier().length });
 
   await object.alarm();
   assert.equal(object.storage.values.size, 0);
@@ -191,6 +191,31 @@ test("the manifest names the IPA, Atelier's icon and the app in the IPA", async 
   assert.match(text, /<key>bundle-identifier<\/key>\s*<string>com.atelier.app<\/string>/);
   assert.match(text, /<key>bundle-version<\/key>\s*<string>0.5.0-alpha<\/string>/);
   assert.match(text, /<key>title<\/key>\s*<string>Atelier<\/string>/);
+});
+
+test("iOS reading the manifest means it asks the user, until it asks for the IPA", async () => {
+  const apps = namespace();
+  const { token } = await uploaded(apps);
+  const state = async () => (await (await get(apps, `/ota/${token}`)).json()).state;
+  assert.equal(await state(), "waiting");
+  assert.equal((await get(apps, `/ota/${token}/manifest.plist`)).status, 200);
+  assert.equal(await state(), "asked");
+  // iOS can read it again, as when the user tries again.
+  assert.equal((await get(apps, `/ota/${token}/manifest.plist`)).status, 200);
+  assert.equal(await state(), "asked");
+  await (await get(apps, `/ota/${token}/Atelier.ipa`)).arrayBuffer();
+  assert.equal(await state(), "downloaded");
+  // Not back to asked once iOS has it.
+  assert.equal((await get(apps, `/ota/${token}/manifest.plist`)).status, 200);
+  assert.equal(await state(), "downloaded");
+});
+
+test("an install that's asked starts downloading with the IPA's first request", async () => {
+  const apps = namespace();
+  const { token } = await uploaded(apps);
+  await get(apps, `/ota/${token}/manifest.plist`);
+  await get(apps, `/ota/${token}/Atelier.ipa`, { method: "HEAD" });
+  assert.equal((await (await get(apps, `/ota/${token}`)).json()).state, "downloading");
 });
 
 test("manifests keep to XML", () => {

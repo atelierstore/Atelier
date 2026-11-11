@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Install Atelier</title>
+<meta name="description" content="Installs the Atelier you signed with your certificate on a computer.">
+<!-- Each address is one signed Atelier's, and none belongs in search
+     results. -->
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#3A5A47">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="stylesheet" href="/site.css">
+<script type="module" src="/certificate-install.js"></script>
+</head>
+<body class="install-page">
+<!-- The page the code on the certificate page opens, on a computer: the
+     signed Atelier's token is after the #, so it stays in the browser.
+     certificate-install.js fills it in from /ota/<token> and opens iOS's
+     install alert. -->
+<main class="install-main">
+  <div class="install-icons">
+    <img class="install-icon" src="/img/icon.png" alt="" width="84" height="84">
+  </div>
+  <div id="scan-page">
+    <h1 id="scan-title">Install Atelier</h1>
+    <p class="install-meta" id="scan-meta" hidden></p>
+    <div class="callout notice" id="scan-notice" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
+      <div>
+        <strong id="scan-notice-title"></strong>
+        <p id="scan-notice-text"></p>
+      </div>
+    </div>
+    <p class="install-what" id="scan-what" hidden></p>
+    <a class="btn btn-primary" id="scan-install" href="/certificate" hidden>Install Atelier</a>
+    <button class="btn btn-primary" type="button" id="scan-copy" hidden>Copy Link</button>
+    <p class="install-note" id="scan-note" hidden></p>
+  </div>
+  <noscript>
+    <h1>Install Atelier</h1>
+    <p class="install-what">This page needs JavaScript to install Atelier.</p>
+  </noscript>
+</main>
+</body>
+</html>
