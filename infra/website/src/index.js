@@ -96,10 +96,14 @@ export async function sourceInfo(request, options = {}) {
  *  network, which would bring the request back to this Worker. */
 export function withOwnBuilds(request, env, ctx) {
   const origin = new URL(request.url).origin;
-  return (input, init) => {
+  return async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : input);
     if (url.origin !== origin || !url.pathname.startsWith("/builds/")) return fetch(input, init);
-    return builds(new Request(input, init), env, ctx.exports.BuildApp);
+    const response = await builds(new Request(input, init), env, ctx.exports.BuildApp);
+    // Without the address the object was asked at (https://build-app/…),
+    // which the runtime gives as the answer's url: ipa.js takes a url other
+    // than its own for a redirect, and would read the rest from there.
+    return new Response(response.body, response);
   };
 }
 
