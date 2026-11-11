@@ -121,7 +121,7 @@ https://atelierstore.app/search?q=emulator
 npx wrangler dev
 ```
 
-and open http://localhost:8787. The tests (`npm test`, Node 20.12 or later) cover reading IPAs and sources, `/install/app`, `/source/info`, `/ota` and `/ocsp`, the sideload page's newest release (`release.js`), and the certificate page's checks, Apple's answer and signing, with the WebAssembly zsign, on the fixtures Atelier's own tests use; Codemagic runs them for each pull request.
+and open http://localhost:8787. The tests (`npm test`, Node 20.12 or later) cover reading IPAs and sources, `/install/app`, `/source/info`, `/ota` and `/ocsp`, the sideload page's newest release (`release.js`), and the certificate page's checks, Apple's answer and signing, with the WebAssembly zsign, on the fixtures Atelier's own tests use; the *Atelier* workflow (`.github/workflows/atelier.yml`) runs them for each pull request.
 
 ## Deploy
 

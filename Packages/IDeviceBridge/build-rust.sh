@@ -13,7 +13,8 @@
 # changing idevice's release or the crates added here, run `--check` and copy
 # vendor/idevice/Cargo.lock back to it.
 #
-# Codemagic runs it before `xcodegen generate`; on a Mac it needs rustup and
+# CI runs it before `xcodegen generate` (.github/workflows/build.yml), unless
+# its cache has the xcframework already; on a Mac it needs rustup and
 # Xcode. `--host` instead builds idevice-ffi for this machine, without the
 # xcframework, and `--check` only checks it compiles; both work on Linux too.
 set -eu
