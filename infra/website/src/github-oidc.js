@@ -25,7 +25,10 @@ export class KeysError extends Error {}
  *  per Worker instance is enough; tests make their own with a fetch of their
  *  own. */
 export class GitHubKeys {
-  constructor(fetchImpl = fetch) {
+  // fetch through a function of its own: refresh() calls this.fetchImpl as
+  // a method, and the Workers runtime's fetch throws "Illegal invocation"
+  // when it's called on anything but the global scope.
+  constructor(fetchImpl = (input, init) => fetch(input, init)) {
     this.fetchImpl = fetchImpl;
     this.keys = new Map();
     this.fetched = -Infinity;
