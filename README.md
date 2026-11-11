@@ -18,7 +18,7 @@ Status: early development.
 - `infra/manifest-worker/`: the HTTPS manifest endpoint route B installs need (a Cloudflare Worker).
 - `infra/website/`: Atelier's website, static pages served by a second Cloudflare Worker: the home page, with the ways to install Atelier, the sideload page (`/sideload`) with its unsigned IPA and its source for people who sign it themselves, and `https://` pages for Atelier's install, source, app and search links (`/install?url=…`, `/source?url=…`, `/viewapp?bundleid=…`, `/search?q=…`), which open the `atelier://` links from places that don't open them, such as chat apps, and show the app or source, which the Worker reads from the IPA or the source; see [its README](infra/website/README.md).
 - `scripts/sign_ipa.py`: signs a built app with a certificate and profile, the way Feather does. CI uses it.
-- `scripts/update_source.py`, `scripts/publish_release.py` and `release/`: the release pipeline, with the screenshots Atelier's source lists in `release/screenshots/`. Merging a release's notes (`release/notes/<tag>.md`) tags it, and the tag builds the unsigned IPA and publishes it with Atelier's own source; see [docs/install.md](docs/install.md), which is also the first-install guide.
+- `scripts/update_source.py`, `scripts/publish_release.py` and `release/`: the release pipeline, with the screenshots Atelier's source lists in `release/screenshots/`. Each pull request adds its line to the next release's notes (`release/notes/next.md`), merging a release's notes (`release/notes/<tag>.md`) tags it, and the tag builds the unsigned IPA and publishes it with Atelier's own source; see [docs/install.md](docs/install.md), which is also the first-install guide.
 
 ## Build
 

@@ -253,6 +253,11 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(self.run_tag(github, self.write_notes("v0.2.0.md", "v0.3.0.md")), 1)
         self.assertEqual(github.tagged, {})
 
+    def test_next_releases_notes_never_start_it(self):
+        github = FakeGitHub(tags={"v0.1.0-alpha"})
+        self.assertEqual(self.run_tag(github, self.write_notes("v0.1.0-alpha.md", "next.md")), 0)
+        self.assertEqual(github.tagged, {})
+
     def test_tag_refuses_notes_not_named_after_a_tag(self):
         github = FakeGitHub()
         self.assertEqual(self.run_tag(github, self.write_notes("v0.2.0alpha.md")), 1)
@@ -340,10 +345,18 @@ class ReleaseNotesTests(unittest.TestCase):
         self.notes.write_text("The first release.\n")
         self.assertEqual(publish_release.unmentioned(self.notes, "main"), (None, []))
 
-    def check_notes(self):
+    def check_notes(self, pr=None):
+        args = ["check-notes", "--notes", str(self.notes_dir), "--main", "main", *(["--pr", str(pr)] if pr else [])]
         with mock.patch.dict("os.environ"), mock.patch("builtins.print"), mock.patch("sys.stderr"):
             os.environ.pop("GITHUB_RELEASES_TOKEN", None)
-            return publish_release.main(["check-notes", "--notes", str(self.notes_dir), "--main", "main"])
+            return publish_release.main(args)
+
+    def missing(self, pr):
+        """What check-notes finds next.md is missing on this branch, as pull
+        request `pr`."""
+        [(path, since, missing)] = publish_release.check_notes(self.notes_dir, "main", pr)
+        self.assertEqual((path.name, since), ("next.md", "v0.1.0"))
+        return missing
 
     def test_check_notes_checks_the_notes_a_branch_adds_against_main(self):
         self.repo.git("checkout", "-q", "-b", "release")
@@ -363,6 +376,54 @@ class ReleaseNotesTests(unittest.TestCase):
         self.assertEqual(self.check_notes(), 0, "no notes at all")
         self.repo.commit("release/notes/v0.1.0.md", "The release before, fixed.")
         self.assertEqual(self.check_notes(), 0, "notes of a release that has its tag")
+
+    def test_next_notes_mention_the_pull_request_and_every_one_merged_since_the_last_release(self):
+        self.repo.commit("release/notes/v0.1.0.md", "The first release.")
+        self.repo.git("checkout", "-q", "-b", "pr-7")
+        self.repo.commit("feature.txt", "A feature")
+        self.assertEqual(self.missing(7), [5, 6, 7], "no next.md yet")
+        self.repo.commit("release/notes/next.md", "- A feature (#7).")
+        self.assertEqual(self.missing(7), [5, 6])
+        self.assertEqual(self.check_notes(pr=7), 1)
+        self.repo.commit("release/notes/next.md", "- Updates (#5).\n- Build numbers (#6).")
+        self.assertEqual(self.missing(7), [7])
+        self.assertEqual(self.check_notes(pr=7), 1)
+        self.repo.commit("release/notes/next.md", "- Updates (#5).\n- Build numbers (#6).\n- A feature (#7).")
+        self.assertEqual(self.check_notes(pr=7), 0)
+
+    def test_a_pull_request_that_only_changes_release_notes_needn_t_mention_itself(self):
+        self.repo.git("checkout", "-q", "-b", "pr-7")
+        self.repo.commit("release/notes/next.md", "- Updates (#5).\n- Build numbers (#6).")
+        self.assertEqual(self.missing(7), [])
+        self.assertEqual(self.check_notes(pr=7), 0)
+
+    def test_without_the_pull_request_next_notes_are_checked_once_they_re_there(self):
+        self.repo.git("checkout", "-q", "-b", "feature")
+        self.repo.commit("feature.txt", "A feature")
+        self.assertEqual(self.check_notes(), 0, "no next.md")
+        self.repo.commit("release/notes/next.md", "- Updates (#5).")
+        self.assertEqual(self.check_notes(), 1, "#6 isn't there")
+
+    def test_pull_requests_that_added_their_line_to_next_notes_are_mentioned_in_the_release(self):
+        self.repo.pull_request(7, "release/notes/next.md", "- Updates (#5).\n- Build numbers (#6).")
+        self.repo.git("checkout", "-q", "-b", "pr-8", "main")
+        self.repo.commit("feature.txt", "A feature")
+        self.repo.commit("release/notes/next.md", "- Updates (#5).\n- Build numbers (#6).\n- A feature (#8).")
+        self.repo.git("checkout", "-q", "main")
+        self.repo.merge(8, "pr-8")
+        self.assertEqual(publish_release.unmentioned(self.notes_dir / "next.md", "main"), ("v0.1.0", []))
+        self.notes.write_text("Updates (#5) and build numbers (#6).\n")
+        self.assertEqual(publish_release.unmentioned(self.notes, "main"), ("v0.1.0", [8]),
+                         "#7 only changed the notes; #8 changed the app too")
+
+    def test_a_release_is_checked_instead_of_next_notes(self):
+        self.repo.pull_request(7, "release/notes/next.md", "- Updates (#5).\n- Build numbers (#6).")
+        self.repo.git("checkout", "-q", "-b", "release")
+        self.repo.git("mv", "release/notes/next.md", "release/notes/v0.2.0.md")
+        self.repo.git("commit", "-q", "-m", "Release 0.2.0")
+        [(path, since, missing)] = publish_release.check_notes(self.notes_dir, "main", 9)
+        self.assertEqual((path.name, since, missing), ("v0.2.0.md", "v0.1.0", []))
+        self.assertEqual(self.check_notes(pr=9), 0)
 
 
 if __name__ == "__main__":

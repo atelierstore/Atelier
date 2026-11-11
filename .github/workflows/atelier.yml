@@ -110,10 +110,14 @@ jobs:
 
       # Notes a pull request adds for a release that isn't tagged yet have to
       # mention every pull request merged into main since the last release,
-      # as #N (docs/install.md).
+      # as #N. Any other pull request adds its line to the next release's
+      # notes, release/notes/next.md, which have to mention it and every pull
+      # request merged into main since the last release (docs/install.md).
       - name: Check the release notes cover main
         if: github.event_name == 'pull_request'
-        run: python3 scripts/publish_release.py check-notes --notes release/notes --main origin/main
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: python3 scripts/publish_release.py check-notes --notes release/notes --main origin/main --pr "$PR"
 
   build:
     name: Build
