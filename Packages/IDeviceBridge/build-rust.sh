@@ -1,9 +1,10 @@
 #!/bin/sh
-# Builds idevice's C API plus Atelier's pairing host, device helpers and Apple
-# ID calls into IDevice.xcframework for iOS devices (#9, #49). idevice (MIT) is
-# fetched by fetch-idevice.sh; its ffi crate is built with our modules
-# (src/pairing.rs, src/device.rs, src/appleid.rs) added, so one idevice serves
-# the install path (route A), on-phone pairing and isideload, with no
+# Builds idevice's C API plus Atelier's pairing host, device helpers, Apple
+# ID calls and look at the Home Screen into IDevice.xcframework for iOS devices
+# (#9, #49). idevice (MIT) is fetched by fetch-idevice.sh; its ffi crate is
+# built with our modules (src/pairing.rs, src/device.rs, src/appleid.rs,
+# src/screen.rs) added, so one idevice serves the install path (route A),
+# on-phone pairing, isideload and Find Open Spaces Automatically, with no
 # duplicate symbols. isideload (MIT, https://github.com/nab138/isideload) signs
 # in to Apple and makes the developer calls for free Apple ID signing (#49).
 # It turns on idevice's `ring` backend, which idevice then prefers to
@@ -29,7 +30,8 @@ FFI="$ROOT/vendor/idevice/ffi"
 cp src/pairing.rs "$FFI/src/atelier_pairing.rs"
 cp src/device.rs "$FFI/src/atelier_device.rs"
 cp src/appleid.rs "$FFI/src/atelier_appleid.rs"
-for module in atelier_pairing atelier_device atelier_appleid; do
+cp src/screen.rs "$FFI/src/atelier_screen.rs"
+for module in atelier_pairing atelier_device atelier_appleid atelier_screen; do
 	grep -q "pub mod $module;" "$FFI/src/lib.rs" \
 		|| printf '\npub mod %s;\n' "$module" >> "$FFI/src/lib.rs"
 done
@@ -53,11 +55,26 @@ features = ["ring"]
 [dependencies.rootcause]
 version = "0.12"
 TOML
+# And idevice's screen stream and HID events, for src/screen.rs, which
+# idevice-ffi's own features don't turn on (idempotent).
+if ! grep -q '"idevice/display_stream"' "$FFI/Cargo.toml"; then
+	sed 's|^core_device = \["idevice/core_device",|core_device = ["idevice/core_device", "idevice/display_stream",|' \
+		"$FFI/Cargo.toml" > "$FFI/Cargo.toml.atelier"
+	mv "$FFI/Cargo.toml.atelier" "$FFI/Cargo.toml"
+	grep -q '"idevice/display_stream"' "$FFI/Cargo.toml" || {
+		echo "Couldn't turn on idevice's display_stream in idevice-ffi" >&2
+		exit 1
+	}
+fi
 grep -q '^\[patch.crates-io\]' "$ROOT/vendor/idevice/Cargo.toml" || cat >> "$ROOT/vendor/idevice/Cargo.toml" <<'TOML'
 
 [patch.crates-io]
 idevice = { path = "idevice" }
 TOML
+# And jktcp with Atelier's change, fetched by fetch-idevice.sh. The section
+# above is the file's last, so this line lands in it.
+grep -q '^jktcp = ' "$ROOT/vendor/idevice/Cargo.toml" \
+	|| echo 'jktcp = { path = "../jktcp" }' >> "$ROOT/vendor/idevice/Cargo.toml"
 cp "$ROOT/idevice.Cargo.lock" "$ROOT/vendor/idevice/Cargo.lock"
 
 FEATURES="full rustcrypto"

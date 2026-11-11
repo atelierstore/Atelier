@@ -1,0 +1,131 @@
+diff --git a/src/adapter.rs b/src/adapter.rs
+index 9096304..b8a2b6a 100644
+--- a/src/adapter.rs
++++ b/src/adapter.rs
+@@ -46,6 +46,13 @@ const INITIAL_RTO_MS: u64 = 200;
+ 
+ const OUR_WSCALE: u8 = 8;
+ 
++/// The receive window we advertise, in bytes, and the most we hold of
++/// segments that came ahead of a gap. Advertising all of `u16::MAX << 8`
++/// let the peer put 16 MiB in flight through the tunnel, and with every
++/// segment after a lost one dropped, it had to send them all again
++/// (Atelier, 10 Nov 2026).
++const RECV_WINDOW: u32 = 1 << 20; // 1 MiB
++
+ /// Default cap on bytes in flight per connection, in bytes. Overridden via
+ /// [`Adapter::set_send_window`].
+ const DEFAULT_SEND_WINDOW: usize = 1 << 20; // 1 MiB
+@@ -93,6 +100,10 @@ struct ConnectionState {
+     bytes_in_flight: usize,
+     peer_window: u32,
+     peer_wscale: Option<u8>,
++    /// Segments that came after a gap, by sequence number, until the gap
++    /// is filled: in place of dropping them, so one lost segment costs one
++    /// retransmission.
++    held: Vec<(u32, Vec<u8>)>,
+ }
+ 
+ #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+@@ -116,6 +127,49 @@ impl ConnectionState {
+             bytes_in_flight: 0,
+             peer_window: 0,
+             peer_wscale: None,
++            held: Vec::new(),
++        }
++    }
++
++    /// The window field of our segments: [`RECV_WINDOW`], scaled when the
++    /// peer agreed to window scaling.
++    fn advertised_window(&self) -> u16 {
++        match self.peer_wscale {
++            Some(_) => (RECV_WINDOW >> OUR_WSCALE).min(u16::MAX as u32) as u16,
++            None => RECV_WINDOW.min(u16::MAX as u32 - 1) as u16,
++        }
++    }
++
++    /// Holds a segment that came after a gap, if it's within the window and
++    /// isn't held already.
++    fn hold(&mut self, seq: u32, payload: &[u8]) {
++        let ahead = seq.wrapping_sub(self.ack) as usize;
++        if ahead + payload.len() > RECV_WINDOW as usize {
++            return;
++        }
++        if self.held.iter().any(|(held, data)| *held == seq && data.len() >= payload.len()) {
++            return;
++        }
++        let holding: usize = self.held.iter().map(|(_, data)| data.len()).sum();
++        if holding + payload.len() > RECV_WINDOW as usize {
++            return;
++        }
++        self.held.push((seq, payload.to_vec()));
++    }
++
++    /// Moves the held segments that now follow on from `ack` into the read
++    /// buffer, and drops the ones received in full already.
++    fn take_held(&mut self) {
++        loop {
++            let ack = self.ack;
++            self.held.retain(|(seq, data)| seq_lt(ack, seq.wrapping_add(data.len() as u32)));
++            let Some(next) = self.held.iter().position(|(seq, _)| seq_lte(*seq, ack)) else {
++                break;
++            };
++            let (seq, data) = self.held.swap_remove(next);
++            let skip = ack.wrapping_sub(seq) as usize;
++            self.read_buffer.extend_from_slice(&data[skip..]);
++            self.ack = seq.wrapping_add(data.len() as u32);
+         }
+     }
+ }
+@@ -307,7 +361,7 @@ impl Adapter {
+                     ack: true,
+                     ..Default::default()
+                 },
+-                u16::MAX - 1,
++                state.advertised_window(),
+                 &[],
+                 &[],
+             );
+@@ -597,7 +651,7 @@ impl Adapter {
+                                 ack: true,
+                                 ..Default::default()
+                             },
+-                            u16::MAX - 1,
++                            state.advertised_window(),
+                             &[],
+                             &data,
+                         );
+@@ -797,6 +851,7 @@ impl Adapter {
+                             }
+                             state.read_buffer.extend(&res.payload[skip..]);
+                             state.ack = seg_end;
++                            state.take_held();
+                         } else if seq_lt(res.sequence_number, state.ack) {
+                             // Duplicate (already received): re-ACK, don't buffer.
+                             debug!(
+@@ -808,6 +863,7 @@ impl Adapter {
+                                 "out-of-order seq={} expected={} hp={}",
+                                 res.sequence_number, state.ack, res.destination_port
+                             );
++                            state.hold(res.sequence_number, &res.payload);
+                         }
+                         ack_me = Some(res.destination_port);
+                     }
+@@ -888,7 +944,7 @@ impl Adapter {
+                 ack: true,
+                 ..Default::default()
+             },
+-            u16::MAX - 1,
++            state.advertised_window(),
+             &[],
+             &[],
+         );
+@@ -923,7 +979,7 @@ impl Adapter {
+                 ack: true,
+                 ..Default::default()
+             },
+-            u16::MAX - 1,
++            state.advertised_window(),
+             &[],
+             &data,
+         );

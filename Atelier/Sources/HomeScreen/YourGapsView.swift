@@ -7,11 +7,15 @@ import SwiftUI
 /// the gaps question's Mark Spaces to Keep (9 Nov 2026): each page as
 /// the last read found it, with its apps packed together as iOS reports
 /// them. Tap an app to put a gap before it, so the page looks as it does
-/// on the iPhone, and every write keeps it.
+/// on the iPhone, and every write keeps it. On a page that might have open
+/// spaces, Find Open Spaces Automatically marks those a screenshot of it
+/// shows (11 Nov 2026).
 struct YourGapsView: View {
 	/// As a sheet: the action its button, top right, carries on with.
 	var carryOn: MarkGapsFirst?
 	@State private var model = YourGapsModel()
+	/// Whether Find Open Spaces Automatically is asking first.
+	@State private var asking = false
 	@Query private var installs: [InstallRecord]
 	@Environment(\.modelContext) private var context
 	@Environment(\.dismiss) private var dismiss
@@ -45,6 +49,7 @@ struct YourGapsView: View {
 					pager
 					grid
 					dots
+					findButton
 					hint
 				}
 			}
@@ -72,6 +77,14 @@ struct YourGapsView: View {
 			}
 		}
 		.task { await model.load() }
+		.alert("Find open spaces on page \(model.page + 1)?", isPresented: $asking) {
+			Button("Find Open Spaces") {
+				Task { await model.findOpenSpaces() }
+			}
+			Button("Cancel", role: .cancel) {}
+		} message: {
+			Text("Atelier goes to your Home Screen, swipes to page \(model.page + 1), takes a screenshot and comes back. Don’t touch your iPhone until it’s back, in a few seconds.")
+		}
 	}
 
 	// MARK: Parts
@@ -93,11 +106,15 @@ struct YourGapsView: View {
 		.padding(.top, 4)
 	}
 
-	/// "2 open spaces", "widgets" or "no open spaces".
+	/// "2 open spaces", "widgets", "full", or "might have open spaces"
+	/// until any are marked.
 	private var pageNote: String {
 		guard model.canMark else { return "widgets" }
 		switch model.gapCount {
-		case 0: return "no open spaces"
+		case 0:
+			if model.isFull { return "full" }
+			if case .found = model.finding { return "no open spaces" }
+			return "might have open spaces"
 		case 1: return "1 open space"
 		default: return "\(model.gapCount) open spaces"
 		}
@@ -255,37 +272,142 @@ struct YourGapsView: View {
 		.accessibilityHidden(true)
 	}
 
+	/// Find Open Spaces Automatically, on a page that might have open
+	/// spaces: Find Again once it has looked, Try Again when it couldn't.
+	@ViewBuilder
+	private var findButton: some View {
+		if model.mightHaveOpenSpaces {
+			Button {
+				asking = true
+			} label: {
+				HStack(spacing: 7) {
+					if model.finding == .looking {
+						ProgressView()
+					} else {
+						FindSpacesGlyph()
+					}
+					Text(findTitle)
+				}
+				.font(.body.weight(.semibold))
+				.frame(maxWidth: .infinity, minHeight: 32)
+			}
+			.buttonStyle(.bordered)
+			.buttonBorderShape(.capsule)
+			.controlSize(.large)
+			.disabled(model.isFinding)
+			.padding(.horizontal, 8)
+		}
+	}
+
+	private var findTitle: String {
+		switch model.finding {
+		case .found: "Find Again"
+		case .failed: "Try Again"
+		case .looking, nil: "Find Open Spaces Automatically"
+		}
+	}
+
 	@ViewBuilder
 	private var hint: some View {
 		Group {
 			if let notice = model.notice {
 				Text(notice)
 					.foregroundStyle(.orange)
+					.frame(maxWidth: .infinity, alignment: .leading)
 			} else if !model.canMark {
 				Text("**Page \(model.page + 1) has widgets, so it keeps no open spaces.** iOS fits icons around widgets its own way. Its apps still go back to their spots.")
 					.foregroundStyle(.secondary)
-			} else {
-				Text(markHint)
+					.frame(maxWidth: .infinity, alignment: .leading)
+			} else if model.isFull {
+				Text("This page is full, so it has no open spaces." + heldNote + thenNote)
 					.foregroundStyle(.secondary)
+					.multilineTextAlignment(.center)
+					.frame(maxWidth: .infinity)
+			} else {
+				switch model.finding {
+				case .found(let count, let date, let doubtful, let cameBack):
+					found(count, at: date, doubtful: doubtful, cameBack: cameBack)
+						.multilineTextAlignment(.center)
+						.frame(maxWidth: .infinity)
+				case .failed(let message):
+					Label {
+						Text(message + thenNote)
+					} icon: {
+						Image(systemName: "exclamationmark.triangle.fill")
+							.foregroundStyle(.orange)
+					}
+					.frame(maxWidth: .infinity, alignment: .leading)
+				case .looking, nil:
+					Text("Atelier shows this page on your Home Screen for a moment and marks the open spaces it sees. " + markHint)
+						.foregroundStyle(.secondary)
+						.multilineTextAlignment(.center)
+						.frame(maxWidth: .infinity)
+				}
 			}
 		}
 		.font(.footnote)
-		.frame(maxWidth: .infinity, alignment: .leading)
 		.padding(.horizontal, 16)
+	}
+
+	/// What Find Open Spaces Automatically marked, for you to check.
+	private func found(_ count: Int, at date: Date, doubtful: Bool, cameBack: Bool) -> Text {
+		let found = switch count {
+		case 0: "Found no open spaces \(HomeScreenSpots.when(date))."
+		case 1: "Found 1 open space \(HomeScreenSpots.when(date))."
+		default: "Found \(count) open spaces \(HomeScreenSpots.when(date))."
+		}
+		var check = count == 0
+			? "Check the page, and tap an app to put an open space before it if it missed one."
+			: "Check them, and tap to fix any it got wrong."
+		if doubtful { check = "Check this page: some places were hard to tell from apps. Tap to fix any it got wrong." }
+		let back = cameBack ? "" : " Atelier didn’t come back by itself."
+		return Text("\(Text(found).fontWeight(.semibold).foregroundStyle(.tint)) \(check)\(back)\(thenNote)")
 	}
 
 	/// How to mark, and which offloaded apps' spots are kept on the page.
 	private var markHint: String {
+		"Tap an app to put an open space before it, as on your iPhone, and again for two. Tap an open space to take it out." + heldNote + thenNote
+	}
+
+	/// Which offloaded apps' spots are kept on the page, after a space.
+	private var heldNote: String {
 		let held = model.slots.compactMap { slot -> String? in
 			guard case .held = slot else { return nil }
 			return label(slot)
 		}
-		let tap = "Tap an app to put an open space before it, as on your iPhone, and again for two. Tap an open space to take it out."
-		let then = carryOn.map { " \($0.then)" } ?? ""
 		switch held.count {
-		case 0: return tap + then
-		case 1: return "\(tap) \(held[0]) is offloaded: its spot stays empty until Reinstall.\(then)"
-		default: return "\(tap) \(held.formatted(.list(type: .and))) are offloaded: their spots stay empty until Reinstall.\(then)"
+		case 0: return ""
+		case 1: return " \(held[0]) is offloaded: its spot stays empty until Reinstall."
+		default: return " \(held.formatted(.list(type: .and))) are offloaded: their spots stay empty until Reinstall."
 		}
+	}
+
+	/// As a sheet: what its button then does, after a space.
+	private var thenNote: String {
+		carryOn.map { " \($0.then)" } ?? ""
+	}
+}
+
+/// Find Open Spaces Automatically's glyph, as the mockup drew it: three
+/// places, an open one, and a magnifying glass.
+private struct FindSpacesGlyph: View {
+	var body: some View {
+		Canvas { context, size in
+			let unit = size.width / 24
+			let line = StrokeStyle(lineWidth: 2 * unit, lineCap: .round, lineJoin: .round)
+			func place(_ x: CGFloat, _ y: CGFloat) -> Path {
+				Path(roundedRect: CGRect(x: x * unit, y: y * unit, width: 7 * unit, height: 7 * unit), cornerRadius: 2 * unit)
+			}
+			context.stroke(place(3.5, 3.5), with: .foreground, style: line)
+			context.stroke(place(13.5, 3.5), with: .foreground, style: StrokeStyle(lineWidth: 2 * unit, dash: [2.4 * unit, 2 * unit]))
+			context.stroke(place(3.5, 13.5), with: .foreground, style: line)
+			context.stroke(Path(ellipseIn: CGRect(x: 13.6 * unit, y: 13.6 * unit, width: 6.8 * unit, height: 6.8 * unit)), with: .foreground, style: line)
+			var handle = Path()
+			handle.move(to: CGPoint(x: 19.5 * unit, y: 19.5 * unit))
+			handle.addLine(to: CGPoint(x: 21.5 * unit, y: 21.5 * unit))
+			context.stroke(handle, with: .foreground, style: line)
+		}
+		.frame(width: 19, height: 19)
+		.accessibilityHidden(true)
 	}
 }
