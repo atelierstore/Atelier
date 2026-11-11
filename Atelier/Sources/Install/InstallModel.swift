@@ -281,7 +281,7 @@ final class InstallModel {
 	/// Atelier's own install, asked about before it's queued (#24), as it
 	/// closes Atelier.
 	struct SelfRequest: Identifiable {
-		enum Kind {
+		enum Kind: Equatable {
 			/// Goes ahead once the user says so.
 			case confirm
 			/// None of the certificates signs for Atelier's App ID.
@@ -289,6 +289,12 @@ final class InstallModel {
 			/// A build older than the one running, which may not read the
 			/// data this one saved.
 			case older
+			/// A free Apple ID installed Atelier, and isn't signed in here:
+			/// only it signs for Atelier's App ID (#152).
+			case needsAppleID
+			/// Atelier's App ID ended, and its Apple ID has no new ones left
+			/// this week, until `until` (#152).
+			case noAppIDLeft(until: Date?)
 		}
 
 		var id: String { job.id }
@@ -296,6 +302,10 @@ final class InstallModel {
 		let kind: Kind
 		/// The certificate it signs with.
 		let certificateName: String?
+		/// The Apple ID it signs with instead (#152), as Atelier is one of
+		/// its apps, and what that takes of its App IDs, as it last said.
+		var appleID: String?
+		var appIDUse: OwnAppleID.AppIDUse?
 		/// The IPA as it came, which Install a Copy… installs next to
 		/// Atelier instead (#113); nil for Atelier from its source and
 		/// signed again as it runs.
@@ -2459,13 +2469,28 @@ final class InstallModel {
 		}
 		let resigning = job.selfKind == .resign
 		let picked = resigning || job.selfKind == .signAgain ? job.certificateID : nil
-		guard let choice = own.signing(picked: picked, resigning: resigning, certificates: job.certificates, context: job.context) else {
-			return SelfRequest(job: job, kind: .noCertificate, certificateName: nil)
+		guard let signer = own.signer(picked: picked, resigning: resigning, certificates: job.certificates, context: job.context) else {
+			// A free Apple ID installed it, whose certificate can't be
+			// imported (#152).
+			let needsAppleID = picked == nil && own.needsAppleID(in: job.certificates) != nil
+			return SelfRequest(job: job, kind: needsAppleID ? .needsAppleID : .noCertificate, certificateName: nil)
 		}
-		job.certificateID = choice.certificateID
-		job.usesInstalledProfile = choice.usesInstalledProfile
-		if job.selfConfirmed { return nil }
-		return SelfRequest(job: job, kind: .confirm, certificateName: job.certificate?.displayName)
+		job.certificateID = signer.id
+		switch signer {
+		case .certificate(let choice):
+			job.usesInstalledProfile = choice.usesInstalledProfile
+			if job.selfConfirmed { return nil }
+			return SelfRequest(job: job, kind: .confirm, certificateName: job.certificate?.displayName)
+		case .appleID(let account):
+			// With its own profile from Apple, for the App ID it runs as.
+			job.usesInstalledProfile = false
+			let use = OwnAppleID.appIDUse(for: own.bundleID, account: account)
+			if case .noneLeft(let until) = use {
+				return SelfRequest(job: job, kind: .noAppIDLeft(until: until), certificateName: nil, appleID: account.displayName, appIDUse: use)
+			}
+			if job.selfConfirmed { return nil }
+			return SelfRequest(job: job, kind: .confirm, certificateName: nil, appleID: account.displayName, appIDUse: use)
+		}
 	}
 
 	/// Goes ahead with Atelier's own install, as the user said.
@@ -2879,7 +2904,7 @@ final class InstallModel {
 		checkingNote = nil
 		roomTaken = nil
 		lastMakeRoom = nil
-		signsWithAppleID = job.appleID != nil && !job.isSelf
+		signsWithAppleID = job.appleID != nil
 		shownJob = job
 		state = .checking
 		// What the install it follows up on logged comes first (#99).
@@ -3342,7 +3367,8 @@ final class InstallModel {
 		// bundle ID and the team's; the profile's file goes once signed (#49).
 		var appleIDSigning: (identity: SigningIdentity, bundleID: String, profile: URL, appGroups: [String: String])?
 		defer { if let file = appleIDSigning?.profile { try? FileManager.default.removeItem(at: file) } }
-		if let account = job.appleID, !job.isSelf {
+		// Atelier itself too, when it's one of the Apple ID's apps (#152).
+		if let account = job.appleID {
 			appleIDSigning = try await appleIDIdentity(for: ipa, account: account, job: job)
 		}
 		guard let identity = try appleIDSigning?.identity ?? job.signingIdentity() else { throw InstallProblem.noCertificate }
@@ -3415,7 +3441,10 @@ final class InstallModel {
 			try? FileManager.default.removeItem(at: signed.url)
 			let name = SelfUpdate.shared.name
 			log.append("\(name) was signed for the App ID \(signed.identity.applicationIdentifier ?? "unknown"), not \(expected), the one it was installed with")
-			throw InstallProblem("\(name) wasn't installed: this certificate can't update it. Use the certificate \(name) was installed with.")
+			let with = appleIDSigning == nil
+				? "this certificate can't update it. Use the certificate \(name) was installed with."
+				: "this Apple ID can't update it. Sign in with the Apple ID \(name) was installed with."
+			throw InstallProblem("\(name) wasn't installed: \(with)")
 		}
 		packageSize = Self.size(of: signed.url)
 		// The icon iOS will show for it, as the Library shows it (#118).
@@ -3879,8 +3908,12 @@ final class InstallModel {
 	/// 10 new App IDs when the team doesn't have the app's, as Apple lists
 	/// them, so a refused install costs neither. With the source's bundle
 	/// ID before the download, and again once the IPA says another.
+	///
+	/// Atelier's own install too (#152): it keeps the bundle ID it runs as,
+	/// holds its place already, and asked about its App ID in its own
+	/// question (`OwnAppleID.appIDUse`), so not again here.
 	private func checkAppleID(_ job: Job, ipa: URL?) async throws {
-		guard let account = job.appleID, !job.isSelf else { return }
+		guard let account = job.appleID else { return }
 		let info = ipa.flatMap { try? IPAInfo.read(ipaAt: $0) }
 		guard let bundleID = expectedBundleID(of: job, info: info), appleIDPlan?.bundleID != bundleID else { return }
 		defer { checkingNote = nil }
@@ -3898,7 +3931,9 @@ final class InstallModel {
 				limits.apps = AppleIDLimits.Apps(checkedAt: .now, apps: apps)
 				let listed = apps.isEmpty ? "" : ": " + apps.map(\.bundleID).joined(separator: ", ")
 				log.append("Apple ID: \(apps.count) of \(FreeAppleID.appsPerDevice) apps signed with a free Apple ID on this \(ThisDevice.name)\(listed)")
-				switch AppleIDRoom.place(for: bundleID, replacing: job.replacesBundleID, apps: apps) {
+				// Atelier runs, so it holds its place, however iOS lists it.
+				let place: AppleIDRoom.Place = job.isSelf ? .holds : AppleIDRoom.place(for: bundleID, replacing: job.replacesBundleID, apps: apps)
+				switch place {
 				case .holds:
 					log.append("Apple ID: the app holds one of them already")
 				case .free:
@@ -3931,14 +3966,15 @@ final class InstallModel {
 				// A free Apple ID's take one of its 10 a week, so the install
 				// asks first, unless nobody is there to answer, as for an
 				// automatic update (4 Nov 2026).
-				if account.isFree, !job.automatic, !job.newAppIDAsked {
+				if account.isFree, !job.automatic, !job.newAppIDAsked, !job.isSelf {
 					job.certificates.updateAppleID(account.id) { $0.limits = limits }
 					try await confirmNewAppID(for: job, account: account, name: name, left: left, max: list.max ?? FreeAppleID.appIDsPerWeek)
 				}
 			case .noneLeft(let next):
 				log.append("App ID: none left this week\(next.map { ", the next one comes back at \(Self.logDate($0))" } ?? "")")
 				job.certificates.updateAppleID(account.id) { $0.limits = limits }
-				throw Self.noAppIDLeft(next: next, others: Self.alternatives(for: job, account: account))
+				// Nothing else signs Atelier for the App ID it runs as.
+				throw Self.noAppIDLeft(next: next, others: job.isSelf ? [] : Self.alternatives(for: job, account: account))
 			}
 		} catch let problem as InstallProblem {
 			throw problem
@@ -4003,8 +4039,10 @@ final class InstallModel {
 		} catch {
 			throw InstallProblem("Couldn't read the app's Info.plist: \(InstallProblem(error).message)")
 		}
-		let bundleID = Self.appleIDBundleID(of: info.bundleID, as: job.target, copy: job.copyChoice?.settings, account: account)
-		let name = job.displayName ?? info.name
+		// Atelier itself keeps the bundle ID it runs as, which its Apple ID's
+		// team has the App ID of (#152).
+		let bundleID = job.isSelf ? SelfUpdate.shared.bundleID : Self.appleIDBundleID(of: info.bundleID, as: job.target, copy: job.copyChoice?.settings, account: account)
+		let name = job.isSelf ? SelfUpdate.shared.name : job.displayName ?? info.name
 		let session: AppleIDSession
 		if let plan = appleIDPlan, plan.accountID == account.id {
 			session = plan.session
@@ -4124,7 +4162,7 @@ final class InstallModel {
 	/// them is deleted. Nobody sees it after an automatic update, whose app
 	/// was trusted already.
 	private func trustToAsk(after job: Job, installed info: IPAInfo) -> TrustPrompt? {
-		guard !job.automatic, signsWithAppleID, let account = job.appleID, signedWith == account.id else { return nil }
+		guard !job.automatic, !job.isSelf, signsWithAppleID, let account = job.appleID, signedWith == account.id else { return nil }
 		let records = (try? job.context.fetch(FetchDescriptor<InstallRecord>())) ?? []
 		let others = records.filter { record in
 			guard record.certificateID == account.id else { return false }
@@ -4141,7 +4179,8 @@ final class InstallModel {
 	/// Apple ID for the Library's days left, and the place the app takes
 	/// among a free Apple ID's 3.
 	private func finishAppleID(_ job: Job, installed info: IPAInfo) {
-		guard signsWithAppleID, let account = job.appleID, signedWith == account.id else { return }
+		// Atelier's own is noted from its build on its next launch (#152).
+		guard signsWithAppleID, !job.isSelf, let account = job.appleID, signedWith == account.id else { return }
 		let profile = pendingAppProfile
 		pendingAppProfile = nil
 		let replaced = job.replacesBundleID
@@ -4611,8 +4650,10 @@ final class InstallModel {
 	/// the one Atelier installed it as before, or its source lists it
 	/// under, which its IPA may not have (#116).
 	private func expectedBundleID(of job: Job, info: IPAInfo?) -> String? {
+		// Atelier itself keeps the bundle ID it runs as (#24, #152).
+		if job.isSelf { return SelfUpdate.shared.bundleID }
 		// An Apple ID signs it as its bundle ID and the team's (#49).
-		if let account = job.appleID, !job.isSelf {
+		if let account = job.appleID {
 			if let info { return Self.appleIDBundleID(of: info.bundleID, as: job.target, copy: job.copyChoice?.settings, account: account) }
 			guard let listed = job.listedBundleID else { return nil }
 			let own = InstalledApps.record(listedAs: listed, as: job.target, in: job.context)?.ipaBundleID ?? listed

@@ -660,13 +660,15 @@ private struct AppDetailContent: View {
 		guard ProfileRenewals.shared.canRenew(item), let account = item.appleID else { return nil }
 		let name = item.install.name
 		if let problem = ProfileRenewals.shared.problems[item.install.bundleID], !problem.isUnreachable {
-			return problem.message
+			return problem.message(isOwn: item.isOwn)
 		}
 		if AppProfileRenewal.needsSignIn(account) {
 			return ProfileRenewals.Problem.signInAgain.message
 		}
 		let profile = account.isFree ? "a new 7-day profile" : "a new profile"
-		return "Renew Now gets \(name) \(profile) from Apple and puts it on. Nothing downloads, and \(name) keeps its data."
+		// Atelier itself isn't reinstalled either, so it stays open (#152).
+		let keeps = item.isOwn ? "stays open" : "keeps its data"
+		return "Renew Now gets \(name) \(profile) from Apple and puts it on. Nothing downloads, and \(name) \(keeps)."
 	}
 
 	/// Under the actions of an app installed from an IPA (#113): where

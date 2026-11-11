@@ -178,7 +178,10 @@ struct LibraryView: View {
 		// Apps due to renew that Atelier couldn't renew by itself, or whose
 		// profile ended, are in Renew rather than Updates or Installed (#49).
 		let renewals = ProfileRenewals.shared
-		let toRenew = items.filter { renewals.inRenewSection($0) && !inResign($0) }
+		let dueToRenew = items.filter { renewals.inRenewSection($0) && !inResign($0) }
+		// Atelier itself first (#152): once its own profile has ended, it
+		// can't open to renew the others.
+		let toRenew = dueToRenew.filter(\.isOwn) + dueToRenew.filter { !$0.isOwn }
 		let renewIDs = Set(toRenew.map(\.install.bundleID))
 		let elsewhere = { (item: LibraryItem) in inResign(item) || renewIDs.contains(item.install.bundleID) }
 		let updates = items.filter { $0.update != nil && !elsewhere($0) && !(group?.contains($0.install.bundleID) ?? false) }
@@ -459,14 +462,17 @@ extension LibraryView {
 				HStack {
 					Text("Renew · \(items.count)")
 					Spacer()
-					if all.count > 1, !narrowed {
+					// Not Atelier itself while it waits for its Apple ID to sign
+					// in (#152), which Renew can't do.
+					let renewable = all.filter { $0.needsAppleID == nil }
+					if renewable.count > 1, !narrowed {
 						Button("Renew All") {
-							let ids = all.map(\.install.bundleID)
+							let ids = renewable.map(\.install.bundleID)
 							Task { await renewals.renew(ids) }
 						}
 						.font(.subheadline.weight(.semibold))
 						.textCase(nil)
-						.disabled(all.allSatisfy { renewals.isRenewing($0.install.bundleID) })
+						.disabled(renewable.allSatisfy { renewals.isRenewing($0.install.bundleID) })
 					}
 				}
 			} footer: {
@@ -478,11 +484,32 @@ extension LibraryView {
 	/// "Their profiles end within 2 days. Atelier renews them by itself
 	/// while LocalDevVPN is connected. Renew connects it, then gets each a
 	/// new profile in a few seconds, without reinstalling."
-	private static func renewFooter(_ items: [LibraryItem]) -> String {
+	///
+	/// Atelier itself, before the free Apple ID that installed it signs in
+	/// (#152): "A free Apple ID installed Atelier, so its profile ends on
+	/// Wed 18 Nov at 10:42 and Atelier stops opening then. Sign in with that
+	/// Apple ID, and Atelier renews itself every week." And once it's one of
+	/// the apps that couldn't renew: "Once Atelier’s own profile has ended,
+	/// it can’t open to renew anything, and has to be installed again."
+	private static func renewFooter(_ all: [LibraryItem]) -> String {
+		var signIn: String?
+		if let own = all.first(where: { $0.needsAppleID != nil }), let need = own.needsAppleID {
+			let name = own.install.name
+			let ends = need.expires.map { "so its profile ends on \(AppProfileDays.describe($0)) and \(name) stops opening then" }
+				?? "so its profile lasts 7 days and \(name) stops opening once it has ended"
+			signIn = "A free Apple ID installed \(name), \(ends). Sign in with that Apple ID, and \(name) renews itself every week."
+		}
+		let items = all.filter { $0.needsAppleID == nil }
+		guard !items.isEmpty else { return signIn ?? "" }
+		let own = items.first(where: \.isOwn).map { "Once \($0.install.name)’s own profile has ended, it can’t open to renew anything, and has to be installed again." }
+		return [signIn, renewFooter(due: items), own].compactMap { $0 }.joined(separator: " ")
+	}
+
+	private static func renewFooter(due items: [LibraryItem]) -> String {
 		let one = items.count == 1
 		let ended = items.allSatisfy { ($0.appProfile?.expires ?? .distantFuture) <= .now }
-		// A paid team's renew 14 days ahead.
-		let days = items.contains { $0.appleID?.isFree == false } ? 14 : 2
+		// A paid team's renew 14 days ahead, Atelier itself 4 (#152).
+		let days = items.contains { $0.appleID?.isFree == false } ? 14 : items.contains(where: \.isOwn) ? 4 : 2
 		let lead = switch (one, ended) {
 		case (true, true): "Its profile ended, so it doesn’t open until it’s renewed."
 		case (false, true): "Their profiles ended, so they don’t open until they’re renewed."

@@ -437,13 +437,14 @@ private struct AppleIDStatusSection: View {
 	/// The Apple ID's apps on this iPhone, with their profiles: offloaded
 	/// and deleted apps are left out, as nothing of them on this iPhone
 	/// stops opening.
-	private var running: [(name: String, profile: AppProfile)] {
-		(account.profiles ?? []).compactMap { profile -> (name: String, profile: AppProfile)? in
+	private var running: [(name: String, profile: AppProfile, isOwn: Bool)] {
+		(account.profiles ?? []).compactMap { profile -> (name: String, profile: AppProfile, isOwn: Bool)? in
 			guard let install = installs.first(where: { $0.bundleID == profile.bundleID }),
 			      InstallModel.presence(of: install) != .deleted,
 			      installer.disabledApps[install.bundleID] == nil
 			else { return nil }
-			return (install.name, profile)
+			// Atelier itself, when it's one of its apps (#152).
+			return (install.name, profile, SelfUpdate.shared.isOwn(install))
 		}
 	}
 
@@ -469,13 +470,14 @@ private struct AppleIDStatusSection: View {
 			let until = signIn ? "until you sign in with this Apple ID again" : "until it’s renewed. Renew Now renews it"
 			return LimitRow(title: title, value: "Expired", note: "\(first.name) stopped opening on \(day), \(until).", tint: .red)
 		}
-		let renews = ProfileRenewals.date(toRenew: first.profile, of: account)
+		// Atelier itself renews four days ahead (#152).
+		let renews = ProfileRenewals.date(toRenew: first.profile, of: account, isOwn: first.isOwn)
 		let renewal = if signIn {
 			"It renews once you sign in with this Apple ID again."
 		} else if renews > .now {
-			"Atelier renews it \(AppProfileDays.day(renews)), so it keeps opening."
+			first.isOwn ? "It renews itself \(AppProfileDays.day(renews)), so it keeps opening." : "Atelier renews it \(AppProfileDays.day(renews)), so it keeps opening."
 		} else {
-			"Atelier renews it while LocalDevVPN is connected, so it keeps opening."
+			first.isOwn ? "It renews itself while LocalDevVPN is connected, so it keeps opening." : "Atelier renews it while LocalDevVPN is connected, so it keeps opening."
 		}
 		return LimitRow(title: title, value: AppProfileDays.text(until: expires), note: "\(first.name), on \(day). \(renewal)")
 	}

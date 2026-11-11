@@ -109,9 +109,9 @@ enum UpdateChecks {
 	static func check(_ catalog: Catalog, context: ModelContext, from trigger: Trigger) async {
 		var report = Report(date: .now, trigger: trigger)
 		let items = updates(in: catalog, context: context)
-		// Atelier's own update downloads only once a certificate signs for
-		// the App ID it was installed with (#24).
-		let downloadable = items.filter { !$0.isOwn || SelfUpdate.shared.signing(picked: nil, resigning: false, certificates: .shared, context: context) != nil }
+		// Atelier's own update downloads only once a certificate, or its
+		// Apple ID, signs for the App ID it was installed with (#24, #152).
+		let downloadable = items.filter { !$0.isOwn || SelfUpdate.shared.canSignItself(certificates: .shared, context: context) }
 		let ahead = await downloadAhead(downloadable, downloads: BackgroundDownloads.shared.manager)
 		report.onWiFi = ahead.onWiFi
 		report.downloadsStarted = ahead.started

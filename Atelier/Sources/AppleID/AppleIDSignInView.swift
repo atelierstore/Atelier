@@ -373,7 +373,9 @@ extension AppleIDSession.Team {
 /// At Apple's limit: the team's development certificates, named after the
 /// app or Mac each was made for. Atelier's own made elsewhere is picked to
 /// start with, as its key isn't on this iPhone. Revoke and Continue asks
-/// once more.
+/// once more. The one the Atelier that runs is signed with says so (#152),
+/// and is never picked to start with: revoking it makes Atelier sign itself
+/// again right after, with the one it makes.
 private struct RevokeCertificate: View {
 	let signIn: AppleIDSignIn
 	let email: String
@@ -388,11 +390,21 @@ private struct RevokeCertificate: View {
 		self.listed = listed
 		// isideload found none whose key is here, so Atelier's are all from
 		// elsewhere.
-		_picked = State(initialValue: listed.first { Self.isAteliers($0) && $0.serialNumber != nil }?.id)
+		_picked = State(initialValue: listed.first { Self.isAteliers($0) && $0.serialNumber != nil && !Self.signsThisAtelier($0) }?.id)
 	}
 
 	private static func isAteliers(_ certificate: AppleIDSession.Certificate) -> Bool {
 		certificate.machineName == AppleIDSignIn.machineName
+	}
+
+	/// Whether the Atelier that runs is signed with it (#152), as when the
+	/// tool that installed Atelier made it.
+	private static func signsThisAtelier(_ certificate: AppleIDSession.Certificate) -> Bool {
+		guard let signer = SelfUpdate.shared.signature.certificate?.serialNumber else { return false }
+		if let content = certificate.content { return content.serialNumber == signer }
+		guard let serial = certificate.serialNumber else { return false }
+		// Apple's list may pad it with zeros.
+		return serial.uppercased().drop(while: { $0 == "0" }) == signer.uppercased().drop(while: { $0 == "0" })
 	}
 
 	private let dates = Date.FormatStyle.dateTime.day().month().year()
@@ -467,8 +479,11 @@ private struct RevokeCertificate: View {
 			presenting: confirming
 		) { certificate in
 			Button("Revoke", role: .destructive) { signIn.revoke(certificate) }
-		} message: { _ in
-			Text("Apps signed with it stop opening, whichever app installed them, until that app signs them again.")
+		} message: { certificate in
+			let text = "Apps signed with it stop opening, whichever app installed them, until that app signs them again."
+			Text(Self.signsThisAtelier(certificate)
+				? "\(text) \(SelfUpdate.shared.name) itself is signed with it, so it signs itself again right after, with its own, and asks you to go to the Home Screen."
+				: text)
 		}
 	}
 
@@ -483,6 +498,11 @@ private struct RevokeCertificate: View {
 			when = "Made \(made.formatted(dates))"
 		} else if let expires = certificate.expires {
 			when = "Expires \(expires.formatted(dates))"
+		}
+		// "Made 11 Nov 2026. This Atelier is signed with it."
+		if Self.signsThisAtelier(certificate) {
+			let signs = "This \(SelfUpdate.shared.name) is signed with it."
+			return when.map { "\($0). \(signs)" } ?? signs
 		}
 		guard Self.isAteliers(certificate) else { return when }
 		let key = "Its key isn’t on this \(ThisDevice.name)."
@@ -538,6 +558,24 @@ private struct SignedInPage: View {
 				Made(title: "Team", value: account.team.title, detail: account.team.detail)
 				Made(title: "Certificate", value: "Made", detail: "On this \(ThisDevice.name), valid until \(account.expiresAt.formatted(dates))")
 				Made(title: "This \(ThisDevice.name)", value: "Registered", detail: "With the UDID the setup read")
+			}
+
+			// The Apple ID that installed Atelier itself (#152).
+			if SelfUpdate.shared.appleID(in: certificates)?.id == account.id {
+				let name = SelfUpdate.shared.name
+				Section {
+					VStack(alignment: .leading, spacing: 4) {
+						Text("\(name) is one of its apps")
+							.font(.headline)
+						Text(account.isFree
+							? "This Apple ID installed \(name), so \(name) now renews itself every week and signs its own updates with it. It holds one of the \(FreeAppleID.appsPerDevice) places on this \(ThisDevice.name)."
+							: "This Apple ID installed \(name), so \(name) now renews itself before its profile ends and signs its own updates with it.")
+							.font(.subheadline)
+							.foregroundStyle(.secondary)
+							.fixedSize(horizontal: false, vertical: true)
+					}
+					.padding(.vertical, 2)
+				}
 			}
 
 			switch account.team.isFree {

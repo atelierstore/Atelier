@@ -11,10 +11,20 @@ import UserNotifications
 /// renewal ran into tells at once: Apple's code, no App IDs left, or the
 /// Apple ID's certificate gone. Each says it once a day at most. A tap opens
 /// the Library.
+///
+/// Atelier itself has two (#152, decided 11 Nov 2026), three days ahead and
+/// the day before, as once its own profile has ended it can't open to renew
+/// anything; and one the day before while the free Apple ID that installed
+/// it isn't signed in, which says to sign in.
 @MainActor
 enum RenewalNotifications {
 	static let prefix = "renewal."
 	private static let endingPrefix = prefix + "ending."
+	/// Atelier's own, besides the day before's.
+	private static let ownPrefix = prefix + "own."
+	private static let ownSoon = ownPrefix + "soon"
+	private static let ownSignIn = ownPrefix + "signin"
+	private static let ownLead: TimeInterval = 3 * 86_400
 	/// When each was last told, by identifier.
 	private static let toldKey = "renewalNotificationsTold"
 	private static let quiet: TimeInterval = 20 * 60 * 60
@@ -34,20 +44,47 @@ enum RenewalNotifications {
 			}
 		}
 
-		let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(endingPrefix) }
+		let own = SelfUpdate.shared
+		let pending = await center.pendingNotificationRequests().map(\.identifier).filter { $0.hasPrefix(endingPrefix) || $0.hasPrefix(ownPrefix) }
 		center.removePendingNotificationRequests(withIdentifiers: pending)
 		for app in apps {
-			let date = app.profile.expires.addingTimeInterval(-86_400)
-			guard date > now else { continue }
-			let content = UNMutableNotificationContent()
-			content.title = "\(app.name) stops opening tomorrow"
-			content.body = "Its profile ends at \(app.profile.expires.formatted(date: .omitted, time: .shortened)). Open Atelier to renew it, which takes a few seconds."
-			content.sound = .default
-			let trigger = UNTimeIntervalNotificationTrigger(timeInterval: date.timeIntervalSince(now), repeats: false)
-			try? await center.add(UNNotificationRequest(identifier: endingPrefix + app.profile.bundleID, content: content, trigger: trigger))
+			let expires = app.profile.expires
+			let isOwn = app.profile.bundleID == own.bundleID
+			// Atelier itself, three days ahead too (#152).
+			if isOwn {
+				await schedule(
+					ownSoon, at: expires.addingTimeInterval(-ownLead),
+					title: "\(app.name) stops opening in 3 days",
+					body: "Its own profile ends on \(AppProfileDays.describe(expires)). Open \(app.name) on Wi-Fi to renew it, which takes a few seconds.",
+					now: now
+				)
+			}
+			await schedule(
+				endingPrefix + app.profile.bundleID, at: expires.addingTimeInterval(-86_400),
+				title: "\(app.name) stops opening tomorrow",
+				body: isOwn
+					? "Open \(app.name) on Wi-Fi to renew it. Once its profile has ended, it has to be installed again."
+					: "Its profile ends at \(expires.formatted(date: .omitted, time: .shortened)). Open Atelier to renew it, which takes a few seconds.",
+				now: now
+			)
+		}
+		// Atelier itself, while the free Apple ID that installed it isn't
+		// signed in: the day before the profile in its build ends.
+		if let expires = own.needsAppleID(in: .shared)?.expires {
+			await schedule(
+				ownSignIn, at: expires.addingTimeInterval(-86_400),
+				title: "\(own.name) stops opening tomorrow",
+				body: "A free Apple ID installed it. Sign in with it in \(own.name), and \(own.name) renews itself.",
+				now: now
+			)
 		}
 		// Shown already, for an app that renewed since.
-		let renewed = apps.filter { $0.profile.expires.timeIntervalSince(now) > 86_400 }.map { endingPrefix + $0.profile.bundleID }
+		var renewed = apps.filter { $0.profile.expires.timeIntervalSince(now) > 86_400 }.map { endingPrefix + $0.profile.bundleID }
+		if let mine = apps.first(where: { $0.profile.bundleID == own.bundleID }) {
+			if mine.profile.expires.timeIntervalSince(now) > ownLead { renewed.append(ownSoon) }
+			// Signed in since.
+			renewed.append(ownSignIn)
+		}
 		center.removeDeliveredNotifications(withIdentifiers: renewed)
 
 		for account in CertificatesModel.shared.appleIDs {
@@ -95,6 +132,18 @@ enum RenewalNotifications {
 				}
 			}
 		}
+	}
+
+	/// Leaves it with iOS for `date`, so it comes even when Atelier doesn't
+	/// run; nothing once `date` has passed.
+	private static func schedule(_ identifier: String, at date: Date, title: String, body: String, now: Date) async {
+		guard date > now else { return }
+		let content = UNMutableNotificationContent()
+		content.title = title
+		content.body = body
+		content.sound = .default
+		let trigger = UNTimeIntervalNotificationTrigger(timeInterval: date.timeIntervalSince(now), repeats: false)
+		try? await UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: trigger))
 	}
 
 	/// Shows it now, unless it was told in the last 20 hours.
