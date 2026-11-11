@@ -255,8 +255,11 @@ enum HomeScreenLook {
 			return nil
 		}
 		let grid = reading.grid
-		say("page \(page + 1): \(size.width) × \(size.height), \(reading.grid == known ? "the grid from before" : "a grid found now"): columns \(rounded(grid.columns)), rows \(rounded(grid.rows)), at \(OpenSpacesFinder.readingWidth) px wide")
-		say("page \(page + 1): scores \(rounded(reading.scores)); empty \(reading.empty.map { $0 + 1 }); open spaces \(reading.openSpaces.map { $0 + 1 })\(reading.isDoubtful ? "; check this page" : "")")
+		let found = reading.grid == known ? "the grid from before" : "a grid found now"
+		say("page \(page + 1): \(size.width) × \(size.height), \(found): columns \(rounded(grid.columns)), rows \(rounded(grid.rows)), at \(OpenSpacesFinder.readingWidth) px wide")
+		let empty = places(reading.empty), openSpaces = places(reading.openSpaces)
+		let check = reading.isDoubtful ? "; check this page" : ""
+		say("page \(page + 1): scores \(rounded(reading.scores)); empty \(empty); open spaces \(openSpaces)\(check)")
 		if !reading.isDoubtful, let data = try? JSONEncoder().encode(grid) {
 			UserDefaults.standard.set(data, forKey: key)
 		}
@@ -272,7 +275,14 @@ enum HomeScreenLook {
 	}
 
 	private static func rounded(_ values: [Double]) -> String {
-		"[" + values.map { String(format: "%.0f", $0) }.joined(separator: ", ") + "]"
+		let parts = values.map { (value: Double) -> String in String(format: "%.0f", value) }
+		return "[\(parts.joined(separator: ", "))]"
+	}
+
+	/// Places counted from 1, as people count them.
+	private static func places(_ indices: [Int]) -> String {
+		let parts = indices.map { (index: Int) -> String in String(index + 1) }
+		return "[\(parts.joined(separator: ", "))]"
 	}
 
 	// MARK: Helpers
@@ -376,7 +386,9 @@ extension OpenSpacesFinder.Pixels {
 		      let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
 		      image.width > 0,
 		      let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
-		let height = max(Int((Double(image.height) * Double(width) / Double(image.width)).rounded()), 1)
+		let scale = Double(width) / Double(image.width)
+		let scaled = (Double(image.height) * scale).rounded()
+		let height = max(Int(scaled), 1)
 		var rgba = [UInt8](repeating: 0, count: width * height * 4)
 		let drawn = rgba.withUnsafeMutableBytes { buffer -> Bool in
 			guard let context = CGContext(

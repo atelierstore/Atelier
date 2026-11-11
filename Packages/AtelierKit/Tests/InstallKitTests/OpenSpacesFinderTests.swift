@@ -9,9 +9,10 @@ private struct Screen {
 	static let height = 1279
 	static let pitch = 140.0
 	static let icon = 98.0
-	static let columns = (0..<4).map { Double(width) / 2 + (Double($0) - 1.5) * pitch }
+	static let middle = Double(width) / 2
+	static let columns = OpenSpacesFinder.positions(4, from: middle - 1.5 * pitch, every: pitch)
 
-	var rows = (0..<6).map { 178 + Double($0) * pitch }
+	var rows = OpenSpacesFinder.positions(6, from: 178, every: pitch)
 	/// The places with an icon, row by row.
 	var icons: Set<Int>
 	/// Names under the icons, as iOS shows them unless they're hidden.
@@ -113,7 +114,7 @@ final class OpenSpacesFinderTests: XCTestCase {
 	func testFindsTheGridWithNamesUnderTheIcons() {
 		// With names, rows are further apart than columns.
 		var screen = Screen(icons: Set(0..<22), labels: true)
-		screen.rows = (0..<6).map { 165 + Double($0) * 156 }
+		screen.rows = OpenSpacesFinder.positions(6, from: 165, every: 156)
 		assertGrid(OpenSpacesFinder.grid(in: screen.pixels, items: 22), near: screen, within: 4)
 	}
 
@@ -143,7 +144,7 @@ final class OpenSpacesFinderTests: XCTestCase {
 
 	func testScattersOpenSpacesOnADarkPageWithNames() throws {
 		var screen = Screen(icons: Set(0..<24).subtracting([1, 6, 7, 13]).subtracting(20..<24), labels: true, dark: true)
-		screen.rows = (0..<6).map { 165 + Double($0) * 156 }
+		screen.rows = OpenSpacesFinder.positions(6, from: 165, every: 156)
 		let reading = try XCTUnwrap(OpenSpacesFinder.read(screen.pixels, items: screen.icons.count))
 		XCTAssertEqual(reading.openSpaces, [1, 6, 7, 13])
 	}
@@ -194,7 +195,8 @@ final class OpenSpacesFinderTests: XCTestCase {
 	func testPutsTheOpenSpacesBeforeTheirApps() {
 		let slots = (0..<20).map { app("a\($0)") }
 		let marked = OpenSpacesFinder.slots(slots, empty: [19, 20, 21, 22])
-		XCTAssertEqual(marked, Array(slots.prefix(19)) + Array(repeating: .gap, count: 4) + [slots[19]])
+		let expected: [HomeScreenSlot] = Array(slots.prefix(19)) + [HomeScreenSlot](repeating: .gap, count: 4) + [slots[19]]
+		XCTAssertEqual(marked, expected)
 	}
 
 	func testReplacesThePagesGaps() {

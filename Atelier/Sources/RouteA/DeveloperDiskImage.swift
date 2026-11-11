@@ -35,7 +35,9 @@ enum DeveloperDiskImage {
 	/// The kind this iPhone mounts, as StikDebug picks it.
 	static var kind: Kind {
 		let version = ProcessInfo.processInfo.operatingSystemVersion
-		return version.majorVersion > 26 || (version.majorVersion == 26 && version.minorVersion >= 4) ? .cryptex : .personalized
+		if version.majorVersion > 26 { return .cryptex }
+		if version.majorVersion == 26, version.minorVersion >= 4 { return .cryptex }
+		return .personalized
 	}
 
 	/// The files for this iPhone: kept from before, or downloaded now.

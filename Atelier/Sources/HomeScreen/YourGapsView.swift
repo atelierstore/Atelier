@@ -319,7 +319,7 @@ struct YourGapsView: View {
 					.foregroundStyle(.secondary)
 					.frame(maxWidth: .infinity, alignment: .leading)
 			} else if model.isFull {
-				Text("This page is full, so it has no open spaces." + heldNote + thenNote)
+				Text(verbatim: "This page is full, so it has no open spaces.\(heldNote)\(thenNote)")
 					.foregroundStyle(.secondary)
 					.multilineTextAlignment(.center)
 					.frame(maxWidth: .infinity)
@@ -331,14 +331,14 @@ struct YourGapsView: View {
 						.frame(maxWidth: .infinity)
 				case .failed(let message):
 					Label {
-						Text(message + thenNote)
+						Text(verbatim: "\(message)\(thenNote)")
 					} icon: {
 						Image(systemName: "exclamationmark.triangle.fill")
 							.foregroundStyle(.orange)
 					}
 					.frame(maxWidth: .infinity, alignment: .leading)
 				case .looking, nil:
-					Text("Atelier shows this page on your Home Screen for a moment and marks the open spaces it sees. " + markHint)
+					Text(verbatim: "Atelier shows this page on your Home Screen for a moment and marks the open spaces it sees. \(markHint)")
 						.foregroundStyle(.secondary)
 						.multilineTextAlignment(.center)
 						.frame(maxWidth: .infinity)
@@ -361,12 +361,14 @@ struct YourGapsView: View {
 			: "Check them, and tap to fix any it got wrong."
 		if doubtful { check = "Check this page: some places were hard to tell from apps. Tap to fix any it got wrong." }
 		let back = cameBack ? "" : " Atelier didn’t come back by itself."
-		return Text("\(Text(found).fontWeight(.semibold).foregroundStyle(.tint)) \(check)\(back)\(thenNote)")
+		let rest = " \(check)\(back)\(thenNote)"
+		let headline = Text(found).fontWeight(.semibold).foregroundStyle(.tint)
+		return Text("\(headline)\(rest)")
 	}
 
 	/// How to mark, and which offloaded apps' spots are kept on the page.
 	private var markHint: String {
-		"Tap an app to put an open space before it, as on your iPhone, and again for two. Tap an open space to take it out." + heldNote + thenNote
+		"Tap an app to put an open space before it, as on your iPhone, and again for two. Tap an open space to take it out.\(heldNote)\(thenNote)"
 	}
 
 	/// Which offloaded apps' spots are kept on the page, after a space.
@@ -393,18 +395,24 @@ struct YourGapsView: View {
 private struct FindSpacesGlyph: View {
 	var body: some View {
 		Canvas { context, size in
-			let unit = size.width / 24
-			let line = StrokeStyle(lineWidth: 2 * unit, lineCap: .round, lineJoin: .round)
-			func place(_ x: CGFloat, _ y: CGFloat) -> Path {
-				Path(roundedRect: CGRect(x: x * unit, y: y * unit, width: 7 * unit, height: 7 * unit), cornerRadius: 2 * unit)
+			// Drawn on a 24-point grid, scaled to the glyph's size.
+			let unit: CGFloat = size.width / 24
+			func scaled(_ value: CGFloat) -> CGFloat { value * unit }
+			func square(_ x: CGFloat, _ y: CGFloat, _ side: CGFloat) -> CGRect {
+				CGRect(x: scaled(x), y: scaled(y), width: scaled(side), height: scaled(side))
 			}
+			func place(_ x: CGFloat, _ y: CGFloat) -> Path {
+				Path(roundedRect: square(x, y, 7), cornerRadius: scaled(2))
+			}
+			let line = StrokeStyle(lineWidth: scaled(2), lineCap: .round, lineJoin: .round)
+			let dashed = StrokeStyle(lineWidth: scaled(2), dash: [scaled(2.4), scaled(2)])
 			context.stroke(place(3.5, 3.5), with: .foreground, style: line)
-			context.stroke(place(13.5, 3.5), with: .foreground, style: StrokeStyle(lineWidth: 2 * unit, dash: [2.4 * unit, 2 * unit]))
+			context.stroke(place(13.5, 3.5), with: .foreground, style: dashed)
 			context.stroke(place(3.5, 13.5), with: .foreground, style: line)
-			context.stroke(Path(ellipseIn: CGRect(x: 13.6 * unit, y: 13.6 * unit, width: 6.8 * unit, height: 6.8 * unit)), with: .foreground, style: line)
+			context.stroke(Path(ellipseIn: square(13.6, 13.6, 6.8)), with: .foreground, style: line)
 			var handle = Path()
-			handle.move(to: CGPoint(x: 19.5 * unit, y: 19.5 * unit))
-			handle.addLine(to: CGPoint(x: 21.5 * unit, y: 21.5 * unit))
+			handle.move(to: CGPoint(x: scaled(19.5), y: scaled(19.5)))
+			handle.addLine(to: CGPoint(x: scaled(21.5), y: scaled(21.5)))
 			context.stroke(handle, with: .foreground, style: line)
 		}
 		.frame(width: 19, height: 19)

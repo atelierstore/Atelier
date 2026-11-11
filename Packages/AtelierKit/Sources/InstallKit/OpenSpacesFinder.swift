@@ -130,7 +130,7 @@ public enum OpenSpacesFinder {
 		guard let frame = frame(in: pixels) else { return nil }
 		let height = Double(pixels.height)
 		func grid(_ first: Double) -> Grid {
-			Grid(columns: frame.columns, rows: (0..<HomeScreenLayout.pageRows).map { first + Double($0) * frame.spacing }, pitch: frame.pitch)
+			Grid(columns: frame.columns, rows: positions(HomeScreenLayout.pageRows, from: first, every: frame.spacing), pitch: frame.pitch)
 		}
 		// How far apart the icons' scores are from the empty places'.
 		func separation(_ first: Double, _ window: Window) -> Double {
@@ -181,7 +181,8 @@ public enum OpenSpacesFinder {
 		guard let most = edges.max(), most > 0 else { return nil }
 		var pitch = 0.0, best = -Double.infinity
 		for step in stride(from: 0.18 * Double(width), through: 0.28 * Double(width), by: 0.25) {
-			let value = (0..<4).reduce(0.0) { $0 + sample(edges, middle + (Double($1) - 1.5) * step) }
+			var value = 0.0
+			for centre in positions(4, from: middle - 1.5 * step, every: step) { value += sample(edges, centre) }
 			if value > best { (pitch, best) = (step, value) }
 		}
 		// Then exactly, from the icons' sides: the edges that run all the
@@ -192,15 +193,17 @@ public enum OpenSpacesFinder {
 		var sidePitch = pitch, sideBest = -Double.infinity
 		for step in stride(from: pitch - 6, through: pitch + 6, by: 0.25) {
 			for icon in stride(from: 0.5 * step, through: 0.85 * step, by: 0.5) {
-				let value = (0..<4).reduce(0.0) { total, column in
-					let centre = middle + (Double(column) - 1.5) * step
-					return total + sample(sides, centre - icon / 2) + sample(sides, centre + icon / 2)
+				let half = icon / 2
+				var value = 0.0
+				for centre in positions(4, from: middle - 1.5 * step, every: step) {
+					value += sample(sides, centre - half)
+					value += sample(sides, centre + half)
 				}
 				if value > sideBest { (sidePitch, sideBest) = (step, value) }
 			}
 		}
-		if sideBest > 8 * 2 * sideMean { pitch = sidePitch }
-		let columns = (0..<4).map { middle + (Double($0) - 1.5) * pitch }
+		if sideBest > 16 * sideMean { pitch = sidePitch }
+		let columns = positions(4, from: middle - 1.5 * pitch, every: pitch)
 
 		// The edges down the columns, for the rows' spacing.
 		var inColumns = [Double](repeating: 0, count: height)
@@ -294,8 +297,13 @@ public enum OpenSpacesFinder {
 			self.coreTerms = coreTerms
 			var normal = [[Double]](repeating: [Double](repeating: 0, count: 6), count: 6)
 			for k in 0..<(ring.count / 2) {
+				let at = k * 6
 				for i in 0..<6 {
-					for j in 0..<6 { normal[i][j] += ringTerms[k * 6 + i] * ringTerms[k * 6 + j] }
+					let first: Double = ringTerms[at + i]
+					for j in 0..<6 {
+						let second: Double = ringTerms[at + j]
+						normal[i][j] += first * second
+					}
 				}
 			}
 			inverse = Self.inverted(normal).flatMap { $0 }
@@ -315,19 +323,30 @@ public enum OpenSpacesFinder {
 								let px = x + ring[2 * k], py = y + ring[2 * k + 1]
 								guard px >= 0, px < width, py >= 0, py < height else { continue }
 								let i = (py * width + px) * 4
+								let termsAt = k * 6
 								for channel in 0..<3 {
 									let v = Double(rgba[i + channel])
-									for term in 0..<6 { moments[channel * 6 + term] += terms[k * 6 + term] * v }
+									let momentsAt = channel * 6
+									for term in 0..<6 {
+										let weight: Double = terms[termsAt + term]
+										moments[momentsAt + term] += weight * v
+									}
 								}
 							}
 						}
 					}
 				}
 				for channel in 0..<3 {
+					let at = channel * 6
 					for row in 0..<6 {
+						let rowAt = row * 6
 						var sum = 0.0
-						for column in 0..<6 { sum += inverse[row * 6 + column] * moments[channel * 6 + column] }
-						fit[channel * 6 + row] = sum
+						for column in 0..<6 {
+							let weight: Double = inverse[rowAt + column]
+							let moment: Double = moments[at + column]
+							sum += weight * moment
+						}
+						fit[at + row] = sum
 					}
 				}
 				core.withUnsafeBufferPointer { core in
@@ -337,10 +356,17 @@ public enum OpenSpacesFinder {
 								let px = x + core[2 * k], py = y + core[2 * k + 1]
 								guard px >= 0, px < width, py >= 0, py < height else { continue }
 								let i = (py * width + px) * 4
+								let termsAt = k * 6
 								for channel in 0..<3 {
+									let fitAt = channel * 6
 									var expected = 0.0
-									for term in 0..<6 { expected += fit[channel * 6 + term] * terms[k * 6 + term] }
-									total += abs(Double(rgba[i + channel]) - expected)
+									for term in 0..<6 {
+										let coefficient: Double = fit[fitAt + term]
+										let value: Double = terms[termsAt + term]
+										expected += coefficient * value
+									}
+									let actual = Double(rgba[i + channel])
+									total += abs(actual - expected)
 									count += 1
 								}
 							}
@@ -355,9 +381,11 @@ public enum OpenSpacesFinder {
 		static func inverted(_ matrix: [[Double]]) -> [[Double]] {
 			let n = matrix.count
 			var a = matrix
-			var result = (0..<n).map { i in (0..<n).map { $0 == i ? 1.0 : 0.0 } }
+			var result = [[Double]](repeating: [Double](repeating: 0, count: n), count: n)
+			for i in 0..<n { result[i][i] = 1 }
 			for column in 0..<n {
-				let pivot = (column..<n).max { abs(a[$0][column]) < abs(a[$1][column]) } ?? column
+				var pivot = column
+				for row in (column + 1)..<n where abs(a[row][column]) > abs(a[pivot][column]) { pivot = row }
 				a.swapAt(column, pivot)
 				result.swapAt(column, pivot)
 				let divisor = a[column][column]
@@ -398,11 +426,18 @@ public enum OpenSpacesFinder {
 	// MARK: Helpers
 
 	static func luminance(_ pixels: Pixels) -> [Double] {
+		let count = pixels.width * pixels.height
+		var light = [Double](repeating: 0, count: count)
 		pixels.rgba.withUnsafeBufferPointer { rgba in
-			(0..<(pixels.width * pixels.height)).map { i in
-				0.299 * Double(rgba[i * 4]) + 0.587 * Double(rgba[i * 4 + 1]) + 0.114 * Double(rgba[i * 4 + 2])
+			light.withUnsafeMutableBufferPointer { light in
+				for i in 0..<count {
+					let red = Double(rgba[i * 4]), green = Double(rgba[i * 4 + 1]), blue = Double(rgba[i * 4 + 2])
+					let value: Double = 0.299 * red + 0.587 * green + 0.114 * blue
+					light[i] = value
+				}
 			}
 		}
+		return light
 	}
 
 	/// How sharply the brightness changes at each pixel: across, which
@@ -419,14 +454,28 @@ public enum OpenSpacesFinder {
 					for y in 1..<(height - 1) {
 						for x in 1..<(width - 1) {
 							let i = y * width + x
-							a[i] = abs(l[i + 1] - l[i - 1])
-							d[i] = abs(l[i + width] - l[i - width])
+							let right: Double = l[i + 1], left: Double = l[i - 1]
+							let below: Double = l[i + width], above: Double = l[i - width]
+							a[i] = abs(right - left)
+							d[i] = abs(below - above)
 						}
 					}
 				}
 			}
 		}
 		return (across, down)
+	}
+
+	/// `count` positions `step` apart, the first at `start`: a grid's
+	/// columns or rows.
+	static func positions(_ count: Int, from start: Double, every step: Double) -> [Double] {
+		var positions: [Double] = []
+		positions.reserveCapacity(count)
+		for index in 0..<count {
+			let offset = Double(index) * step
+			positions.append(start + offset)
+		}
+		return positions
 	}
 
 	/// The mean of each value and the `radius` on either side of it.
