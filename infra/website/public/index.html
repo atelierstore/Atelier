@@ -123,7 +123,7 @@
         <article class="feature">
           <span class="f-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="9.5" r="5.5"/><path d="M9.6 9.6l1.7 1.6 3.2-3.3"/><path d="M8.5 14l-1.5 7 5-2.5 5 2.5-1.5-7"/></svg></span>
           <h3>Your certificate or Apple ID</h3>
-          <p>Import a certificate from a signing service, or sign in with a free or paid Apple ID, as AltStore and SideStore do. Atelier supports multiple Apple IDs simultaneously, so free ones can add more new apps a week. With an Apple ID, widgets keep showing their app's data too.</p>
+          <p>Import a certificate from a signing service, or sign in with a free or paid Apple ID, as AltStore and SideStore do. Atelier supports multiple Apple IDs simultaneously, so free ones can add more new apps a week. With an Apple ID, or a certificate that comes with App Groups, widgets keep showing their app's data too.</p>
         </article>
         <article class="feature">
           <span class="f-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.35-5.65"/><path d="M20 4v4.5h-4.5"/><path d="M12 8v4.5l3 1.8"/></svg></span>
@@ -235,8 +235,8 @@
         </details>
         <details>
           <summary>Do widgets and extensions work?</summary>
-          <p>With an Apple ID, yes. An app shares its data with its widgets and extensions, like its share sheet or keyboard, through what Apple calls App Groups. Signed with your Apple ID, those groups get new names, and most apps only look under the old ones, so their widgets would come up empty. Atelier adds the groups to your Apple ID and puts a small library in the app that points the old names to the new ones, so the widget shows what the app has. If an app doesn't open with it, turn off Share App Groups in Custom Install › Advanced.</p>
-          <p>With a signing service's certificate, widgets and extensions still open, but usually can't see the app's data: the service decides which App Groups there are.</p>
+          <p>Yes, with an Apple ID, and with a certificate that comes with App Groups. An app shares its data with its widgets and extensions, like its share sheet or keyboard, through what Apple calls App Groups. An app signed again for you can't keep its own App Groups, and most apps only look under those names, so their widgets would come up empty. So Atelier puts a small library in the app that points those names to App Groups you do have, and the widget shows what the app has. If an app doesn't open with it, turn off Share App Groups in Custom Install › Advanced.</p>
+          <p>With an Apple ID, Atelier adds the app's App Groups to your Apple ID under new names. A signing service's certificate can come with a few App Groups of its own, so Atelier gives each app a folder of its own in one of them. Every app signed with that certificate can reach those App Groups, so in principle one of your apps could read another's folder. If the certificate has no App Groups, widgets and extensions still open, but can't see the app's data.</p>
         </details>
         <details>
           <summary>Do I need a computer?</summary>

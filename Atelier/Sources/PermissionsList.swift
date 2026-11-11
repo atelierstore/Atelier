@@ -70,13 +70,19 @@ private struct CapabilityRow: View {
 				Text(detail)
 					.font(.footnote)
 			}
-			// The names the app asks for, and the ones its signing has (#49).
+			// The names the app asks for, and the ones its signing has, with a
+			// certificate's folder for each (#49).
 			ForEach(capability.renamedValues.keys.sorted(), id: \.self) { own in
 				VStack(alignment: .leading, spacing: 2) {
 					Text(own)
 						.foregroundStyle(.secondary)
 					Text("→ \(capability.renamedValues[own] ?? own)")
 						.foregroundStyle(.green)
+					if let folder = capability.folders[own] {
+						Text(folder)
+							.foregroundStyle(.green)
+							.padding(.leading, 14)
+					}
 				}
 				.font(.caption.monospaced())
 				.textSelection(.enabled)

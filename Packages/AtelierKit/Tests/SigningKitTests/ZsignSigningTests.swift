@@ -129,24 +129,190 @@ final class ZsignSigningTests: XCTestCase {
 			return 0;
 		}
 		""".utf8).write(to: source)
-		let info = folder.appendingPathComponent("Info.plist")
-		try PropertyListSerialization.data(fromPropertyList: [
-			"CFBundleIdentifier": "com.example.appgroupstool",
-			AppGroupRedirect.infoKey: [own: team],
-		] as [String: Any], format: .xml, options: 0).write(to: info)
-		let frameworks = folder.appendingPathComponent("Frameworks", isDirectory: true)
+		let output = try runAppGroupsTool(source: source, library: library, info: [AppGroupRedirect.infoKey: [own: team]])
+		let lines = output.split(separator: "\n").map(String.init)
+		XCTAssertTrue(lines.contains("suite shared"), output)
+		XCTAssertTrue(lines.contains("added found"), output)
+		// macOS can refuse group folders to a tool; when it gives one, it's the team's.
+		if let folders = lines.first(where: { $0.hasPrefix("folder ") }), !folders.hasSuffix(" none") {
+			XCTAssertEqual(folders, "folder \(team) \(team)", output)
+		}
+		XCTAssertTrue(lines.contains("other group.com.example.other") || lines.contains("other none"), output)
+	}
+
+	/// What the library relies on to keep a group's settings in a folder
+	/// with a certificate: Foundation keeps settings it's given a folder for
+	/// in that folder's Library/Preferences, in a file named after them, as
+	/// iOS keeps a group's in its folder.
+	func testFoundationKeepsSettingsInTheFolderItIsGiven() throws {
+		let container = folder.appendingPathComponent("container", isDirectory: true)
+		try FileManager.default.createDirectory(at: container.appendingPathComponent("Library/Preferences"), withIntermediateDirectories: true)
+		let suite = "group.com.example.signingtest.\(UUID().uuidString.prefix(8))"
+		let source = folder.appendingPathComponent("settings.m")
+		try Data("""
+		#import <Foundation/Foundation.h>
+		@interface NSUserDefaults (Container)
+		- (instancetype)_initWithSuiteName:(NSString *)suiteName container:(NSURL *)container;
+		@end
+		int main(void) {
+			@autoreleasepool {
+				if (![NSUserDefaults instancesRespondToSelector:@selector(_initWithSuiteName:container:)]) { printf("missing\\n"); return 0; }
+				NSURL *container = [NSURL fileURLWithPath:@"\(container.path)" isDirectory:YES];
+				NSUserDefaults *settings = [[NSUserDefaults alloc] _initWithSuiteName:@"\(suite)" container:container];
+				[settings setObject:@"kept" forKey:@"AtelierAppGroupsTest"];
+				[settings synchronize];
+				NSUserDefaults *again = [[NSUserDefaults alloc] _initWithSuiteName:@"\(suite)" container:container];
+				printf("read %s\\n", ([again stringForKey:@"AtelierAppGroupsTest"] ?: @"none").UTF8String);
+				NSUserDefaults *elsewhere = [[NSUserDefaults alloc] initWithSuiteName:@"\(suite)"];
+				printf("elsewhere %s\\n", ([elsewhere stringForKey:@"AtelierAppGroupsTest"] ?: @"none").UTF8String);
+			}
+			return 0;
+		}
+		""".utf8).write(to: source)
+		let tool = folder.appendingPathComponent("settings")
+		let built = try Shell.run("xcrun", "clang", "-fobjc-arc", "-framework", "Foundation", "-o", tool.path, source.path)
+		XCTAssertEqual(built.status, 0, built.output)
+		let output = try Self.runTool(tool)
+		let lines = output.split(separator: "\n").map(String.init)
+		XCTAssertTrue(lines.contains("read kept"), output)
+		XCTAssertTrue(lines.contains("elsewhere none"), "not where settings of that name are kept otherwise: \(output)")
+		let file = container.appendingPathComponent("Library/Preferences/\(suite).plist")
+		var written: [String: Any]?
+		for _ in 0..<20 where written == nil {
+			written = (try? Data(contentsOf: file)).flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) as? [String: Any] }
+			if written == nil { Thread.sleep(forTimeInterval: 0.1) }
+		}
+		XCTAssertEqual(written?["AtelierAppGroupsTest"] as? String, "kept", "in \(file.path)")
+	}
+
+	/// With a certificate, the library keeps the app's groups in folders of
+	/// their own in the certificate's group, and their settings in those:
+	/// run on this Mac, as above. macOS can refuse group folders to a tool,
+	/// and then the app's are where they'd be without a group.
+	func testTheAppGroupsLibraryKeepsTheAppsGroupsInFolders() throws {
+		let library = try FixtureApp.appGroupsLibrary(sdk: "macosx", in: folder)
+		let id = UUID().uuidString.prefix(8)
+		let own = "group.com.example.signingtest.\(id)"
+		let home = "group.com.example.signingtest.certificate.\(id)"
+		let source = folder.appendingPathComponent("tool.m")
+		try Data("""
+		#import <Foundation/Foundation.h>
+		int main(void) {
+			@autoreleasepool {
+				NSURL *home = [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:@"\(home)"];
+				NSURL *own = [NSFileManager.defaultManager containerURLForSecurityApplicationGroupIdentifier:@"\(own.uppercased())"];
+				printf("home %s\\n", (home.path ?: @"none").UTF8String);
+				printf("folder %s\\n", (own.path ?: @"none").UTF8String);
+				NSUserDefaults *settings = [[NSUserDefaults alloc] initWithSuiteName:@"\(own)"];
+				[settings setObject:@"kept" forKey:@"AtelierAppGroupsTest"];
+				[settings synchronize];
+				NSUserDefaults *again = [[NSUserDefaults alloc] initWithSuiteName:@"\(own)"];
+				printf("settings %s\\n", ([again stringForKey:@"AtelierAppGroupsTest"] ?: @"none").UTF8String);
+				[again removeObjectForKey:@"AtelierAppGroupsTest"];
+			}
+			return 0;
+		}
+		""".utf8).write(to: source)
+		let output = try runAppGroupsTool(source: source, library: library, info: [
+			AppGroupRedirect.infoKey: [own: home],
+			AppGroupRedirect.foldersKey: [own: "Atelier/\(own)"],
+		])
+		let lines = output.split(separator: "\n").map(String.init)
+		XCTAssertTrue(lines.contains("settings kept"), output)
+		let homePath = try XCTUnwrap(lines.first { $0.hasPrefix("home ") }).dropFirst("home ".count)
+		guard homePath != "none" else {
+			XCTAssertTrue(lines.contains("folder none"), output)
+			return
+		}
+		let groupFolder = URL(fileURLWithPath: String(homePath), isDirectory: true)
+		// Only the test's own group, which is named after its ID.
+		defer { if groupFolder.lastPathComponent == home { try? FileManager.default.removeItem(at: groupFolder) } }
+		// macOS gives its URL, but may not let anything be written there.
+		guard (try? FileManager.default.createDirectory(at: groupFolder, withIntermediateDirectories: true)) != nil else { return }
+		let kept = groupFolder.appendingPathComponent("Atelier/\(own)", isDirectory: true)
+		XCTAssertTrue(lines.contains("folder \(kept.path)"), output)
+		var isDirectory: ObjCBool = false
+		XCTAssertTrue(FileManager.default.fileExists(atPath: kept.appendingPathComponent("Library/Caches").path, isDirectory: &isDirectory) && isDirectory.boolValue)
+		// Its settings, and the library's check that they're kept there.
+		XCTAssertTrue(FileManager.default.fileExists(atPath: kept.appendingPathComponent("Library/Preferences/\(own).plist").path), output)
+		XCTAssertTrue(FileManager.default.fileExists(atPath: kept.appendingPathComponent("Library/Preferences/\(own).atelier-check.plist").path), output)
+	}
+
+	/// Settings an app saved under its group's own name while it had none,
+	/// which iOS kept in its own folder, move to where the library sends
+	/// the name, once, without replacing what's there: run on this Mac as an
+	/// app, since only the app moves them.
+	func testTheAppGroupsLibraryMovesAnAppsSettingsOnce() throws {
+		let library = try FixtureApp.appGroupsLibrary(sdk: "macosx", in: folder)
+		let own = "group.com.example.signingtest.\(UUID().uuidString.prefix(8))"
+		let team = own + ".TEAMID1234"
+		let record = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/AtelierAppGroups.plist")
+		let before = try? Data(contentsOf: record)
+		defer {
+			UserDefaults.standard.removePersistentDomain(forName: own)
+			UserDefaults.standard.removePersistentDomain(forName: team)
+			if let before { try? before.write(to: record) } else { try? FileManager.default.removeItem(at: record) }
+		}
+		let saved = try XCTUnwrap(UserDefaults(suiteName: own))
+		saved.set("before", forKey: "AtelierAppGroupsMoved")
+		saved.set("before", forKey: "AtelierAppGroupsThere")
+		let there = try XCTUnwrap(UserDefaults(suiteName: team))
+		there.set("there", forKey: "AtelierAppGroupsThere")
+		XCTAssertTrue(CFPreferencesAppSynchronize(own as CFString) && CFPreferencesAppSynchronize(team as CFString))
+
+		let source = folder.appendingPathComponent("tool.m")
+		try Data("""
+		#import <Foundation/Foundation.h>
+		int main(void) {
+			@autoreleasepool {
+				NSUserDefaults *settings = [[NSUserDefaults alloc] initWithSuiteName:@"\(own)"];
+				printf("moved %s\\n", ([settings stringForKey:@"AtelierAppGroupsMoved"] ?: @"none").UTF8String);
+				printf("there %s\\n", ([settings stringForKey:@"AtelierAppGroupsThere"] ?: @"none").UTF8String);
+				[settings removeObjectForKey:@"AtelierAppGroupsMoved"];
+				[settings synchronize];
+			}
+			return 0;
+		}
+		""".utf8).write(to: source)
+		let info: [String: Any] = [AppGroupRedirect.infoKey: [own: team]]
+		var lines = try runAppGroupsTool(source: source, library: library, info: info, asApp: true).split(separator: "\n").map(String.init)
+		XCTAssertTrue(lines.contains("moved before"), "\(lines)")
+		XCTAssertTrue(lines.contains("there there"), "\(lines)")
+		// Removed by the app, it stays removed.
+		lines = try runAppGroupsTool(source: source, library: library, info: info, asApp: true).split(separator: "\n").map(String.init)
+		XCTAssertTrue(lines.contains("moved none"), "\(lines)")
+		XCTAssertTrue(lines.contains("there there"), "\(lines)")
+	}
+
+	/// Builds `source` into a tool that loads the App Groups library as
+	/// Atelier has apps load it, with `info` in its Info.plist, as an app's
+	/// bundle when `asApp`, runs it and returns what it printed.
+	private func runAppGroupsTool(source: URL, library: URL, info: [String: Any], asApp: Bool = false) throws -> String {
+		let root = folder.appendingPathComponent("tool-\(UUID().uuidString)", isDirectory: true)
+		let executables = asApp ? root.appendingPathComponent("Tool.app/Contents/MacOS", isDirectory: true) : root
+		let frameworks = executables.appendingPathComponent("Frameworks", isDirectory: true)
 		try FileManager.default.createDirectory(at: frameworks, withIntermediateDirectories: true)
 		try FileManager.default.copyItem(at: library, to: frameworks.appendingPathComponent(AppGroupRedirect.fileName))
-		let tool = folder.appendingPathComponent("tool")
+		let plist = root.appendingPathComponent("Info.plist")
+		var values = info
+		values["CFBundleIdentifier"] = "com.example.appgroupstool"
+		values["CFBundleExecutable"] = "tool"
+		try PropertyListSerialization.data(fromPropertyList: values, format: .xml, options: 0).write(to: plist)
+		if asApp { try FileManager.default.copyItem(at: plist, to: root.appendingPathComponent("Tool.app/Contents/Info.plist")) }
+		let tool = executables.appendingPathComponent("tool")
 		// With room for another load command, which a macOS tool's
 		// headers don't leave by themselves.
-		let built = try Shell.run("xcrun", "clang", "-fobjc-arc", "-framework", "Foundation", "-Wl,-headerpad,0x1000", "-Wl,-sectcreate,__TEXT,__info_plist,\(info.path)", "-o", tool.path, source.path)
+		let built = try Shell.run("xcrun", "clang", "-fobjc-arc", "-framework", "Foundation", "-Wl,-headerpad,0x1000", "-Wl,-sectcreate,__TEXT,__info_plist,\(plist.path)", "-o", tool.path, source.path)
 		XCTAssertEqual(built.status, 0, built.output)
 		// Loaded as Atelier has apps load it, then signed again for macOS to run it.
 		XCTAssertTrue(ZsignEngine().load(AppGroupRedirect.appPath, into: tool))
 		let resigned = try Shell.run("codesign", "--force", "--sign", "-", tool.path)
 		XCTAssertEqual(resigned.status, 0, resigned.output)
+		return try Self.runTool(tool)
+	}
 
+	/// Runs `tool` and returns what it printed, once it exited cleanly.
+	private static func runTool(_ tool: URL) throws -> String {
 		let process = Process()
 		process.executableURL = tool
 		let pipe = Pipe()
@@ -156,14 +322,7 @@ final class ZsignSigningTests: XCTestCase {
 		let output = String(decoding: pipe.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
 		process.waitUntilExit()
 		XCTAssertEqual(process.terminationStatus, 0, output)
-		let lines = output.split(separator: "\n").map(String.init)
-		XCTAssertTrue(lines.contains("suite shared"), output)
-		XCTAssertTrue(lines.contains("added found"), output)
-		// macOS can refuse group folders to a tool; when it gives one, it's the team's.
-		if let folders = lines.first(where: { $0.hasPrefix("folder ") }), !folders.hasSuffix(" none") {
-			XCTAssertEqual(folders, "folder \(team) \(team)", output)
-		}
-		XCTAssertTrue(lines.contains("other group.com.example.other") || lines.contains("other none"), output)
+		return output
 	}
 
 	func testWrongPasswordIsABadCertificate() async throws {

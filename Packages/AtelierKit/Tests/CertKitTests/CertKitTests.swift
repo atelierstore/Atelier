@@ -92,6 +92,24 @@ final class ProvisioningProfileTests: XCTestCase {
 		XCTAssertEqual(profile.entitlements["aps-environment"], "production")
 	}
 
+	/// The App Groups a certificate's profile has, which keep an app's own
+	/// in folders (#49): never a pattern.
+	func testAppGroups() throws {
+		func profile(_ groups: Any?) throws -> ProvisioningProfile {
+			var entitlements: [String: Any] = ["application-identifier": "S7GNTEAM42.app.otter4812.mango3307"]
+			entitlements["com.apple.security.application-groups"] = groups
+			return try ProvisioningProfile(plist: [
+				"Name": "Signulous", "UUID": "1", "TeamIdentifier": ["S7GNTEAM42"],
+				"ExpirationDate": Fixture.utc(2027, 1, 1), "DeveloperCertificates": [Data()],
+				"Entitlements": entitlements,
+			])
+		}
+		XCTAssertEqual(try profile(["group.5f3c9a1e7b2d4806.2", "group.5f3c9a1e7b2d4806.1"]).appGroups, ["group.5f3c9a1e7b2d4806.2", "group.5f3c9a1e7b2d4806.1"])
+		XCTAssertEqual(try profile(["group.example.*", "group.a"]).appGroups, ["group.a"])
+		XCTAssertEqual(try profile([String]()).appGroups, [])
+		XCTAssertEqual(try profile(nil).appGroups, [])
+	}
+
 	func testProfileKinds() throws {
 		XCTAssertEqual(try ProvisioningProfile(data: Fixture.data("enterprise.mobileprovision")).kind, .enterprise)
 		XCTAssertEqual(try ProvisioningProfile(data: Fixture.data("appstore.mobileprovision")).kind, .appStore)
