@@ -131,7 +131,7 @@ export async function examine(files, password, openP12, now = new Date()) {
  *  each one's UDID and models (devices.js), for the visitor to compare. */
 function devicesRow(profile) {
   if (profile.kind === "appStore") {
-    return { state: "bad", text: "This certificate can only sign apps for the App Store and TestFlight, not for this iPhone." };
+    return { state: "bad", text: "This certificate can only sign apps for the App Store and TestFlight, not for your iPhone." };
   }
   if (profile.kind === "enterprise") return { state: "ok", lead: "Any iPhone", text: " can install it: enterprise profiles don't list devices" };
   const devices = profileDevices(profile);

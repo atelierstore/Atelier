@@ -28,6 +28,27 @@ enabled = false
 tag = "v1"
 new_sqlite_classes = ["SignedApp"]
 
+# The Durable Object that keeps the IPAs GitHub Actions builds for 7 days
+# (src/builds.js), the same way.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["BuildApp"]
+
+[vars]
+# Whose builds /builds keeps: only this repo's build workflow can send them,
+# with the token GitHub Actions gives it. Its ID too, which a repo made later
+# under the same name wouldn't have.
+BUILDS_REPOSITORY = "atelierstore/Atelier"
+BUILDS_REPOSITORY_ID = "1453990179"
+
+# Each build's record, with all its addresses, which only Cloudflare API
+# tokens for the account can read (src/builds.js). Without an ID, the first
+# deploy makes the namespace, named after the Worker, and later deploys keep
+# it (Wrangler 4.45 or later). Its ID is in the dashboard: Storage & databases
+# › Workers KV.
+[[kv_namespaces]]
+binding = "BUILDS"
+
 # Pull requests' builds run `npx wrangler preview`, which needs this block
 # (it can be empty) and makes a Preview of the site named after the branch.
 # A Preview doesn't take observability from above, so it's turned off here too.

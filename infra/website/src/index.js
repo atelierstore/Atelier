@@ -8,25 +8,31 @@
 // the certificate page, /ota and what's under it: the signed Atelier the
 // page uploads, which iOS installs from here, kept for 10 minutes at most
 // (see ota.js), and /ocsp, which asks Apple whether a certificate was
-// revoked (see ocsp-relay.js).
+// revoked (see ocsp-relay.js). For CI, /builds and what's under it: the
+// IPAs GitHub Actions builds, kept for 7 days for Safari and Atelier's install
+// links (see builds.js).
 
+import { builds } from "./builds.js";
 import { json } from "./http.js";
 import { IPAError, ReachError, readApp } from "./ipa.js";
 import { ocspRelay } from "./ocsp-relay.js";
 import { ota } from "./ota.js";
 import { SourceError, readSource } from "./source.js";
 
-// The Durable Object that keeps what the certificate page uploads (ota.js).
+// The Durable Objects that keep what the certificate page uploads (ota.js)
+// and CI's builds (builds.js).
 export { SignedApp } from "./ota.js";
+export { BuildApp } from "./builds.js";
 
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
-    if (url.pathname === "/install/app") return installApp(request);
+    if (url.pathname === "/install/app") return installApp(request, { fetch: withOwnBuilds(request, env, ctx) });
     if (url.pathname === "/source/info") return sourceInfo(request);
     // ctx.exports has the Durable Objects this file exports, with no binding
     // to set up, in Previews too.
     if (url.pathname === "/ota" || url.pathname.startsWith("/ota/")) return ota(request, ctx.exports.SignedApp);
+    if (url.pathname === "/builds" || url.pathname.startsWith("/builds/")) return builds(request, env, ctx.exports.BuildApp);
     if (url.pathname === "/ocsp") return ocspRelay(request);
     // Whatever else static assets didn't match, such as a 404.
     return env.ASSETS.fetch(request);
@@ -83,6 +89,22 @@ export async function sourceInfo(request, options = {}) {
     if (error instanceof ReachError) return json({ error: `The source can't be reached: ${error.message}` }, 502);
     throw error;
   }
+}
+
+/** fetch, except that the site's own builds, which an install link of a
+ *  build names, are read from their Durable Objects rather than over the
+ *  network, which would bring the request back to this Worker. */
+export function withOwnBuilds(request, env, ctx) {
+  const origin = new URL(request.url).origin;
+  return async (input, init) => {
+    const url = new URL(input instanceof Request ? input.url : input);
+    if (url.origin !== origin || !url.pathname.startsWith("/builds/")) return fetch(input, init);
+    const response = await builds(new Request(input, init), env, ctx.exports.BuildApp);
+    // Without the address the object was asked at (https://build-app/…),
+    // which the runtime gives as the answer's url: ipa.js takes a url other
+    // than its own for a redirect, and would read the rest from there.
+    return new Response(response.body, response);
+  };
 }
 
 /** The IPA's or the source's address, which the page sends as Atelier

@@ -1,0 +1,7 @@
+# Where the site's Donate buttons go: the one at the end of every page's
+# nav, the one in every footer and the one in the home page's last section
+# all open /donate, which sends people on to Atelier's page on Ko-fi, so
+# its address is only here. The home page's section names Ko-fi too. A 302,
+# so browsers don't hold on to the address when it changes. Workers static
+# assets reads this file; it isn't served itself.
+/donate https://ko-fi.com/atelierapp 302

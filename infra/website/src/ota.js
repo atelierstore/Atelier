@@ -1,5 +1,6 @@
 // Installing Atelier from the certificate page (#152), which signs it in
-// Safari. The page uploads the signed IPA here, and iOS's install alert reads
+// Safari, or on a computer, which shows a code the iPhone scans to install it
+// (public/certificate/install.html). The page uploads the signed IPA here, and iOS's install alert reads
 // its manifest and downloads it from here, as route B serves them from
 // Atelier itself (docs/route-b.md). Each upload is kept by a Durable Object
 // of its own (SignedApp), named by a random token in its addresses, and goes
@@ -37,9 +38,11 @@ const RELEASE_IPA = /^https:\/\/github\.com\/atelierstore\/atelier\/releases\/do
  *    iOS's install alert, where the page follows the install, and when the
  *    IPA goes (an ISO date). An IPA over MAX_SIZE gets a 413, and one that
  *    can't be read or isn't Atelier a 422, each with {error}.
- *  - GET /ota/<token> is that install as {state, expires}: `waiting` for the
- *    user to tap Install, `downloading` once iOS asks for the IPA, and
- *    `downloaded` once it has had all of it. A 404 once it's gone.
+ *  - GET /ota/<token> is that install as {state, expires, version, size}:
+ *    `waiting` until iOS reads the manifest, `asked` while iOS asks the user
+ *    whether to install it, `downloading` once iOS asks for the IPA, and
+ *    `downloaded` once it has had all of it, with the app's version and the
+ *    IPA's size. A 404 once it's gone.
  *  - GET /ota/<token>/manifest.plist is the manifest iOS reads, and GET or
  *    HEAD /ota/<token>/Atelier.ipa the IPA.
  *  - GET /ota/release?url=<one of Atelier's releases' IPAs> passes that IPA
@@ -57,12 +60,15 @@ export async function ota(request, apps, fetchImpl = fetch) {
     case undefined: {
       if (request.method !== "GET") return notAllowed("GET");
       const info = await kept(app);
-      return info ? json({ state: info.state, expires: new Date(info.expires).toISOString() }, 200) : notFound();
+      if (!info) return notFound();
+      return json({ state: info.state, expires: new Date(info.expires).toISOString(), version: info.version, size: info.size }, 200);
     }
     case "manifest.plist": {
       if (request.method !== "GET") return notAllowed("GET");
       const info = await kept(app);
       if (!info) return notFound();
+      // iOS reads it before it asks whether to install the app.
+      if (info.state === "waiting") await app.fetch("https://signed-app/asked", { method: "POST" });
       return new Response(manifest({ ...info, ipa: `${base}/Atelier.ipa`, image: `${url.origin}/apple-touch-icon.png` }), {
         headers: { "Content-Type": "application/xml; charset=utf-8", ...HEADERS },
       });
@@ -98,7 +104,7 @@ async function upload(request, apps) {
 }
 
 /** What the object keeps about its app, or null once it's gone. */
-async function kept(app) {
+export async function kept(app) {
   const response = await app.fetch("https://signed-app/app");
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`SignedApp answered HTTP ${response.status}`);
@@ -107,7 +113,7 @@ async function kept(app) {
 
 /** The request's Range header, the only one of its headers the object
  *  needs. */
-function rangeOnly(request) {
+export function rangeOnly(request) {
   const range = request.headers.get("Range");
   return range ? { Range: range } : {};
 }
@@ -124,7 +130,7 @@ function isRelease(address) {
 }
 
 /** A token no one can guess: 128 random bits, in hex. */
-function newToken() {
+export function newToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -248,12 +254,20 @@ export function byteRange(header, size) {
 
 /** Keeps one uploaded IPA, until its alarm. It keeps the IPA in parts
  *  (`part0`, `part1`, …) and what it knows about it under `app`: {bundleID,
- *  name, version, build, size, parts, state, expires}. The Worker asks it:
- *  - PUT /ipa, with the IPA as the body: keeps it, and answers 201 with
- *    `app`, or 413 or 422 with {error}.
+ *  name, version, build, size, parts, state, expires}, and `file`, the IPA's
+ *  file name, when the upload gave one. The Worker asks it:
+ *  - PUT /ipa, with the IPA as the body, and optionally ?file=<its name>:
+ *    keeps it, and answers 201 with `app`, or 413 or 422 with {error}.
  *  - GET /app: `app`, or a 404 once it's gone.
- *  - GET or HEAD /ipa: the IPA, or the part a Range header asks for. */
+ *  - POST /asked: iOS has read the manifest, so the state goes from
+ *    `waiting` to `asked`.
+ *  - GET or HEAD /ipa: the IPA, or the part a Range header asks for; with
+ *    ?file=<name>, a 404 unless that's the upload's file name.
+ *  BuildApp (builds.js) keeps builds the same way, for longer. */
 export class SignedApp {
+  /** How long an upload is kept at most, in milliseconds. */
+  static lifetime = LIFETIME;
+
   constructor(ctx) {
     this.storage = ctx.storage;
   }
@@ -264,7 +278,19 @@ export class SignedApp {
     const app = await this.storage.get("app");
     if (!app) return notFound();
     if (pathname === "/app") return Response.json(app);
-    if (pathname === "/ipa") return this.send(request, app);
+    if (pathname === "/asked" && request.method === "POST") {
+      if (app.state === "waiting") {
+        app.state = "asked";
+        await this.storage.put("app", app);
+      }
+      return new Response(null, { status: 204 });
+    }
+    if (pathname === "/ipa") {
+      // An address with another file name than the upload's isn't its.
+      const file = new URL(request.url).searchParams.get("file");
+      if (file && file !== app.file) return notFound();
+      return this.send(request, app);
+    }
     return notFound();
   }
 
@@ -276,7 +302,7 @@ export class SignedApp {
   async keep(request) {
     if (await this.storage.get("app")) return json({ error: "There's an IPA here already." }, 409);
     // Set first, so the parts go even when the upload stops part way.
-    const expires = Date.now() + LIFETIME;
+    const expires = Date.now() + this.constructor.lifetime;
     await this.storage.setAlarm(expires);
 
     let size = 0;
@@ -325,13 +351,14 @@ export class SignedApp {
       await this.storage.deleteAll();
       return json({ error: "This site only installs Atelier." }, 422);
     }
-    const app = { ...info, size, parts, state: "waiting", expires };
+    const file = new URL(request.url).searchParams.get("file");
+    const app = { ...info, size, parts, state: "waiting", expires, ...(file ? { file } : {}) };
     await this.storage.put("app", app);
     return Response.json(app, { status: 201 });
   }
 
   async send(request, app) {
-    if (app.state === "waiting") {
+    if (app.state === "waiting" || app.state === "asked") {
       app.state = "downloading";
       await this.storage.put("app", app);
     }
