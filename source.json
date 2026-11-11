@@ -1,0 +1,51 @@
+{
+  "name": "Atelier",
+  "identifier": "com.atelier.source",
+  "subtitle": "Atelier's own releases.",
+  "description": "Releases of Atelier, the on-device app signer. Add this source to get Atelier updates.",
+  "iconURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/icon.png",
+  "tintColor": "4B8B65",
+  "apps": [
+    {
+      "name": "Atelier",
+      "bundleIdentifier": "com.atelier.app",
+      "developerName": "Atelier",
+      "subtitle": "Sign and install apps on your iPhone.",
+      "localizedDescription": "Atelier downloads, signs and installs apps from AltStore-compatible sources with your own certificate, all on the device.",
+      "iconURL": "https://raw.githubusercontent.com/atelierstore/Atelier/source/icon.png",
+      "tintColor": "4B8B65",
+      "category": "utilities",
+      "versions": [
+        {
+          "version": "0.6.0",
+          "marketingVersion": "0.6.0-alpha",
+          "buildVersion": "1018",
+          "date": "2026-11-11T17:56:52Z",
+          "localizedDescription": "Atelier is now open source, at github.com/atelierstore/Atelier, and its updates, website and install server moved to atelierstore.app. Apps signed with an Apple ID keep their App Groups, so a widget or extension shares its app's data again.",
+          "downloadURL": "https://github.com/atelierstore/Atelier/releases/download/v0.6.0-alpha/Atelier-0.6.0-alpha.ipa",
+          "size": 12559538,
+          "sha256": "6eff29533ce63a3c406a1f904a4ddef0a6758ebb54c82f1e165a372247d96207",
+          "minOSVersion": "17.0"
+        }
+      ],
+      "beta": true,
+      "appPermissions": {
+        "entitlements": [],
+        "privacy": {
+          "NSCameraUsageDescription": "Atelier uses the camera to scan QR codes for sources.",
+          "NSLocalNetworkUsageDescription": "Atelier pairs with this iPhone over the local network, and installs apps through that pairing."
+        }
+      }
+    }
+  ],
+  "news": [
+    {
+      "identifier": "release-0.6.0-alpha",
+      "title": "Atelier 0.6.0-alpha is out",
+      "caption": "Atelier is now open source, at github.com/atelierstore/Atelier, and its updates, website and install server moved to atelierstore.app. Apps signed with an Apple ID keep their App Groups, so a widget or extension shares its app's data again.",
+      "date": "2026-11-11T17:56:52Z",
+      "tintColor": "4B8B65",
+      "appID": "com.atelier.app"
+    }
+  ]
+}
