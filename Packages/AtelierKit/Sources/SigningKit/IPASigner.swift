@@ -158,8 +158,11 @@ struct IPASigner: Sendable {
 		try Self.checkBinaries(in: app)
 
 		var options = options
-		var entitlements = try Self.fitEntitlements(of: app, to: identity.profile, options: &options, in: job)
-		try redirectAppGroups(in: app, report: &entitlements, options: options)
+		// What the binaries were signed with, read before the library goes in.
+		let found = try Self.entitlementBundles(in: app)
+		let kept = try keepAppGroupsInFolders(in: app, asking: found.bundles, profile: identity.profile, options: options, appBundleID: originalBundleID, signedBundleID: bundleID)
+		var entitlements = try Self.fitEntitlements(found, to: identity.profile, options: &options, in: job, renamedGroups: kept.names, groupFolders: kept.folders)
+		try redirectAppGroups(in: app, report: &entitlements, options: options, keptInFolders: kept.loaded)
 		let signedFor = Self.applicationIdentifier(entitlements: options.entitlements, profile: identity.profile)
 
 		try cancellation.check()
@@ -457,24 +460,28 @@ struct IPASigner: Sendable {
 
 	// MARK: Entitlements
 
-	/// Reads what the app and its extensions ask for, reconciles it with
-	/// the profile (#7) and, unless the caller gave an entitlements file or
-	/// turned fitting off, has zsign sign with the result. Nil when the
-	/// profile can't be read; zsign then says what's wrong with it.
-	static func fitEntitlements(of app: URL, to profile: URL, options: inout SigningOptions, in job: URL) throws -> EntitlementsReport? {
+	/// Reconciles what the app and its extensions ask for (`found`, from
+	/// `entitlementBundles`) with the profile (#7) and, unless the caller
+	/// gave an entitlements file or turned fitting off, has zsign sign with
+	/// the result. Nil when the profile can't be read; zsign then says
+	/// what's wrong with it.
+	///
+	/// The app's App Groups count as granted under `renamedGroups`' names,
+	/// else `SigningOptions.appGroups`', kept in `groupFolders` (#49).
+	static func fitEntitlements(_ found: (bundles: [EntitlementReconciler.Bundle], readAny: Bool), to profile: URL, options: inout SigningOptions, in job: URL, renamedGroups: [String: String] = [:], groupFolders: [String: String] = [:]) throws -> EntitlementsReport? {
 		guard
 			let data = try? Data(contentsOf: profile),
 			let parsed = try? ProvisioningProfile(data: data),
 			let granted = try? ProvisioningProfile.entitlements(in: data)
 		else { return nil }
-		let found = try entitlementBundles(in: app)
 		let result = EntitlementReconciler.reconcile(
 			profile: granted,
 			teamID: parsed.teamID,
 			isWildcard: parsed.isWildcard,
 			bundles: found.bundles,
 			readFromApp: found.readAny,
-			renamedGroups: options.appGroups
+			renamedGroups: renamedGroups.isEmpty ? options.appGroups : renamedGroups,
+			groupFolders: groupFolders
 		)
 		if options.entitlements == nil, options.fitsEntitlements {
 			let url = job.appendingPathComponent("Entitlements.plist")
@@ -486,15 +493,51 @@ struct IPASigner: Sendable {
 
 	/// Has the app and its extensions send their own names for the App
 	/// Groups the profile allows under the team's to those (#49,
-	/// `AppGroupRedirect`), and notes in the report whether the app does.
-	private func redirectAppGroups(in app: URL, report: inout EntitlementsReport?, options: SigningOptions) throws {
-		guard
-			let library = options.appGroupsLibrary,
-			let index = report?.items.firstIndex(where: { $0.key == AppGroups.entitlement }),
-			let names = report?.items[index].renamedValues, !names.isEmpty
-		else { return }
+	/// `AppGroupRedirect`), and notes in the report whether the app does,
+	/// or with a certificate, whether it sends them to their folders
+	/// (`keptInFolders`).
+	private func redirectAppGroups(in app: URL, report: inout EntitlementsReport?, options: SigningOptions, keptInFolders: Bool?) throws {
+		guard let index = report?.items.firstIndex(where: { $0.key == AppGroups.entitlement }) else { return }
+		if let keptInFolders {
+			report?.items[index].redirected = keptInFolders
+			return
+		}
+		guard let library = options.appGroupsLibrary, let names = report?.items[index].renamedValues, !names.isEmpty else { return }
 		let loaded = try AppGroupRedirect.apply(names, library: library, to: app) { engine.load($0, into: $1) }
 		report?.items[index].redirected = loaded
+	}
+
+	/// With a certificate whose profile has App Groups of its own but not
+	/// all of the app's, keeps those in folders of their own in one of its
+	/// groups (#49, `AppGroups.home(in:)`, `AppGroups.folders`): puts
+	/// Atelier's library in the app, which sends the app and its extensions
+	/// there. Returns the group and folder each is kept in, by the app's
+	/// name, and whether the app loads the library, nil when there was
+	/// nothing to keep: with an Apple ID, which renames them instead
+	/// (`SigningOptions.appGroups`), without the library, with an
+	/// entitlements file of the caller's, or when the profile has all of
+	/// the app's groups, or none of its own.
+	private func keepAppGroupsInFolders(in app: URL, asking bundles: [EntitlementReconciler.Bundle], profile: URL, options: SigningOptions, appBundleID: String, signedBundleID: String) throws -> (names: [String: String], folders: [String: String], loaded: Bool?) {
+		guard
+			let library = options.appGroupsLibrary, options.appGroups.isEmpty, options.entitlements == nil,
+			let data = try? Data(contentsOf: profile),
+			let granted = (try? ProvisioningProfile.entitlements(in: data))?[AppGroups.entitlement],
+			let home = AppGroups.home(in: granted)
+		else { return ([:], [:], nil) }
+		var missing: [String] = []
+		for bundle in bundles {
+			for group in bundle.entitlements[AppGroups.entitlement] as? [String] ?? []
+			where !missing.contains(group) && !EntitlementReconciler.covers(granted, group, key: AppGroups.entitlement) {
+				missing.append(group)
+			}
+		}
+		let folders = AppGroups.folders(for: missing, appBundleID: appBundleID, signedBundleID: signedBundleID)
+		guard !folders.isEmpty else { return ([:], [:], nil) }
+		let names = folders.mapValues { _ in home }
+		guard try AppGroupRedirect.apply(names, folders: folders, library: library, to: app, load: { engine.load($0, into: $1) }) else {
+			return ([:], [:], false)
+		}
+		return (names, folders, true)
 	}
 
 	/// The app, then its extensions and Watch apps, with the entitlements

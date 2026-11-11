@@ -1,11 +1,13 @@
 import Foundation
 import ZIPFoundation
 
-/// App Groups for apps signed with an Apple ID (#49). Apple keeps a group's
-/// name unique across every team, as it does an App ID's, so the app's own
-/// groups are the developer's: the Apple ID adds them under names of its
-/// own, the group with the team ID on the end, as AltStore and SideStore
-/// name them, and the app's App ID gets them, so its profile allows them.
+/// App Groups for apps signed with an Apple ID or a certificate (#49).
+/// Apple keeps a group's name unique across every team, as it does an App
+/// ID's, so the app's own groups are the developer's: an Apple ID adds them
+/// under names of its own, the group with the team ID on the end, as
+/// AltStore and SideStore name them, and the app's App ID gets them, so its
+/// profile allows them. A certificate's profile has the groups it has, so
+/// the app's are kept in folders of their own in one of those.
 public enum AppGroups {
 	/// The entitlement that lists an app's groups.
 	public static let entitlement = "com.apple.security.application-groups"
@@ -96,5 +98,46 @@ public enum AppGroups {
 			names[group] = base + suffix
 		}
 		return names
+	}
+
+	// MARK: Certificates
+
+	/// The folder, inside the group, that holds the app's groups' folders
+	/// with a certificate.
+	static let folderRoot = "Atelier"
+
+	/// The group of a certificate's profile that keeps the app's groups,
+	/// each in a folder of its own (`folders`), when its profile has none
+	/// of them: the first of its groups by name, so it stays the same with
+	/// every app and every profile that has it. Nil when it has none, or
+	/// only a pattern.
+	public static func home(in granted: Any?) -> String? {
+		let groups = (granted as? [Any] ?? []).compactMap { $0 as? String }
+		return groups.filter { !$0.isEmpty && !$0.contains("*") }.sorted().first
+	}
+
+	/// The folder each of `groups` is kept in, inside the certificate's
+	/// group (`home(in:)`), for an app whose own bundle ID is
+	/// `appBundleID`, signed as `signedBundleID`: one named after the group,
+	/// so two apps by one developer that share a group share its folder, as
+	/// they would from the App Store. A copy has its number on the end too,
+	/// `….atelier2`, so its data stays apart from the app's, and one under
+	/// an App ID of the user's has that ID's letters and digits, as with an
+	/// Apple ID (`names`).
+	public static func folders(for groups: [String], appBundleID: String, signedBundleID: String) -> [String: String] {
+		var suffix = ""
+		if signedBundleID.hasPrefix(appBundleID + ".") {
+			suffix = String(signedBundleID.dropFirst(appBundleID.count))
+		} else if signedBundleID != appBundleID {
+			suffix = "." + String(signedBundleID.filter { $0.isASCII && ($0.isLetter || $0.isNumber) }).lowercased()
+		}
+		var folders: [String: String] = [:]
+		for group in groups {
+			// Only what a group's name may have, so it stays one folder.
+			let name = String((group + suffix).map { $0.isASCII && ($0.isLetter || $0.isNumber || "-_.".contains($0)) ? $0 : "_" })
+			guard !name.isEmpty, !name.allSatisfy({ $0 == "." }) else { continue }
+			folders[group] = folderRoot + "/" + name
+		}
+		return folders
 	}
 }

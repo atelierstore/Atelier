@@ -40,19 +40,26 @@ public struct EntitlementsReport: Codable, Equatable, Sendable {
 		public var missingValues: [String]
 		/// Values the profile grants under other names, by the name the app
 		/// asks for: App Groups an Apple ID added under names of its own
-		/// (#49). Nil for none, as in reports kept before.
+		/// (#49), or the certificate's group that keeps them. Nil for none,
+		/// as in reports kept before.
 		public var renamedValues: [String: String]?
+		/// With a certificate, the folder inside the group in
+		/// `renamedValues` each of the app's App Groups is kept in, by the
+		/// name the app asks for (#49, `AppGroups.folders`). Nil for none,
+		/// as with an Apple ID and in reports kept before.
+		public var folders: [String: String]?
 		/// Whether the app loads Atelier's library that sends its own names
 		/// for them to those (#49, `AppGroupRedirect`). Nil when it wasn't
 		/// asked to, as in reports kept before.
 		public var redirected: Bool?
 
-		public init(key: String, outcome: Outcome, bundles: [String] = [""], missingValues: [String] = [], renamedValues: [String: String]? = nil, redirected: Bool? = nil) {
+		public init(key: String, outcome: Outcome, bundles: [String] = [""], missingValues: [String] = [], renamedValues: [String: String]? = nil, folders: [String: String]? = nil, redirected: Bool? = nil) {
 			self.key = key
 			self.outcome = outcome
 			self.bundles = bundles
 			self.missingValues = missingValues
 			self.renamedValues = renamedValues
+			self.folders = folders
 			self.redirected = redirected
 		}
 	}
@@ -209,8 +216,9 @@ enum EntitlementReconciler {
 
 	/// `renamedGroups` are the names the profile has the app's App Groups
 	/// under, by the name the app asks for (#49): those count as granted
-	/// when the profile has the new name.
-	static func reconcile(profile: [String: Any], teamID: String, isWildcard: Bool, bundles: [Bundle], readFromApp: Bool = true, renamedGroups: [String: String] = [:]) -> Result {
+	/// when the profile has the new name. `groupFolders` are the folders,
+	/// inside those, a certificate keeps them in.
+	static func reconcile(profile: [String: Any], teamID: String, isWildcard: Bool, bundles: [Bundle], readFromApp: Bool = true, renamedGroups: [String: String] = [:], groupFolders: [String: String] = [:]) -> Result {
 		let main = bundles.first?.entitlements ?? [:]
 		let appTeamID = (main["com.apple.developer.team-identifier"] as? String)
 			?? (main["application-identifier"] as? String).flatMap(teamPrefix)
@@ -231,16 +239,17 @@ enum EntitlementReconciler {
 			// bundles; anything else is taken from the first bundle asking.
 			var values: [Any] = []
 			var rewrote = false
-			// The app's own names for the values the profile has under others.
-			var originals: [String: String] = [:]
+			// The names the profile has values under, by the app's own: with a
+			// certificate, several of the app's groups have the same one.
+			var renamed: [String: String] = [:]
 			for bundle in asking {
 				let value = bundle.entitlements[key]!
 				let elements = (value as? [Any]) ?? [value]
 				for element in elements {
 					var rebased = rebase(element, to: teamID)
-					if key == AppGroups.entitlement, let own = element as? String, let renamed = renamedGroups[own], covers(granted, renamed, key: key) {
-						originals[renamed] = own
-						rebased = renamed
+					if key == AppGroups.entitlement, let own = element as? String, let name = renamedGroups[own], covers(granted, name, key: key) {
+						renamed[own] = name
+						rebased = name
 					}
 					if !same(rebased, element) { rewrote = true }
 					if !values.contains(where: { same($0, rebased) }) { values.append(rebased) }
@@ -253,7 +262,7 @@ enum EntitlementReconciler {
 				items.append(.init(key: key, outcome: .dropped, bundles: names, missingValues: missing.count < values.count ? missing : []))
 				continue
 			}
-			let renamed = Dictionary(uniqueKeysWithValues: originals.map { ($1, $0) })
+			let folders = groupFolders.filter { renamed[$0.key] != nil }
 			if key == "keychain-access-groups" {
 				// The app's own groups in place of the profile's wildcard, so
 				// its default keychain group (the first) is its own.
@@ -265,7 +274,7 @@ enum EntitlementReconciler {
 			} else {
 				outcome = rewrote ? .rewritten : .kept
 			}
-			items.append(.init(key: key, outcome: outcome, bundles: names, missingValues: missing, renamedValues: renamed.isEmpty ? nil : renamed))
+			items.append(.init(key: key, outcome: outcome, bundles: names, missingValues: missing, renamedValues: renamed.isEmpty ? nil : renamed, folders: folders.isEmpty ? nil : folders))
 		}
 
 		let nested = bundles.dropFirst().map(\.name)

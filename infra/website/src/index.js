@@ -10,13 +10,16 @@
 // (see ota.js), and /ocsp, which asks Apple whether a certificate was
 // revoked (see ocsp-relay.js). For CI, /builds and what's under it: the
 // IPAs GitHub Actions builds, kept for 7 days for Safari and Atelier's install
-// links (see builds.js).
+// links (see builds.js). It also serves the home page, which Cloudflare runs
+// it first for, with AltStore PAL first for visitors where Apple allows it
+// (see region.js).
 
 import { builds } from "./builds.js";
 import { json } from "./http.js";
 import { IPAError, ReachError, readApp } from "./ipa.js";
 import { ocspRelay } from "./ocsp-relay.js";
 import { ota } from "./ota.js";
+import { homePage } from "./region.js";
 import { SourceError, readSource } from "./source.js";
 
 // The Durable Objects that keep what the certificate page uploads (ota.js)
@@ -27,6 +30,7 @@ export { BuildApp } from "./builds.js";
 export default {
   async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    if (url.pathname === "/") return homePage(request, env.ASSETS);
     if (url.pathname === "/install/app") return installApp(request, { fetch: withOwnBuilds(request, env, ctx) });
     if (url.pathname === "/source/info") return sourceInfo(request);
     // ctx.exports has the Durable Objects this file exports, with no binding
