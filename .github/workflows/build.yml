@@ -1,0 +1,324 @@
+name: Build
+
+# The Mac half of Atelier's builds, which atelier.yml runs for pull requests
+# and main, and release.yml for releases: the package tests, the zsign
+# signing tests, the pairing host's tests and IDevice.xcframework when
+# Packages/IDeviceBridge changed, then the app as an unsigned IPA and, when
+# asked, a copy signed with the Signulous certificate.
+#
+# The certificate comes from three repository secrets (Settings › Secrets and
+# variables › Actions), each a file in base64 (`base64 -i <file>` on a Mac):
+#   SIGNING_P12_BASE64      the Signulous certificate's .p12
+#   SIGNING_P12_PASSWORD    its password
+#   SIGNING_PROFILE_BASE64  the Signulous .mobileprovision
+# Pull requests from forks don't get them: their zsign tests sign with the
+# throwaway test certificate, and they get no signed IPA.
+#
+# The signed IPA isn't kept as an artifact: it holds the profile, which lists
+# the devices it installs on, and a public repo's artifacts are open to anyone
+# signed in to GitHub. Nor do the certificate's details show in the log, which
+# is open to anyone too: zsign, codesign and sign_ipa.py print them as ***.
+
+on:
+  workflow_call:
+    inputs:
+      release:
+        description: >-
+          The release's version, its tag without the v (0.6.0-alpha), for a
+          release build. Other builds have the last release's version.
+        type: string
+        default: ""
+      sign:
+        description: Also sign a copy with the Signulous certificate, when the secrets are there.
+        type: boolean
+        default: false
+      cached:
+        description: >-
+          Use and keep the SwiftPM and IDevice.xcframework caches. Releases
+          build everything from scratch.
+        type: boolean
+        default: true
+    secrets:
+      SIGNING_P12_BASE64:
+        required: false
+      SIGNING_P12_PASSWORD:
+        required: false
+      SIGNING_PROFILE_BASE64:
+        required: false
+    outputs:
+      version:
+        description: The app's version (CFBundleShortVersionString).
+        value: ${{ jobs.build.outputs.version }}
+      build:
+        description: The app's build number (CFBundleVersion).
+        value: ${{ jobs.build.outputs.build }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # -eo pipefail: a step stops at the first command that fails.
+    shell: bash
+
+jobs:
+  build:
+    name: Tests and IPA
+    # Apple silicon, with Xcode 26 (the image's default), Rust and Python.
+    runs-on: macos-26
+    # About 10 minutes with the caches, 25 without (Rust).
+    timeout-minutes: 60
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+      HOMEBREW_NO_ENV_HINTS: "1"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      build: ${{ steps.version.outputs.build }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The build number counts every commit up to this one, and the
+          # version is the last release's tag: the whole history, about 8 MB.
+          fetch-depth: 0
+          persist-credentials: false
+
+      # Before anything signs: zsign, codesign and sign_ipa.py print the team
+      # ID, the certificate's name and ID, and the profile's name (which can
+      # hold a UDID) and App ID. This masks each of them for the rest of the
+      # job, and stops it when the profile can't be read.
+      - name: Hide the certificate's details in this log
+        env:
+          SIGNING_PROFILE_BASE64: ${{ secrets.SIGNING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$SIGNING_PROFILE_BASE64" ]; then
+            echo "No signing secrets: nothing to hide."
+            exit 0
+          fi
+          profile="$RUNNER_TEMP/masked.mobileprovision"
+          trap 'rm -f "$profile"' EXIT
+          printf '%s' "$SIGNING_PROFILE_BASE64" | tr -d ' \r\n' | base64 --decode > "$profile"
+          python3 scripts/mask_signing_details.py "$profile"
+
+      - name: Show the tools
+        run: |
+          xcodebuild -version
+          swift --version
+          cargo --version
+
+      - name: Work out the cache keys
+        id: keys
+        run: |
+          # IDevice.xcframework only depends on Packages/IDeviceBridge, so it's
+          # kept under that directory's git tree hash. It passed the pairing
+          # host's tests in the build that made it.
+          echo "idevice=idevice-${RUNNER_OS}-${RUNNER_ARCH}-$(git rev-parse HEAD:Packages/IDeviceBridge)" >> "$GITHUB_OUTPUT"
+
+      # SwiftPM's clones of AtelierKit's dependencies, which swift build and
+      # xcodebuild share: 1.4 GB, as zsign's OpenSSL comes with its whole
+      # history. Only main's builds keep them (see the end), so a pull request
+      # can't change what the others get. A key that missed restores the
+      # newest clones, and SwiftPM fetches what changed since.
+      - name: Restore SwiftPM's clones
+        id: swiftpm
+        if: inputs.cached
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Packages/AtelierKit/Package.resolved') }}
+          restore-keys: swiftpm-${{ runner.os }}-${{ runner.arch }}-
+
+      # A pull request gets main's framework, or the one its own last build
+      # made: GitHub keeps a pull request's caches to itself.
+      - name: Restore IDevice.xcframework
+        id: idevice
+        if: inputs.cached
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Packages/IDeviceBridge/IDevice.xcframework
+          key: ${{ steps.keys.outputs.idevice }}
+
+      # Three steps rather than one, so the run shows whether the build, the
+      # unit tests or the zsign signing tests failed.
+      - name: Build the packages (AtelierKit)
+        working-directory: Packages/AtelierKit
+        run: swift build --build-tests
+
+      - name: Test the packages (AtelierKit)
+        working-directory: Packages/AtelierKit
+        run: swift test --skip-build --skip ZsignSigningTests
+
+      - name: Sign test apps with zsign and check them with codesign
+        working-directory: Packages/AtelierKit
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+          SIGNING_PROFILE_BASE64: ${{ secrets.SIGNING_PROFILE_BASE64 }}
+        run: |
+          # codesign only accepts zsign's signatures made with a certificate
+          # Apple issued, so the tests sign with the Signulous one when the
+          # secrets have it, and otherwise with the throwaway certificate,
+          # without codesign's verdict.
+          if [ -z "$SIGNING_P12_BASE64" ] || [ -z "$SIGNING_PROFILE_BASE64" ]; then
+            echo "No signing secrets: signing with the test certificate, without codesign's verdict."
+            swift test --skip-build --filter ZsignSigningTests
+            exit 0
+          fi
+          identity="$RUNNER_TEMP/zsign-identity"
+          mkdir -p "$identity"
+          trap 'rm -rf "$identity"' EXIT
+          printf '%s' "$SIGNING_P12_BASE64" | tr -d ' \r\n' | base64 --decode > "$identity/identity.p12"
+          printf '%s' "$SIGNING_P12_PASSWORD" > "$identity/password.txt"
+          printf '%s' "$SIGNING_PROFILE_BASE64" | tr -d ' \r\n' | base64 --decode > "$identity/profile.mobileprovision"
+          ATELIER_SIGNING_IDENTITY="$identity" swift test --skip-build --filter ZsignSigningTests
+
+      - name: Set up Rust
+        if: steps.idevice.outputs.cache-hit != 'true'
+        run: rustup target add aarch64-apple-ios
+
+      - name: Test the pairing host (IDeviceBridge)
+        if: steps.idevice.outputs.cache-hit != 'true'
+        working-directory: Packages/IDeviceBridge
+        run: |
+          ./fetch-idevice.sh
+          cargo test --release
+
+      - name: Build IDevice.xcframework (idevice + Atelier's pairing host)
+        if: steps.idevice.outputs.cache-hit != 'true'
+        run: ./Packages/IDeviceBridge/build-rust.sh
+
+      # Kept for main when main's Rust code changed, and for a pull request's
+      # next builds when it changes the Rust code itself.
+      - name: Keep IDevice.xcframework for later builds
+        if: inputs.cached && steps.idevice.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: Packages/IDeviceBridge/IDevice.xcframework
+          key: ${{ steps.keys.outputs.idevice }}
+
+      - name: Generate the Xcode project
+        run: |
+          command -v xcodegen >/dev/null 2>&1 || brew install xcodegen
+          xcodegen generate
+
+      - name: Work out the version and build number
+        id: version
+        env:
+          RELEASE: ${{ inputs.release }}
+          # This repo started afresh from the private one Atelier was made in,
+          # whose builds went up to about 620 (v0.5.1-alpha was 612). Its
+          # builds count on from here, so each is newer than all of those.
+          BUILD_BASE: 1000
+        run: |
+          # The build number counts the commits up to this one, so it only goes
+          # up. A pull request's build is the pull request merged into main.
+          build="$((BUILD_BASE + $(git rev-list --count HEAD)))"
+          # A release has the tag's version, numbers only, as iOS wants. Other
+          # builds take the last release's, the highest version tagged in
+          # their history, so they count as newer than it rather than older;
+          # with no release before them, project.yml's. By version rather than
+          # by date, as this repo's first commit has all the earlier ones.
+          version=""
+          if [ -n "$RELEASE" ]; then
+            version="${RELEASE%%-*}"
+          else
+            tag="$(git tag --merged HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-version:refname | head -n 1)"
+            version="${tag#v}"
+            version="${version%%-*}"
+          fi
+          if ! printf '%s' "$version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+            version=""
+          fi
+          {
+            echo "ATELIER_BUILD=$build"
+            echo "ATELIER_VERSION=$version"
+          } >> "$GITHUB_ENV"
+          {
+            echo "build=$build"
+            echo "version=$version"
+          } >> "$GITHUB_OUTPUT"
+          echo "Atelier ${version:-(version from project.yml)}, build $build"
+
+      - name: Build the app
+        run: |
+          set -- CURRENT_PROJECT_VERSION="$ATELIER_BUILD"
+          if [ -n "$ATELIER_VERSION" ]; then
+            set -- "$@" MARKETING_VERSION="$ATELIER_VERSION"
+          fi
+          # The timing summary at the end of the log shows where the time
+          # goes.
+          xcodebuild \
+            -project Atelier.xcodeproj \
+            -scheme Atelier \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            -showBuildTimingSummary \
+            CODE_SIGNING_ALLOWED=NO \
+            "$@" \
+            build
+
+      - name: Package the unsigned IPA
+        run: |
+          rm -rf Payload Atelier-unsigned.ipa
+          mkdir Payload
+          cp -R build/Build/Products/Release-iphoneos/Atelier.app Payload/
+          zip -qry Atelier-unsigned.ipa Payload
+
+      - name: Sign it with the Signulous profile
+        if: inputs.sign
+        env:
+          SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+          SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+          SIGNING_PROFILE_BASE64: ${{ secrets.SIGNING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$SIGNING_P12_BASE64" ] || [ -z "$SIGNING_PROFILE_BASE64" ]; then
+            echo "No signing secrets, as for pull requests from forks: no signed IPA."
+            exit 0
+          fi
+          # A keychain of its own for the certificate, where sign_ipa.py finds
+          # it, and the profile where Xcode keeps them.
+          keychain="$RUNNER_TEMP/signing.keychain-db"
+          password="$(uuidgen)"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          p12="$RUNNER_TEMP/signing.p12"
+          trap 'rm -f "$p12"' EXIT
+          printf '%s' "$SIGNING_P12_BASE64" | tr -d ' \r\n' | base64 --decode > "$p12"
+          security import "$p12" -P "$SIGNING_P12_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$password" "$keychain" > /dev/null
+          security list-keychains -d user -s "$keychain"
+          profiles="$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"
+          mkdir -p "$profiles"
+          printf '%s' "$SIGNING_PROFILE_BASE64" | tr -d ' \r\n' | base64 --decode > "$profiles/Signulous.mobileprovision"
+          # Its exit code says what failed (see scripts/sign_ipa.py).
+          python3 scripts/sign_ipa.py build/Build/Products/Release-iphoneos/Atelier.app Atelier.ipa
+
+      - name: Remove the certificate
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2> /dev/null || true
+          rm -f "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles/Signulous.mobileprovision"
+
+      - name: Keep the unsigned IPA
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          # As the file itself rather than in a ZIP, named Atelier-unsigned.ipa.
+          path: Atelier-unsigned.ipa
+          archive: false
+          if-no-files-found: error
+          retention-days: 14
+
+      # Only main's builds keep SwiftPM's clones, once Package.resolved
+      # changed, so the cache never holds a pull request's dependencies.
+      - name: Keep SwiftPM's clones for later builds
+        if: >-
+          inputs.cached && steps.swiftpm.outputs.cache-hit != 'true'
+          && github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/Library/Caches/org.swift.swiftpm
+          key: swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('Packages/AtelierKit/Package.resolved') }}

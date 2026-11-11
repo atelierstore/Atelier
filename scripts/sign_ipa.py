@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Signs an unsigned app (Atelier, or the install spike) with the provisioning
-profile and certificate that Codemagic installs from ios_signing in
-codemagic.yaml, the way Feather re-signs an IPA on the phone, and packages it
-as an IPA. Runs on macOS.
+profile and certificate that CI installs (the SIGNING_* secrets in
+.github/workflows/build.yml), the way Feather re-signs an IPA on the phone, and
+packages it as an IPA. Runs on macOS.
 
 Like Feather (zsign), it signs with the profile's entitlements as they are and
 keeps the app's own bundle ID, even when the profile was made for another app.
@@ -11,8 +11,7 @@ the same way, with the same profile, before the app.
 
 Usage: python3 scripts/sign_ipa.py <path to the .app> <output .ipa>
 
-The exit code says what went wrong, because Codemagic's summary on GitHub shows
-only that:
+The exit code says what went wrong, as a CI's summary may show only that:
   10  no provisioning profile is installed
   11  more than one provisioning profile is installed
   14  no certificate in the keychain belongs to the profile
@@ -122,7 +121,7 @@ def main(app, ipa):
     if not profiles:
         fail(
             10,
-            "No provisioning profile is installed; check ios_signing in codemagic.yaml.",
+            "No provisioning profile is installed; check the CI's signing setup.",
         )
     if len(profiles) > 1:
         names = ", ".join(profile["Name"] for _, profile in profiles)

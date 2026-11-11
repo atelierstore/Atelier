@@ -38,7 +38,7 @@ It needs the OAuth app's client ID as the `GITHUB_CLIENT_ID` variable in `wrangl
 npm test
 ```
 
-Codemagic runs this on every pull request build.
+The *Atelier* workflow (`.github/workflows/atelier.yml`) runs this for every pull request and push to main.
 
 ## Deploy
 

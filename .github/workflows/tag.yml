@@ -1,0 +1,65 @@
+name: Tag a release
+
+# Merging a release's notes, release/notes/<tag>.md, into main is the release
+# (#23): this tags the commit that last changed them, once they mention every
+# pull request merged since the last release, then starts release.yml for the
+# tag. A tag the workflow's own token creates doesn't start workflows by
+# itself, so it starts the release on the tag. If it fails, run it again
+# (Actions › Tag a release › Run workflow, on main).
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - release/notes/**
+      - .github/workflows/tag.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # -eo pipefail: a step stops at the first command that fails.
+    shell: bash
+
+concurrency:
+  group: tag-release
+  cancel-in-progress: false
+
+jobs:
+  tag:
+    name: Tag the release whose notes are new
+    # Releases are tagged on main, and come from the public repo only: a
+    # private copy of it, such as the one its code comes from, doesn't tag
+    # them.
+    if: github.ref == 'refs/heads/main' && !github.event.repository.private
+    runs-on: ubuntu-latest
+    permissions:
+      # Creates the tag.
+      contents: write
+      # Starts release.yml on it.
+      actions: write
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The notes are checked against main's history back to the last
+          # release, with its tags.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Tag the release whose notes are new
+        id: tag
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 scripts/publish_release.py tag --repo "$GITHUB_REPOSITORY" --notes release/notes
+
+      - name: Start the release
+        if: steps.tag.outputs.tag != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          echo "Started the release of $TAG: Actions › Release."
