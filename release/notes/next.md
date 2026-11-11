@@ -1,5 +1,7 @@
 ## New
 
+- The website installs Atelier with your certificate from a computer too: it signs Atelier there and shows a QR code, which opens iOS's install alert on your iPhone (#11).
+
 ## Fixes
 
 ## Behind the scenes
