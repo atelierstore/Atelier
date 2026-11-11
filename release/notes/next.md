@@ -2,6 +2,7 @@
 
 - The website installs Atelier with your certificate from a computer too: it signs Atelier there and shows a QR code, which opens iOS's install alert on your iPhone (#11).
 - The website's Get Atelier lists AltStore PAL as planned, and recommends it first to visitors in the EU, Japan and Brazil, where Apple allows it (#7).
+- Apps signed with a certificate that comes with App Groups, as signing services' often do, keep theirs too: Atelier keeps each app's App Groups in a folder of its own in one of the certificate's, so its widgets and extensions see the app's data. Other apps signed with that certificate could read the folder. Custom Install › Advanced › Share App Groups turns it off for an app (#2).
 
 ## Fixes
 
