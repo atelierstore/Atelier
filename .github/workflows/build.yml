@@ -18,6 +18,8 @@ name: Build
 # the devices it installs on, and a public repo's artifacts are open to anyone
 # signed in to GitHub. Nor do the certificate's details show in the log, which
 # is open to anyone too: zsign, codesign and sign_ipa.py print them as ***.
+# With `share`, both IPAs go to the website, which keeps them for 7 days at
+# unlisted addresses (scripts/share_build.py).
 
 on:
   workflow_call:
@@ -38,6 +40,12 @@ on:
           build everything from scratch.
         type: boolean
         default: true
+      share:
+        description: >-
+          Keep the IPAs on the website for 7 days, for Safari and Atelier's
+          install links. The caller's job needs `id-token: write`.
+        type: boolean
+        default: false
     secrets:
       SIGNING_P12_BASE64:
         required: false
@@ -53,8 +61,10 @@ on:
         description: The app's build number (CFBundleVersion).
         value: ${{ jobs.build.outputs.build }}
 
-permissions:
-  contents: read
+# No permissions of its own: its job has the caller job's, which atelier.yml
+# gives `id-token: write` for sharing the IPAs. A called workflow can't ask
+# for more than its caller gives, and release.yml gives no more than
+# `contents: read`.
 
 defaults:
   run:
@@ -311,6 +321,22 @@ jobs:
           archive: false
           if-no-files-found: error
           retention-days: 14
+
+      # Both IPAs on the website for 7 days, for Safari and Atelier's install
+      # links, as the run's own files need a GitHub sign-in. The job proves to
+      # the website which repo, workflow and run it is with the token GitHub
+      # gives it, so there's no key to keep; pull requests from forks get no
+      # token, and share nothing. A build whose IPAs couldn't be shared still
+      # passes, with a warning.
+      - name: Share the IPAs on the website
+        if: inputs.share
+        continue-on-error: true
+        env:
+          SITE: ${{ vars.BUILDS_SITE || 'https://atelierstore.app' }}
+          # A pull request's build is of its merge into main; its record names
+          # the pull request's own commit, which threads and people know.
+          COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: python3 scripts/share_build.py --site "$SITE" --commit "$COMMIT"
 
       # Only main's builds keep SwiftPM's clones, once Package.resolved
       # changed, so the cache never holds a pull request's dependencies.

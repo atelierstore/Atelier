@@ -98,7 +98,7 @@ async function upload(request, apps) {
 }
 
 /** What the object keeps about its app, or null once it's gone. */
-async function kept(app) {
+export async function kept(app) {
   const response = await app.fetch("https://signed-app/app");
   if (response.status === 404) return null;
   if (!response.ok) throw new Error(`SignedApp answered HTTP ${response.status}`);
@@ -107,7 +107,7 @@ async function kept(app) {
 
 /** The request's Range header, the only one of its headers the object
  *  needs. */
-function rangeOnly(request) {
+export function rangeOnly(request) {
   const range = request.headers.get("Range");
   return range ? { Range: range } : {};
 }
@@ -124,7 +124,7 @@ function isRelease(address) {
 }
 
 /** A token no one can guess: 128 random bits, in hex. */
-function newToken() {
+export function newToken() {
   return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
@@ -248,12 +248,18 @@ export function byteRange(header, size) {
 
 /** Keeps one uploaded IPA, until its alarm. It keeps the IPA in parts
  *  (`part0`, `part1`, …) and what it knows about it under `app`: {bundleID,
- *  name, version, build, size, parts, state, expires}. The Worker asks it:
- *  - PUT /ipa, with the IPA as the body: keeps it, and answers 201 with
- *    `app`, or 413 or 422 with {error}.
+ *  name, version, build, size, parts, state, expires}, and `file`, the IPA's
+ *  file name, when the upload gave one. The Worker asks it:
+ *  - PUT /ipa, with the IPA as the body, and optionally ?file=<its name>:
+ *    keeps it, and answers 201 with `app`, or 413 or 422 with {error}.
  *  - GET /app: `app`, or a 404 once it's gone.
- *  - GET or HEAD /ipa: the IPA, or the part a Range header asks for. */
+ *  - GET or HEAD /ipa: the IPA, or the part a Range header asks for; with
+ *    ?file=<name>, a 404 unless that's the upload's file name.
+ *  BuildApp (builds.js) keeps builds the same way, for longer. */
 export class SignedApp {
+  /** How long an upload is kept at most, in milliseconds. */
+  static lifetime = LIFETIME;
+
   constructor(ctx) {
     this.storage = ctx.storage;
   }
@@ -264,7 +270,12 @@ export class SignedApp {
     const app = await this.storage.get("app");
     if (!app) return notFound();
     if (pathname === "/app") return Response.json(app);
-    if (pathname === "/ipa") return this.send(request, app);
+    if (pathname === "/ipa") {
+      // An address with another file name than the upload's isn't its.
+      const file = new URL(request.url).searchParams.get("file");
+      if (file && file !== app.file) return notFound();
+      return this.send(request, app);
+    }
     return notFound();
   }
 
@@ -276,7 +287,7 @@ export class SignedApp {
   async keep(request) {
     if (await this.storage.get("app")) return json({ error: "There's an IPA here already." }, 409);
     // Set first, so the parts go even when the upload stops part way.
-    const expires = Date.now() + LIFETIME;
+    const expires = Date.now() + this.constructor.lifetime;
     await this.storage.setAlarm(expires);
 
     let size = 0;
@@ -325,7 +336,8 @@ export class SignedApp {
       await this.storage.deleteAll();
       return json({ error: "This site only installs Atelier." }, 422);
     }
-    const app = { ...info, size, parts, state: "waiting", expires };
+    const file = new URL(request.url).searchParams.get("file");
+    const app = { ...info, size, parts, state: "waiting", expires, ...(file ? { file } : {}) };
     await this.storage.put("app", app);
     return Response.json(app, { status: 201 });
   }
