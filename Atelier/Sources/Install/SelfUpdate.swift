@@ -25,8 +25,8 @@ import UIKit
 final class SelfUpdate {
 	static let shared = SelfUpdate()
 
-	/// The bundle ID Atelier's source lists it under, which Codemagic signs
-	/// it with (release/source-template.json).
+	/// The bundle ID Atelier's source lists it under, which CI signs it with
+	/// (release/source-template.json).
 	nonisolated static let sourceBundleID = "com.atelier.app"
 	/// Atelier's own source, as the repo's `source` branch publishes it
 	/// (`SOURCE_BRANCH` and `SOURCE_PATH` in scripts/publish_release.py).

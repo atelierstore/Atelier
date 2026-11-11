@@ -1,0 +1,177 @@
+name: Release
+
+# Builds and publishes a release (#23): a tag such as v0.6.0-alpha runs the
+# tests, builds the app from scratch with the tag's version (build.yml), and
+# publishes Atelier-<version>.ipa as this repo's GitHub Release for the tag,
+# then source.json, the icon and the screenshots on the `source` branch
+# (scripts/publish_release.py, docs/install.md).
+#
+# tag.yml starts it for the tag it creates when new release notes reach main,
+# as a tag made with the workflow's own token doesn't start workflows. A tag
+# pushed by hand starts it too. To run it again, for a build that failed after
+# the release was created: Actions › Release › Run workflow, on the tag. A dry
+# run builds the release and writes its source.json without publishing them.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build the release and write its source.json, but don't publish them.
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # -eo pipefail: a step stops at the first command that fails.
+    shell: bash
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  version:
+    name: Read the version from the tag
+    # Releases come from the public repo only: a private copy of it, such as
+    # the one its code comes from, doesn't publish them.
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-latest
+    outputs:
+      release: ${{ steps.version.outputs.release }}
+    steps:
+      - name: Read the version from the tag
+        id: version
+        env:
+          REF_TYPE: ${{ github.ref_type }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if [ "$REF_TYPE" != tag ]; then
+            echo "::error::Run this workflow on a release's tag, such as v0.6.0-alpha, not on a branch."
+            exit 1
+          fi
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+            echo "::error::Tag $TAG isn't vMAJOR.MINOR.PATCH, optionally with a pre-release suffix such as -alpha."
+            exit 1
+          fi
+          # The app's version is the numbers only (iOS wants that); the
+          # release, its IPA and the source show the whole tag without its v,
+          # such as 0.6.0-alpha.
+          release="${TAG#v}"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "Atelier $release (version ${release%%-*})"
+
+  checks:
+    name: Workers and release scripts
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Test the manifest endpoint (infra/manifest-worker)
+        working-directory: infra/manifest-worker
+        run: npm test
+
+      - name: Test the website's Worker (infra/website)
+        working-directory: infra/website
+        run: npm test
+
+      - name: Test the release scripts
+        run: python3 -m unittest discover scripts/tests
+
+  build:
+    name: Build
+    needs: version
+    uses: ./.github/workflows/build.yml
+    with:
+      release: ${{ needs.version.outputs.release }}
+      cached: false
+    # For the zsign tests. The release itself is the unsigned IPA: the
+    # Signulous profile only lists the maintainer's devices.
+    secrets:
+      SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+      SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+      SIGNING_PROFILE_BASE64: ${{ secrets.SIGNING_PROFILE_BASE64 }}
+
+  publish:
+    name: Publish the release and source.json
+    needs: [version, checks, build]
+    runs-on: ubuntu-latest
+    # Only this job can write to the repo: it creates the release and commits
+    # to the source branch, and runs nothing but the release scripts.
+    permissions:
+      contents: write
+    env:
+      RELEASE: ${{ needs.version.outputs.release }}
+      TAG: ${{ github.ref_name }}
+      REPO: ${{ github.repository }}
+      GITHUB_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # With every tag as it is, so an annotated tag's message can be the
+          # release notes.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Get the IPA
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: Atelier-unsigned.ipa
+          path: .
+
+      - name: Write source.json
+        run: |
+          ipa="Atelier-$RELEASE.ipa"
+          mv Atelier-unsigned.ipa "$ipa"
+          # The release notes: release/notes/<tag>.md, else an annotated tag's
+          # message, else the text of a release made on GitHub's site for this
+          # tag. A lightweight tag's %(contents) is its commit's message, so
+          # only an annotated tag (a tag object) counts.
+          : > release-notes.md
+          if [ -s "release/notes/$TAG.md" ]; then
+            cp "release/notes/$TAG.md" release-notes.md
+          elif [ "$(git cat-file -t "$TAG" 2> /dev/null)" = tag ]; then
+            git tag -l --format='%(contents)' "$TAG" > release-notes.md
+          fi
+          if [ ! -s release-notes.md ]; then
+            python3 scripts/publish_release.py release-notes --repo "$REPO" --tag "$TAG" --output release-notes.md
+          fi
+          if [ ! -s release-notes.md ]; then echo "Atelier $RELEASE." > release-notes.md; fi
+          python3 scripts/publish_release.py fetch-source --repo "$REPO" --output published-source.json
+          python3 scripts/update_source.py \
+            --ipa "$ipa" \
+            --version "$RELEASE" \
+            --download-url "https://github.com/$REPO/releases/download/$TAG/$ipa" \
+            --published published-source.json \
+            --notes release-notes.md \
+            --screenshots release/screenshots \
+            --screenshots-url "https://raw.githubusercontent.com/$REPO/source/screenshots/" \
+            --output source.json
+
+      - name: Keep source.json
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: source.json
+          archive: false
+          if-no-files-found: error
+
+      - name: Publish the release and source.json
+        if: ${{ !inputs.dry-run }}
+        run: |
+          python3 scripts/publish_release.py publish \
+            --repo "$REPO" \
+            --tag "$TAG" \
+            --ipa "Atelier-$RELEASE.ipa" \
+            --source source.json \
+            --notes release-notes.md \
+            --icon Atelier/Assets.xcassets/AppIcon.appiconset/AppIcon.png \
+            --screenshots release/screenshots

@@ -7,17 +7,19 @@ after it. The branch only holds what the source serves, so release commits
 never land on main; the first release creates it.
 
 A release starts with its notes, release/notes/<tag>.md: once they're on main,
-`tag` creates the tag on the commit that last changed them, and the tag starts
-Codemagic's release workflow. The notes mention, as #N, every pull request
-merged into main since the last release, except ones that changed release
-notes: check-notes checks that on a pull request that changes them, and tag
-checks it again before tagging.
+`tag` creates the tag on the commit that last changed them, and the release
+workflow (.github/workflows/release.yml) builds and publishes the tag. The
+notes mention, as #N, every pull request merged into main since the last
+release, except ones that changed release notes: check-notes checks that on a
+pull request that changes them, and tag checks it again before tagging.
 
-The token needs Contents read and write on this repo only (a fine-grained
-token), which covers releases, tags and commits. It comes from the
-GITHUB_RELEASES_TOKEN environment variable, never the command line, so it
-stays out of build logs. check-notes only reads the git history and needs no
-token.
+The token needs Contents read and write on this repo only, which covers
+releases, tags and commits: in GitHub Actions, the workflow's own token with
+`contents: write`; elsewhere, a fine-grained token. It comes from the
+GITHUB_TOKEN environment variable (or GITHUB_RELEASES_TOKEN), never the
+command line, so it stays out of build logs. check-notes only reads the git
+history and needs no token. In GitHub Actions, tag also writes the tag it
+created to the step's outputs, as `tag`.
 
 Usage:
   python3 scripts/publish_release.py check-notes [--notes release/notes] [--main origin/main]
@@ -60,8 +62,8 @@ SOURCE_PATH = "source.json"
 # SOURCE_BRANCH, SOURCE_PATH and ICON_PATH make up the URLs in
 # release/source-template.json and docs/install.md.
 ICON_PATH = "icon.png"
-# SOURCE_BRANCH and SCREENSHOTS_PATH make up the --screenshots-url
-# codemagic.yaml gives update_source.py.
+# SOURCE_BRANCH and SCREENSHOTS_PATH make up the --screenshots-url the
+# release workflow gives update_source.py.
 SCREENSHOTS_PATH = "screenshots"
 NOTES_DIR = "release/notes"
 # What the release workflow accepts: vMAJOR.MINOR.PATCH, optionally with a
@@ -334,6 +336,13 @@ def publish(repo, tag, ipa, source, token, notes=None, icon=None, screenshots=No
     print(f"Release: {release['html_url']}")
 
 
+def step_output(name, value):
+    """Sets a GitHub Actions step output, when running in one."""
+    path = os.environ.get("GITHUB_OUTPUT")
+    if path:
+        with open(path, "a") as outputs:
+            outputs.write(f"{name}={value}\n")
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     commands = parser.add_subparsers(dest="command", required=True)
@@ -361,9 +370,9 @@ def main(argv=None):
                                            "where the ones it no longer has are removed")
     args = parser.parse_args(argv)
 
-    token = os.environ.get("GITHUB_RELEASES_TOKEN")
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_RELEASES_TOKEN")
     if not token and args.command != "check-notes":
-        print("error: GITHUB_RELEASES_TOKEN isn't set (Codemagic group github_releases)", file=sys.stderr)
+        print("error: GITHUB_TOKEN isn't set (the release workflows set it to their own token)", file=sys.stderr)
         return 2
     try:
         if args.command == "check-notes":
@@ -382,7 +391,8 @@ def main(argv=None):
         if args.command == "tag":
             tagged = tag_release(args.repo, args.notes, token)
             if tagged:
-                print(f"Tagged {tagged[1][:7]} as {tagged[0]}: Codemagic's release workflow builds and publishes it.")
+                print(f"Tagged {tagged[1][:7]} as {tagged[0]}: the release workflow builds and publishes it.")
+                step_output("tag", tagged[0])
             else:
                 print(f"Every release in {args.notes} has its tag: nothing to release.")
         elif args.command == "fetch-source":
