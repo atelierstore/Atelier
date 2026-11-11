@@ -5,13 +5,17 @@ name: Tag a release
 # pull request merged since the last release, then starts release.yml for the
 # tag. A tag the workflow's own token creates doesn't start workflows by
 # itself, so it starts the release on the tag. If it fails, run it again
-# (Actions › Tag a release › Run workflow, on main).
+# (Actions › Tag a release › Run workflow, on main). The next release's notes,
+# release/notes/next.md, which each pull request adds its line to, aren't
+# named after a tag, so they never start a release, and changing them alone
+# doesn't run this.
 
 on:
   push:
     branches: [main]
     paths:
       - release/notes/**
+      - "!release/notes/next.md"
       - .github/workflows/tag.yml
   workflow_dispatch:
 
