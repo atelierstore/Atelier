@@ -13,3 +13,4 @@
 
 - Each signed build's record has an install link that opens iOS's install alert from Safari (#10).
 - Pull requests add their lines to the next release's notes as they're merged, and its build checks they did (#12).
+- Settings › Test Actions has an Offload Markers Test, which tries keeping an offloaded app's Home Screen spot with something that opens Atelier: for a free Apple ID's app, a marker from a configuration profile, which takes none of its 3 places, and for any other app, a stand-in app with its name and greyed icon (#15).
