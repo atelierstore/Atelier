@@ -342,7 +342,7 @@ test("says what's wrong with the files, where the page shows it", async () => {
 test("says who can install with each kind of profile", async () => {
   const row = async (name) => (await examine(pair(name), "ownstore", opener(name))).rows[2];
   assert.deepEqual(await row("enterprise.mobileprovision"), { state: "ok", lead: "Any iPhone", text: " can install it: enterprise profiles don't list devices" });
-  assert.deepEqual(await row("appstore.mobileprovision"), { state: "bad", text: "This certificate can only sign apps for the App Store and TestFlight, not for this iPhone." });
+  assert.deepEqual(await row("appstore.mobileprovision"), { state: "bad", text: "This certificate can only sign apps for the App Store and TestFlight, not for your iPhone." });
   assert.equal((await row("adhoc.mobileprovision")).state, "ok");
 });
 

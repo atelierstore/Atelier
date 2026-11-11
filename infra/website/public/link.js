@@ -18,6 +18,13 @@ export const ATELIER = "com.atelier.app";
 export const onIOS = /iPhone|iPad|iPod/.test(navigator.userAgent)
   || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
 
+/** Whether `agent` is Safari's, rather than another browser's or an app's
+ *  own: iOS's install alert only opens in Safari. */
+export function isSafari(agent = navigator.userAgent) {
+  return /Version\/[\d.]+ .*Safari\//.test(agent)
+    && !/(CriOS|FxiOS|EdgiOS|OPiOS|OPT|GSA|YaBrowser|DuckDuckGo|Brave)\/|FBAN|FBAV|Instagram|Line\/|MicroMessenger|Snapchat|musical_ly|Bytedance/.test(agent);
+}
+
 /** Shows the page's link, whose Open in Atelier button opens `link`, with
  *  the note for the device it's on. On an iPhone or iPad the page opens it
  *  by itself too, the first time this tab shows it. */
@@ -45,7 +52,7 @@ export function refuse(reason) {
 
 /** Whether to open Atelier by itself: the first time this tab shows this
  *  link, and not when Safari brings back or reloads the page later. */
-function firstVisit(link) {
+export function firstVisit(link) {
   const navigation = performance.getEntriesByType?.("navigation")?.[0];
   if (navigation && navigation.type !== "navigate") return false;
   try {
