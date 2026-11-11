@@ -10,8 +10,12 @@ A release starts with its notes, release/notes/<tag>.md: once they're on main,
 `tag` creates the tag on the commit that last changed them, and the release
 workflow (.github/workflows/release.yml) builds and publishes the tag. The
 notes mention, as #N, every pull request merged into main since the last
-release, except ones that changed release notes: check-notes checks that on a
-pull request that changes them, and tag checks it again before tagging.
+release, except ones that only changed release notes or changed a release's:
+check-notes checks that on a pull request that changes them, and tag checks it
+again before tagging. Until then they gather in release/notes/next.md, which
+isn't named after a tag, so it never starts a release: each pull request adds
+its line there, and check-notes --pr checks that next.md mentions it and every
+pull request merged into main since the last release.
 
 The token needs Contents read and write on this repo only, which covers
 releases, tags and commits: in GitHub Actions, the workflow's own token with
@@ -22,7 +26,7 @@ history and needs no token. In GitHub Actions, tag also writes the tag it
 created to the step's outputs, as `tag`.
 
 Usage:
-  python3 scripts/publish_release.py check-notes [--notes release/notes] [--main origin/main]
+  python3 scripts/publish_release.py check-notes [--notes release/notes] [--main origin/main] [--pr N]
   python3 scripts/publish_release.py tag --repo OWNER/NAME [--notes release/notes]
   python3 scripts/publish_release.py fetch-source --repo OWNER/NAME --output published.json
   python3 scripts/publish_release.py release-notes --repo OWNER/NAME --tag v0.1.0 --output notes.md
@@ -66,6 +70,10 @@ ICON_PATH = "icon.png"
 # release workflow gives update_source.py.
 SCREENSHOTS_PATH = "screenshots"
 NOTES_DIR = "release/notes"
+# The next release's notes, which pull requests add their lines to as they're
+# merged, and which become release/notes/<tag>.md when it's released. Not
+# being named after a tag, they never start a release themselves.
+NEXT_NOTES = "next.md"
 # What the release workflow accepts: vMAJOR.MINOR.PATCH, optionally with a
 # pre-release suffix such as -alpha.
 TAG = re.compile(r"v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?")
@@ -221,11 +229,29 @@ def changed_in(path):
     return commit
 
 
+def only_notes(directory, files):
+    """Whether `files`, paths from the repo's root as git names them, change
+    nothing but release notes in `directory`, or change a release's notes:
+    pull requests that do needn't be mentioned in them. One that adds a line
+    to next.md with other changes does, as next.md is where it says so."""
+    directory = pathlib.Path(directory).resolve()
+    root = pathlib.Path(git(directory, "rev-parse", "--show-toplevel")).resolve()
+    notes = [path for path in files if (root / path).resolve().parent == directory]
+    releases = [path for path in notes if TAG.fullmatch(pathlib.PurePath(path).stem)]
+    return bool(releases) or (bool(files) and len(notes) == len(files))
+
+
+def merged_files(directory, commit):
+    """The files the merge `commit` changed, as git names them."""
+    return git(directory, "diff", "--name-only", "--no-renames", f"{commit}^1", commit).splitlines()
+
+
 def unmentioned(notes, until):
     """The last release before `until`, and the pull requests merged since,
     up to `until`, that the notes don't mention as #N, oldest first. Pull
-    requests that changed release notes needn't mention themselves. With no
-    release before `until`, (None, [])."""
+    requests that only changed release notes, or changed a release's, needn't
+    be mentioned (only_notes). With no release before `until`, (None, []).
+    Notes that don't exist yet, such as a new next.md, mention none."""
     notes = pathlib.Path(notes)
     git(notes.parent, "rev-parse", "--verify", f"{until}^{{commit}}")
     if git(notes.parent, "rev-parse", "--is-shallow-repository") == "true":
@@ -235,24 +261,51 @@ def unmentioned(notes, until):
     except Error:
         return None, []
     changed_notes = set(git(notes.parent, "log", "--first-parent", "--format=%H", f"{since}..{until}", "--", ".").split())
-    mentioned = {int(number) for number in re.findall(r"#([0-9]+)\b", notes.read_text())}
+    mentioned = mentions(notes)
     missing = []
     for line in git(notes.parent, "log", "--first-parent", "--reverse", "--format=%H %s", f"{since}..{until}").splitlines():
         commit, _, subject = line.partition(" ")
         match = PULL_REQUEST.search(subject)
         number = int(match.group(1) or match.group(2)) if match else None
-        if number and commit not in changed_notes and number not in mentioned:
-            missing.append(number)
+        if not number or number in mentioned:
+            continue
+        if commit in changed_notes and only_notes(notes.parent, merged_files(notes.parent, commit)):
+            continue
+        missing.append(number)
     return since, missing
 
 
-def check_notes(notes_dir, main):
+def mentions(notes):
+    """The pull requests the notes mention as #N; none when they don't
+    exist."""
+    notes = pathlib.Path(notes)
+    return {int(number) for number in re.findall(r"#([0-9]+)\b", notes.read_text())} if notes.exists() else set()
+
+
+def check_notes(notes_dir, main, pull_request=None):
     """Checks the notes this branch adds or changes, of releases that aren't
     tagged yet, against `main`: returns each one's path, the last release and
-    the pull requests merged into `main` since that it doesn't mention."""
+    the pull requests merged into `main` since that it doesn't mention. When
+    it adds none, checks next.md instead, if it's there or the branch is
+    `pull_request`: it has to mention the pull requests merged into `main`
+    since the last release, and `pull_request` itself, unless that only
+    changes release notes."""
     notes_dir = pathlib.Path(notes_dir)
     if not notes_dir.is_dir():
         return []
+    results = releases_notes(notes_dir, main)
+    next_notes = notes_dir / NEXT_NOTES
+    if results or not (pull_request or next_notes.exists()):
+        return results
+    since, missing = unmentioned(next_notes, main)
+    changed = git(notes_dir, "diff", "--name-only", "--no-renames", f"{main}...HEAD").splitlines()
+    if pull_request and pull_request not in mentions(next_notes) and not only_notes(notes_dir, changed):
+        missing.append(pull_request)
+    return [(next_notes, since, missing)]
+
+
+def releases_notes(notes_dir, main):
+    """check_notes for the notes of releases that aren't tagged yet."""
     results = []
     for name in git(notes_dir, "diff", "--name-only", "--relative", f"{main}...HEAD", "--", ".").splitlines():
         path = notes_dir / name
@@ -349,6 +402,7 @@ def main(argv=None):
     check = commands.add_parser("check-notes")
     check.add_argument("--notes", default=NOTES_DIR, help=f"the release notes folder (default {NOTES_DIR})")
     check.add_argument("--main", default="origin/main", help="the branch the notes have to cover (default origin/main)")
+    check.add_argument("--pr", type=int, help=f"the pull request this branch is, which {NEXT_NOTES} has to mention")
     tag = commands.add_parser("tag")
     tag.add_argument("--repo", required=True)
     tag.add_argument("--notes", default=NOTES_DIR, help=f"the release notes folder (default {NOTES_DIR})")
@@ -376,11 +430,20 @@ def main(argv=None):
         return 2
     try:
         if args.command == "check-notes":
-            results = check_notes(args.notes, args.main)
+            results = check_notes(args.notes, args.main, args.pr)
             for path, since, missing in results:
-                if missing:
+                if missing and path.name == NEXT_NOTES:
+                    named = ", ".join(f"#{number}" + (" (this pull request)" if number == args.pr else "")
+                                      for number in missing)
+                    print(f"error: {path} doesn't mention {named}. Add a line for each to the "
+                          f"section it belongs in, ending with its number as #N (docs/install.md).", file=sys.stderr)
+                elif missing:
                     print(f"error: {path} doesn't mention {numbers(missing)}, merged into {args.main} since {since}. "
                           f"Mention them as #N in the notes.", file=sys.stderr)
+                elif path.name == NEXT_NOTES:
+                    covered = f"merged into {args.main} since {since}" if since else f"on {args.main}"
+                    also = ", and this one" if args.pr else ""
+                    print(f"{path} covers every pull request {covered}{also}.")
                 elif since:
                     print(f"{path} mentions every pull request merged into {args.main} since {since}.")
                 else:
