@@ -211,6 +211,14 @@ final class HomeScreenSpots: HomeScreenKeeping {
 		return entry.name
 	}
 
+	/// Keeps the spot of `bundleID` empty again in writes, once the Offload
+	/// Markers Test's marker that held it is put away.
+	static func hold(again bundleID: String) {
+		guard var entry = noted(bundleID), entry.spot != nil else { return }
+		entry.holdsGap = true
+		save(entry, for: bundleID)
+	}
+
 	/// Forgets what's noted for `bundleID` and returns it.
 	@discardableResult
 	static func take(_ bundleID: String) -> Noted? {

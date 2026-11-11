@@ -235,6 +235,19 @@ struct IDeviceRouteA: RouteADevice {
 			return Data(bytes: plist, count: length)
 		}
 
+		/// What iOS's profile service said to each of `requests`, a plist
+		/// list of MCInstall requests, sent in turn on one connection.
+		func profileRequests(_ requests: Data) throws -> Data {
+			var plist: UnsafeMutablePointer<UInt8>?
+			var length = 0
+			try requests.withUnsafeBytes { buffer in
+				try check(atelier_profile_requests(adapter, handshake, buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count, &plist, &length), .homeScreen)
+			}
+			defer { atelier_device_data_free(plist, length) }
+			guard let plist else { throw RouteAError(step: .homeScreen, code: 0, message: "iOS's profile service gave no answer") }
+			return Data(bytes: plist, count: length)
+		}
+
 		/// Every app installd knows, for the App Library.
 		func homeScreenApps() throws -> Data {
 			let installer = try installationProxy(.homeScreen)

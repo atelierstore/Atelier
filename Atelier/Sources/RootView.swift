@@ -21,6 +21,8 @@ struct RootView: View {
 	@State private var importOffer: ImportOffer?
 	/// The first launch's welcome (#21), which opens its own sheets.
 	@State private var welcome = Welcome.shared
+	/// Offload Markers Test, whose markers open its page (9 Nov 2026).
+	@State private var markerTest = OffloadMarkersTest.shared
 	@Environment(SourcesModel.self) private var sources
 	@Environment(DownloadManager.self) private var downloads
 	@Environment(\.modelContext) private var context
@@ -216,10 +218,24 @@ struct RootView: View {
 		// So does what says a source needs a GitHub sign-in (#134).
 		.modifier(SignInNeededTracking(records: sourceRecords, sources: sources))
 		.onOpenURL { url in
+			// A tap on an Offload Markers Test marker opens the test's page.
+			if markerTest.open(url) { return }
 			// Sources, installs, certificates and the rest, on AltStore's,
 			// SideStore's and Feather's schemes too, and files shared to
 			// Atelier: StoreLinkHandling acts on them (#93).
 			StoreLinks.shared.open(url)
+		}
+		.sheet(isPresented: $markerTest.showsFromLink) {
+			NavigationStack {
+				OffloadMarkersTestView()
+					.toolbar {
+						ToolbarItem(placement: .confirmationAction) {
+							Button("Done") { markerTest.showsFromLink = false }
+						}
+					}
+			}
+			.environment(certificates)
+			.environment(catalog)
 		}
 		// Sources refresh on launch, and in the background (#19).
 		.task { await sources.refreshAll() }

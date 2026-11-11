@@ -96,6 +96,10 @@ public protocol RouteAConnection: AnyObject {
 	/// property list of bundle ID → PNG data, without the ones it has no
 	/// icon for.
 	func homeScreenIcons(_ bundleIDs: [String]) throws -> Data
+	/// What iOS's profile service said to each of `requests`, a property
+	/// list of MCInstall requests, sent in turn on one connection, as a
+	/// property list of answers.
+	func profileRequests(_ requests: Data) throws -> Data
 }
 
 public extension RouteAConnection {
@@ -135,6 +139,10 @@ public extension RouteAConnection {
 
 	func homeScreenIcons(_ bundleIDs: [String]) throws -> Data {
 		throw RouteAError(step: .homeScreen, code: 0, message: "this connection can't get icons")
+	}
+
+	func profileRequests(_ requests: Data) throws -> Data {
+		throw RouteAError(step: .homeScreen, code: 0, message: "this connection can't reach iOS's profile service")
 	}
 }
 
@@ -392,13 +400,7 @@ public final class PairingInstaller: Installer {
 	/// SpringBoard gives right after, which doesn't show the gaps. Assumes
 	/// LocalDevVPN is connected.
 	public func writeHomeScreen(_ layout: HomeScreenLayout, appLibrary: [String], gaps: HomeScreenGaps = HomeScreenGaps()) async throws -> HomeScreenLayout {
-		let archive = try layout.archiveData(appLibrary: appLibrary, gaps: gaps)
-		return try await withConnection { connection in
-			guard let after = HomeScreenLayout(plist: try connection.setHomeScreen(archive)) else {
-				throw RouteAError(step: .homeScreen, code: 0, message: "SpringBoard's layout couldn't be read back")
-			}
-			return after
-		}
+		try await writeHomeScreen(archive: layout.archiveData(appLibrary: appLibrary, gaps: gaps))
 	}
 
 	/// Each of `bundleIDs`' Home Screen icon as PNG data, for Open Spaces'
@@ -412,6 +414,34 @@ public final class PairingInstaller: Installer {
 				throw RouteAError(step: .homeScreen, code: 0, message: "SpringBoard's icons couldn't be read")
 			}
 			return icons
+		}
+	}
+
+	/// What iOS's profile service said to each of `requests`, MCInstall
+	/// requests sent in turn on one connection: the markers for offloaded
+	/// apps' spots come in a configuration profile (9 Nov 2026). Assumes
+	/// LocalDevVPN is connected.
+	public func profileRequests(_ requests: [OffloadMarkers.Request]) async throws -> [OffloadMarkers.Answer] {
+		let data = try PropertyListSerialization.data(fromPropertyList: requests.map(\.values), format: .binary, options: 0)
+		return try await withConnection { connection in
+			let plist = try connection.profileRequests(data)
+			guard let answers = try? PropertyListSerialization.propertyList(from: plist, options: [], format: nil) as? [Any] else {
+				throw RouteAError(step: .homeScreen, code: 0, message: "iOS's profile service's answers couldn't be read")
+			}
+			return answers.map { OffloadMarkers.Answer($0 as? [String: Any] ?? [:]) }
+		}
+	}
+
+	/// Writes `archive`, a layout as setIconState imports it, as it is, and
+	/// returns the layout SpringBoard gives right after. For a test that
+	/// sends what `HomeScreenLayout.archive` doesn't. Assumes LocalDevVPN is
+	/// connected.
+	public func writeHomeScreen(archive: Data) async throws -> HomeScreenLayout {
+		try await withConnection { connection in
+			guard let after = HomeScreenLayout(plist: try connection.setHomeScreen(archive)) else {
+				throw RouteAError(step: .homeScreen, code: 0, message: "SpringBoard's layout couldn't be read back")
+			}
+			return after
 		}
 	}
 
