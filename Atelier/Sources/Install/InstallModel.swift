@@ -2596,7 +2596,9 @@ final class InstallModel {
 		Task { selfNotifies = await Self.mayNotify() }
 		let own = SelfUpdate.shared
 		let info = package.info
-		let certificateName = job.certificate?.displayName
+		// Or the Apple ID it's one of the apps of, when that signs it (#152),
+		// which Install History names as for any app it signs.
+		let certificateName = job.certificate?.displayName ?? job.appleID?.displayName
 		var sourceURL: URL?
 		if case .source(let source) = job.input { sourceURL = source.sourceURL }
 		selfPending = PendingSelfInstall(
