@@ -227,6 +227,17 @@ class PublishReleaseTests(unittest.TestCase):
         self.assertEqual(github.tagged, {"v0.2.0-alpha": "commit changing v0.2.0-alpha.md"})
         self.assertEqual(self.covered, ["commit changing v0.2.0-alpha.md^"], "the notes cover main before them")
 
+    def test_tag_gives_github_actions_the_tag_it_created(self):
+        outputs = self.dir / "outputs"
+        github = FakeGitHub(tags={"v0.1.0-alpha"})
+        notes = self.write_notes("v0.1.0-alpha.md")
+        with mock.patch.dict("os.environ", {"GITHUB_OUTPUT": str(outputs)}):
+            self.assertEqual(self.run_tag(github, notes), 0)
+            self.assertFalse(outputs.exists(), "nothing to release, so no tag")
+            (notes / "v0.2.0-alpha.md").write_text("Notes.\n")
+            self.assertEqual(self.run_tag(github, notes), 0)
+        self.assertEqual(outputs.read_text(), "tag=v0.2.0-alpha\n")
+
     def test_tag_refuses_notes_that_miss_a_pull_request(self):
         github = FakeGitHub(tags={"v0.1.0-alpha"})
         self.assertEqual(self.run_tag(github, self.write_notes("v0.2.0-alpha.md"), missing=[101]), 1)

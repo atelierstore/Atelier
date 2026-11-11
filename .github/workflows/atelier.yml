@@ -1,0 +1,128 @@
+name: Atelier
+
+# Builds Atelier for each new commit on a pull request into main, and for each
+# push to main: the Workers' and the release scripts' tests on Linux, and on a
+# Mac the package tests, an unsigned IPA and a copy signed with the Signulous
+# certificate (build.yml). Main's builds also keep the caches the pull
+# requests' builds start from.
+#
+# GitHub's standard runners, macOS included, are free and have no monthly
+# minute cap in a public repo. In a private one Actions counts each macOS
+# minute as 10 of 2,000 a month, so there the Mac build only runs when started
+# by hand (Actions › Atelier › Run workflow).
+#
+# Pull requests from forks get none of the repo's secrets, and wait for a
+# maintainer's approval before they run: Settings › Actions › General ›
+# "Require approval for all external contributors".
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    # -eo pipefail: a step stops at the first command that fails.
+    shell: bash
+
+concurrency:
+  # A new commit on a pull request cancels the build of the one before. Main's
+  # builds aren't cancelled once they've started, as each keeps caches for the
+  # next; one waiting for its turn makes way for a newer one, as GitHub keeps
+  # one waiting run per group.
+  group: atelier-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  plan:
+    name: Work out what to build
+    runs-on: ubuntu-latest
+    outputs:
+      app: ${{ steps.plan.outputs.app }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # A pull request's build is the pull request merged into main, whose
+          # first parent is main.
+          fetch-depth: 2
+          persist-credentials: false
+
+      - name: Work out what to build
+        id: plan
+        env:
+          EVENT: ${{ github.event_name }}
+          PRIVATE: ${{ github.event.repository.private }}
+        run: |
+          app=true
+          if [ "$EVENT" = pull_request ]; then
+            # Everything the pull request changes, not just this push. Without
+            # --no-renames, a file moved out of the app would only show under
+            # its new name.
+            changed="$(git diff --name-only --no-renames HEAD^1 HEAD)"
+            echo "This pull request changes:"
+            printf '%s\n' "$changed" | sed 's/^/  /'
+            # Docs, release notes, the Workers and the release scripts don't go
+            # into the app, and the Linux job checks them. Nor do other
+            # workflows than this one and build.yml.
+            app_files="$(printf '%s\n' "$changed" | grep -Ev '^(docs/|release/|design/|spike/|infra/|\.github/|README\.md$|scripts/(tests/|publish_release\.py$|update_source\.py$))' || true)"
+            build_files="$(printf '%s\n' "$changed" | grep -E '^\.github/workflows/(atelier|build)\.yml$' || true)"
+            if [ -n "$changed" ] && [ -z "$app_files$build_files" ]; then
+              app=false
+              echo "None of it goes into the app: no Mac build."
+            fi
+          fi
+          if [ "$app" = true ] && [ "$PRIVATE" = true ] && [ "$EVENT" != workflow_dispatch ]; then
+            app=false
+            echo "This repo is private, where Actions counts each macOS minute as 10 of 2,000 a month: no Mac build unless it's started by hand."
+          fi
+          echo "app=$app" >> "$GITHUB_OUTPUT"
+
+  checks:
+    name: Workers and release scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The release notes' check needs main's history back to the last
+          # release, with its tags.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Test the manifest endpoint (infra/manifest-worker)
+        working-directory: infra/manifest-worker
+        run: |
+          node --version
+          npm test
+
+      - name: Test the website's Worker (infra/website)
+        working-directory: infra/website
+        run: npm test
+
+      - name: Test the release scripts
+        run: python3 -m unittest discover scripts/tests
+
+      # Notes a pull request adds for a release that isn't tagged yet have to
+      # mention every pull request merged into main since the last release,
+      # as #N (docs/install.md).
+      - name: Check the release notes cover main
+        if: github.event_name == 'pull_request'
+        run: python3 scripts/publish_release.py check-notes --notes release/notes --main origin/main
+
+  build:
+    name: Build
+    needs: plan
+    if: needs.plan.outputs.app == 'true'
+    uses: ./.github/workflows/build.yml
+    with:
+      sign: true
+    secrets:
+      SIGNING_P12_BASE64: ${{ secrets.SIGNING_P12_BASE64 }}
+      SIGNING_P12_PASSWORD: ${{ secrets.SIGNING_P12_PASSWORD }}
+      SIGNING_PROFILE_BASE64: ${{ secrets.SIGNING_PROFILE_BASE64 }}

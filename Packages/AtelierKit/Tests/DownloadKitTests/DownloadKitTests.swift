@@ -258,7 +258,7 @@ final class DownloadModelTests: XCTestCase {
 }
 
 // swift-corelibs-foundation crashes on a URLProtocol answering a download
-// task, so the manager is only tested on Apple platforms (Codemagic).
+// task, so the manager is only tested on Apple platforms (CI's Mac build).
 #if canImport(Darwin)
 /// Serves canned responses to the manager's session.
 final class StubProtocol: URLProtocol {

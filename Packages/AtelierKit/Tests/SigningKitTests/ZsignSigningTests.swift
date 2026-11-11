@@ -12,9 +12,10 @@ import ZIPFoundation
 /// own developer CA certificates in every signature and writes Apple's
 /// designated requirement, neither of which the throwaway certificate from
 /// make-fixtures.sh can satisfy. So CI signs with the Signulous certificate
-/// when its .p12 is in Codemagic's
+/// when its .p12 is in the repo's
 /// secrets, passing a folder with identity.p12, password.txt and
-/// profile.mobileprovision in ATELIER_SIGNING_IDENTITY (see codemagic.yaml).
+/// profile.mobileprovision in ATELIER_SIGNING_IDENTITY (see
+/// .github/workflows/build.yml).
 /// Without it the tests sign with the throwaway certificate and check
 /// everything but codesign's verdict.
 final class ZsignSigningTests: XCTestCase {
@@ -207,7 +208,7 @@ final class ZsignSigningTests: XCTestCase {
 	}
 }
 
-/// The certificate and profile the zsign tests sign with: Codemagic's, from
+/// The certificate and profile the zsign tests sign with: CI's, from
 /// ATELIER_SIGNING_IDENTITY, or the throwaway fixtures.
 struct TestIdentity {
 	var identity: SigningIdentity

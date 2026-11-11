@@ -77,7 +77,8 @@ targets:
         CFBundleDisplayName: Atelier
         # XcodeGen writes 1.0 and 1 unless told otherwise. CI sets both: the
         # build number is the commit count, the version the tag's for a
-        # release and the last release's otherwise (codemagic.yaml, #23).
+        # release and the last release's otherwise (.github/workflows/build.yml,
+        # #23).
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         # Feather's declaration, which its picker relies on: without it the

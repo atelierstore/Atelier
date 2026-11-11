@@ -232,8 +232,8 @@ final class RevocationCheckerTests: XCTestCase {
 	}
 
 	/// Asks Apple about the certificate in a real provisioning profile, when
-	/// the machine has one: on Codemagic, the Signulous profile it installs
-	/// for the build. Skipped elsewhere, and when Apple can't be reached.
+	/// the machine has one: in CI, the Signulous profile it installs for the
+	/// build. Skipped elsewhere, and when Apple can't be reached.
 	func testAppleAnswersAboutARealCertificate() async throws {
 		try requireSecurity()
 		let home = FileManager.default.homeDirectoryForCurrentUser
