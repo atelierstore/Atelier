@@ -16,7 +16,8 @@ name: Build
 #
 # The signed IPA isn't kept as an artifact: it holds the profile, which lists
 # the devices it installs on, and a public repo's artifacts are open to anyone
-# signed in to GitHub.
+# signed in to GitHub. Nor do the certificate's details show in the log, which
+# is open to anyone too: zsign, codesign and sign_ipa.py print them as ***.
 
 on:
   workflow_call:
@@ -82,6 +83,23 @@ jobs:
           # version is the last release's tag: the whole history, about 8 MB.
           fetch-depth: 0
           persist-credentials: false
+
+      # Before anything signs: zsign, codesign and sign_ipa.py print the team
+      # ID, the certificate's name and ID, and the profile's name (which can
+      # hold a UDID) and App ID. This masks each of them for the rest of the
+      # job, and stops it when the profile can't be read.
+      - name: Hide the certificate's details in this log
+        env:
+          SIGNING_PROFILE_BASE64: ${{ secrets.SIGNING_PROFILE_BASE64 }}
+        run: |
+          if [ -z "$SIGNING_PROFILE_BASE64" ]; then
+            echo "No signing secrets: nothing to hide."
+            exit 0
+          fi
+          profile="$RUNNER_TEMP/masked.mobileprovision"
+          trap 'rm -f "$profile"' EXIT
+          printf '%s' "$SIGNING_PROFILE_BASE64" | tr -d ' \r\n' | base64 --decode > "$profile"
+          python3 scripts/mask_signing_details.py "$profile"
 
       - name: Show the tools
         run: |
