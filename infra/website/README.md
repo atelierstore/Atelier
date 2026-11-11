@@ -9,6 +9,7 @@ Atelier's website: static pages in `public/`, served by a Cloudflare Worker ([Wo
 - `public/img/` holds the icon, the screenshots (`screens/`) and `og.png`, the picture apps show when a link to the site is shared. `og:url` and `og:image` in `index.html`, `certificate.html`, `sideload.html` and `signing-services.html` name the site's address, so they change with it.
 - `public/fonts/` holds Bricolage Grotesque, the headings' typeface, under the SIL Open Font License 1.1 (`OFL.txt` beside it). Everything else is in the system font.
 - `public/_headers` sets the static files' response headers: a content security policy that only allows the site's own files, `data:` images (an app's icon on the install link page) and fetching the source from GitHub, long caching for the fonts, and `noindex`, which keeps the site out of search results until the repo goes public. Remove that line then. The source and app link pages have their own policy, which allows images from any `https://` address too, for the icons sources list. The certificate page and its signing worker have theirs, which let them run WebAssembly (`'wasm-unsafe-eval'`).
+- `public/_redirects` sends `/donate`, which every Donate button opens, on to Atelier's page on Ko-fi (below).
 
 ## Installing Atelier
 
@@ -114,6 +115,10 @@ https://atelierstore.app/search?q=emulator
 ```
 
 - `+` is a space, as AltStore reads these links, and the first `q` counts.
+
+## Donate
+
+Every page with a nav ends it with a Donate pill, after GitHub, and has a Donate link in its footer, and the home page's last section, after the FAQ, asks for donations (*Help keep Atelier going*), with the next milestone, which donations go to first, on a card of its own: change it in `index.html` once it's reached. They all open `/donate`, which `public/_redirects` sends on to Atelier's page on Ko-fi with a 302, so its address is only there. To move to another service, change that line and the section's note, which names Ko-fi. The buttons open Ko-fi's own page rather than embedding its widget, so the site still loads nothing from other sites. On a phone, GitHub in the nav shows just its mark, to leave room for the pill.
 
 ## Builds
 
