@@ -9,11 +9,19 @@ import Observation
 /// in through the anisette servers Atelier's worker lists, one at a time
 /// and silently (`AnisetteRoute`), or only through the user's own; asks
 /// which team when Apple lists more than one; registers this iPhone with
-/// the UDID the setup read; then has Apple make this iPhone's development
-/// certificate. At Apple's limit it lists the team's certificates and asks
-/// which one to revoke, never revoking one by itself. The Apple ID, its
+/// the UDID the setup read; then finds this iPhone's development
+/// certificate, the one whose key it kept or the one the iPhone-only
+/// installer handed over (#152), else has Apple make one. At Apple's limit
+/// it lists the team's certificates and asks which one to revoke, never
+/// revoking one by itself. The Apple ID, its
 /// password and the certificate are then kept with the certificates
 /// (`CertificateStore.saveAppleID`), in use if nothing else is.
+///
+/// When the installer also handed over its sign-in, Atelier signs in with
+/// it by itself as it first opens (`CertificatesModel.signInAsInstaller`),
+/// out of sight, as the same machine to Apple and in the same team. The
+/// sheet comes up, filled in, once it has something to show: Apple's code,
+/// a choice, why it stopped, or You're Signed In.
 ///
 /// Installing with it comes with the install PR, and renewing its apps'
 /// profiles every week with the one after.
@@ -27,8 +35,10 @@ final class AppleIDSignIn {
 		case working(String)
 		/// Apple lists more than one team for the Apple ID.
 		case chooseTeam([AppleIDSession.Team], current: AppleIDSession.Team)
-		/// The team has as many development certificates as Apple allows.
-		case revoke([AppleIDSession.Certificate])
+		/// The team has as many development certificates as Apple allows:
+		/// what Apple lists, and those revoked in this sign-in that Apple
+		/// still counts.
+		case revoke([AppleIDSession.Certificate], revoked: [AppleIDSession.Certificate])
 		case done(Done)
 	}
 
@@ -40,6 +50,10 @@ final class AppleIDSignIn {
 		/// The certificate in use otherwise, which stays in use until Use
 		/// for Installs.
 		var otherInUse: String?
+		var source: CertificateSource
+		/// Whether Atelier signed in by itself, with the installer's
+		/// sign-in (#152).
+		var byInstaller: Bool
 	}
 
 	/// The name Apple lists the certificate's machine under, as iloader's is
@@ -52,6 +66,12 @@ final class AppleIDSignIn {
 	private(set) var codePrompt: AppleIDCodePrompt?
 
 	private let certificates: CertificatesModel
+	/// What the iPhone-only installer handed over, when Atelier signs in by
+	/// itself with its sign-in (#152).
+	private let installer: InstallerCertificate?
+	/// Whether the sheet shows it: always, but out of sight while Atelier
+	/// signs in by itself, until there's something to show.
+	private var revealed: Bool
 	@ObservationIgnored private var task: Task<Void, Never>?
 	@ObservationIgnored private var cancelled = false
 	@ObservationIgnored private var teamChoice: CheckedContinuation<AppleIDSession.Team?, Never>?
@@ -59,6 +79,30 @@ final class AppleIDSignIn {
 
 	init(certificates: CertificatesModel) {
 		self.certificates = certificates
+		installer = nil
+		revealed = true
+	}
+
+	/// Filled in with the installer's sign-in, to sign in with by itself
+	/// (#152).
+	init(certificates: CertificatesModel, installer: InstallerCertificate) {
+		self.certificates = certificates
+		self.installer = installer
+		email = installer.signIn?.appleID ?? ""
+		password = installer.signIn?.password ?? ""
+		revealed = false
+	}
+
+	/// Whether the sheet shows: not while Atelier signs in by itself and
+	/// has nothing to show yet.
+	var isShown: Bool {
+		revealed || !isWorking
+	}
+
+	/// The sheet comes up for it, as when the user opens it while Atelier
+	/// signs in by itself.
+	func reveal() {
+		revealed = true
 	}
 
 	/// Whether Sign In can be tapped: both fields filled, and nothing
@@ -77,7 +121,7 @@ final class AppleIDSignIn {
 		guard canSignIn, task == nil else { return }
 		let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
 		let password = password
-		stage = .working("Signing in…")
+		stage = .working(handedOver(for: email) == nil ? "Signing in…" : "Signing in with the Apple ID the installer used…")
 		task = Task { await run(email: email, password: password) }
 	}
 
@@ -99,8 +143,13 @@ final class AppleIDSignIn {
 	private typealias Stop = AppleIDRoute.Stop
 
 	private func run(email: String, password: String) async {
-		defer { task = nil }
-		AppleIDLog.note("Sign In with Apple ID")
+		defer {
+			task = nil
+			// Tried once, by itself: from here on, it's the user's to try
+			// again, from the sheet filled in.
+			if installer != nil { certificates.forgetInstallerSignIn() }
+		}
+		AppleIDLog.note(installer == nil ? "Sign In with Apple ID" : "Sign In with Apple ID, by itself with the installer's (#152)")
 		do {
 			let done = try await signInAndSave(email: email, password: password)
 			guard !cancelled else { return note("done, after the sheet closed") }
@@ -121,11 +170,16 @@ final class AppleIDSignIn {
 	}
 
 	private func signInAndSave(email: String, password: String) async throws -> Done {
+		let installer = handedOver(for: email)
 		// Read first, so a sign-in doesn't ask for Apple's code only to stop
-		// there.
+		// there. The installer's is the one it registered this iPhone with.
 		let udid: String
 		do {
-			udid = try await RouteASetup.shared.readUDID()
+			if let handedOver = installer?.signIn?.udid {
+				udid = handedOver
+			} else {
+				udid = try await RouteASetup.shared.readUDID()
+			}
 		} catch {
 			note("register: couldn't read the UDID: \(error)")
 			throw Stop.failed("Atelier couldn't read this \(ThisDevice.name)'s UDID, which Apple registers it with. Connect LocalDevVPN on Wi-Fi, then try again.")
@@ -134,7 +188,18 @@ final class AppleIDSignIn {
 		try checkCancelled()
 
 		var team = signedIn.team
-		if signedIn.teams.count > 1 {
+		if let installer, let handedOver = signedIn.teams.first(where: { $0.id == installer.teamID }) {
+			// The installer's, which its certificate is in.
+			if handedOver.id != team.id {
+				do {
+					try await signedIn.session.chooseTeam(handedOver)
+				} catch {
+					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+				}
+				note("team: the installer's, \(handedOver.id), of \(signedIn.teams.count)")
+			}
+			team = handedOver
+		} else if signedIn.teams.count > 1 {
 			stage = .chooseTeam(signedIn.teams, current: team)
 			guard let picked = await chooseTeam() else { throw Stop.cancelled }
 			stage = .working("Signing in…")
@@ -170,10 +235,15 @@ final class AppleIDSignIn {
 			throw Stop.failed("Atelier couldn't make a folder for the certificate's key: \(error.localizedDescription)")
 		}
 		let p12Password = UUID().uuidString
-		let made = try await makeCertificate(with: signedIn.session, email: email, keys: keys, p12Password: p12Password)
+		let (made, source) = try await findOrMakeCertificate(with: signedIn.session, teamID: team.id, keys: keys, p12Password: p12Password)
 		let serial = made.certificate.serialNumber.map { " \($0)" } ?? ""
 		let until = made.certificate.expires.map { ", until \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""
-		note("certificate: \(made.made ? "Apple made one" : "found the one made before, its key being here")\(serial)\(until)")
+		let machine = made.certificate.machineName ?? "an unnamed machine"
+		switch source {
+		case .made: note("certificate: Apple made one\(serial)\(until)")
+		case .found: note("certificate: found the one made before for \(machine), its key being here\(serial)\(until)")
+		case .installer: note("certificate: the installer's, made for \(machine), its key handed over\(serial)\(until)")
+		}
 		try checkCancelled()
 
 		let certificate: SigningCertificate
@@ -188,7 +258,7 @@ final class AppleIDSignIn {
 			email: email,
 			team: StoredAppleID.Team(id: team.id, name: team.name, isFree: team.isFree),
 			certificate: certificate,
-			machineName: Self.machineName,
+			machineName: made.certificate.machineName ?? Self.machineName,
 			// A check of the same certificate still stands.
 			revocation: existing?.certificate.serialNumber == certificate.serialNumber ? existing?.revocation : nil
 		)
@@ -220,52 +290,139 @@ final class AppleIDSignIn {
 			// certificate it was installed with.
 			await ProfileRenewals.shared.renewAfterSignIn(certificates.appleID(id) ?? saved)
 		}
-		return Done(account: account, inUse: inUse, otherInUse: inUse ? nil : otherInUse)
+		return Done(account: account, inUse: inUse, otherInUse: inUse ? nil : otherInUse, source: source, byInstaller: installer != nil)
 	}
 
 	/// Signs in through each anisette server in turn until one works, as
 	/// `AnisetteRoute` says: the user's own only, when there's one.
 	private func signInToApple(email: String, password: String) async throws -> AppleIDSession.SignedIn {
-		try await AppleIDRoute.signIn(email: email, password: password, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
+		// Through the installer's server first, whose machine Apple trusts.
+		let server = handedOver(for: email)?.signIn?.anisetteServer.flatMap(AnisetteList.serverURL)
+		return try await AppleIDRoute.signIn(email: email, password: password, firstServer: server, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
 			self?.waitForCode(request)
 		}
 	}
 
-	/// This iPhone's development certificate. At Apple's limit, the team's
-	/// certificates are listed and the one the user picks is revoked first.
-	private func makeCertificate(with session: AppleIDSession, email: String, keys: URL, p12Password: String) async throws -> AppleIDSession.MadeCertificate {
+	/// What the installer handed over, while the sheet still has the Apple
+	/// ID it used (#152): its team, its server and the UDID it registered.
+	private func handedOver(for email: String) -> InstallerCertificate? {
+		guard let installer, installer.signIn?.appleID.caseInsensitiveCompare(email) == .orderedSame else { return nil }
+		return installer
+	}
+
+	/// Where this iPhone's certificate came from.
+	enum CertificateSource: Equatable {
+		/// Apple made it now.
+		case made
+		/// Apple lists it, and its key is here from an earlier sign-in.
+		case found
+		/// The one the iPhone-only installer made with this Apple ID to
+		/// install Atelier, which handed its key over (#152).
+		case installer
+	}
+
+	/// This iPhone's development certificate: one Apple lists whose key is
+	/// here from an earlier sign-in, whatever app Apple says made it; else
+	/// the one the iPhone-only installer made in this team and left its key
+	/// for (#152), as a free Apple ID may only have two; else a new one
+	/// (`makeCertificate`). The installer's is forgotten once used, once
+	/// Apple no longer lists it, or once Atelier has its own in the team.
+	private func findOrMakeCertificate(with session: AppleIDSession, teamID: String, keys: URL, p12Password: String) async throws -> (AppleIDSession.MadeCertificate, CertificateSource) {
+		let installer = certificates.installerCertificate.flatMap { $0.teamID == teamID ? $0 : nil }
+		switch try await adoptCertificate(key: nil, with: session, keys: keys, p12Password: p12Password) {
+		case .found(let found):
+			if installer != nil {
+				note("certificate: leaving the installer's, as the team has the one whose key is here")
+				certificates.forgetInstallerCertificate()
+			}
+			return (found, .found)
+		case .unreadableKey:
+			note("certificate: the key kept from before can't be read")
+		case .noKey, .notListed:
+			break
+		}
+		try checkCancelled()
+		if let installer {
+			switch try await adoptCertificate(key: installer.privateKey, with: session, keys: keys, p12Password: p12Password) {
+			case .found(let adopted):
+				certificates.forgetInstallerCertificate()
+				return (adopted, .installer)
+			case .notListed(let listed):
+				note("certificate: Apple no longer lists the installer's, \(listed) listed")
+				certificates.forgetInstallerCertificate()
+			case .unreadableKey, .noKey:
+				note("certificate: the installer's key can't be read")
+				certificates.forgetInstallerCertificate()
+			}
+			try checkCancelled()
+		}
+		return (try await makeCertificate(with: session, keys: keys, p12Password: p12Password), .made)
+	}
+
+	/// The team's certificate made with `key`, or the key kept in `keys`
+	/// with `key` nil. A failure stops the sign-in, rather than having
+	/// Apple make another certificate when one may be there.
+	private func adoptCertificate(key: Data?, with session: AppleIDSession, keys: URL, p12Password: String) async throws -> AppleIDSession.Adoption {
 		do {
-			return try await session.certificate(machineName: Self.machineName, p12Password: p12Password, keys: keys)
-		} catch let error as AppleIDError where error.isTooManyCertificates {
-			let listed: [AppleIDSession.Certificate]
-			do {
-				listed = try await session.certificates()
-			} catch {
-				throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
-			}
-			try checkCancelled()
-			note("certificate: at Apple's limit, \(listed.count) listed")
-			stage = .revoke(listed)
-			guard let picked = await chooseRevocation(), let serialNumber = picked.serialNumber else { throw Stop.cancelled }
-			stage = .working("Revoking the certificate…")
-			do {
-				try await session.revokeCertificate(serialNumber: serialNumber)
-				note("certificate: revoked \(serialNumber)\(picked.machineName.map { ", made for \($0)" } ?? "")")
-			} catch {
-				note("certificate: revoking failed: \(error)")
-				throw Stop.failed(Self.explain(error, "Apple didn't revoke the certificate"))
-			}
-			try checkCancelled()
-			stage = .working("Making a certificate…")
+			return try await session.adoptCertificate(key: key, p12Password: p12Password, keys: keys)
+		} catch {
+			note("certificate: listing failed: \(error)")
+			throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
+		}
+	}
+
+	/// The most certificates one sign-in revokes, each the user's pick.
+	static let maxRevokes = 3
+
+	/// A new development certificate for this iPhone. At Apple's limit, the
+	/// team's certificates are listed and the one the user picks is revoked
+	/// first. Apple goes on counting a revoked certificate after it leaves
+	/// the list, still 27 minutes later, and waiting never freed its place
+	/// while revoking another listed one did, at once (Alex's iPhone, 12 Nov
+	/// 2026). So while Apple still says 7460 after a revoke, the list comes
+	/// again, as Revoke Another?, for up to `maxRevokes` revokes.
+	private func makeCertificate(with session: AppleIDSession, keys: URL, p12Password: String) async throws -> AppleIDSession.MadeCertificate {
+		var revoked: [AppleIDSession.Certificate] = []
+		while true {
 			do {
 				return try await session.certificate(machineName: Self.machineName, p12Password: p12Password, keys: keys)
+			} catch let error as AppleIDError where error.isTooManyCertificates {
+				var listed: [AppleIDSession.Certificate]
+				do {
+					listed = try await session.certificates()
+				} catch {
+					throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
+				}
+				try checkCancelled()
+				note("certificate: at Apple's limit, \(listed.count) listed\(revoked.isEmpty ? "" : ", \(revoked.count) revoked so far")")
+				// One revoked already, if Apple lists it still, isn't
+				// offered again.
+				let revokedSerials = Set(revoked.compactMap(\.serialNumber))
+				listed.removeAll { certificate in certificate.serialNumber.map { revokedSerials.contains($0) } ?? false }
+				guard revoked.count < Self.maxRevokes, listed.contains(where: { $0.serialNumber != nil }) else {
+					note("certificate: nothing more to revoke")
+					if revoked.isEmpty { throw Stop.failed(Self.explain(error, "Apple didn't make the certificate")) }
+					throw Stop.failed(revoked.count == 1
+						? "Apple still counts the certificate you revoked, so Atelier can't make its own yet. Try again later."
+						: "Apple still counts the certificates you revoked, so Atelier can't make its own yet. Try again later.")
+				}
+				stage = .revoke(listed, revoked: revoked)
+				guard let picked = await chooseRevocation(), let serialNumber = picked.serialNumber else { throw Stop.cancelled }
+				stage = .working("Revoking the certificate…")
+				do {
+					try await session.revokeCertificate(serialNumber: serialNumber)
+					note("certificate: revoked \(serialNumber)\(picked.machineName.map { ", made for \($0)" } ?? "")")
+				} catch {
+					note("certificate: revoking failed: \(error)")
+					throw Stop.failed(Self.explain(error, "Apple didn't revoke the certificate"))
+				}
+				revoked.append(picked)
+				try checkCancelled()
+				stage = .working("Making a certificate…")
 			} catch {
 				note("certificate: failed: \(error)")
 				throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
 			}
-		} catch {
-			note("certificate: failed: \(error)")
-			throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
 		}
 	}
 
@@ -306,6 +463,9 @@ final class AppleIDSignIn {
 			guard let self, !self.cancelled else { return false }
 			self.note("sign-in: \(AppleIDLog.describe(request))")
 			self.codePrompt = prompt
+			// Signing in by itself: the sheet comes up, filled in, with the
+			// alert, and stays up.
+			self.revealed = true
 			return true
 		} timedOut: { [weak self] in
 			self?.codePrompt = nil

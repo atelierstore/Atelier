@@ -24,6 +24,9 @@ ROOT=$(pwd)
 ./fetch-idevice.sh
 
 FFI="$ROOT/vendor/idevice/ffi"
+# From idevice's own files each time, so a vendor folder from before a change
+# to what's added below gets the change too.
+git -C vendor/idevice checkout --quiet -- Cargo.toml ffi/Cargo.toml ffi/src/lib.rs
 # Add our modules to idevice-ffi (idempotent). cbindgen, run by idevice-ffi's
 # build.rs, picks them up and emits them into the generated idevice.h.
 cp src/pairing.rs "$FFI/src/atelier_pairing.rs"
@@ -52,6 +55,25 @@ features = ["ring"]
 
 [dependencies.rootcause]
 version = "0.12"
+
+# The versions isideload uses, for the certificate whose key another tool
+# handed over (#152): its key, the certificate, and where isideload keeps it.
+[dependencies.rsa]
+version = "0.9.10"
+default-features = false
+
+[dependencies.x509-cert]
+version = "0.2.5"
+default-features = false
+
+[dependencies.sha2]
+version = "0.11"
+default-features = false
+
+[dependencies.hex]
+version = "0.4.3"
+default-features = false
+features = ["alloc"]
 TOML
 grep -q '^\[patch.crates-io\]' "$ROOT/vendor/idevice/Cargo.toml" || cat >> "$ROOT/vendor/idevice/Cargo.toml" <<'TOML'
 

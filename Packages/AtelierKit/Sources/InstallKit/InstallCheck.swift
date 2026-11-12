@@ -36,8 +36,15 @@ public enum InstallCheck {
 
 	/// A check scheme no installed app has registered, or nil if all are taken.
 	/// `isRegistered` is `canOpenURL` for `<scheme>://`.
-	public static func freeScheme(isRegistered: (String) -> Bool) -> String? {
-		schemes.first { !isRegistered($0) }
+	///
+	/// A deleted app's Library entry still holds its scheme until another
+	/// install is given it, and reads as installed as soon as that install
+	/// registers it. So one no entry holds (`held`) comes first, and one an
+	/// offloaded app holds (`kept`) never: it would leave Offloaded for
+	/// Installed, its data "not put back" (12 Nov 2026).
+	public static func freeScheme(isRegistered: (String) -> Bool, held: Set<String> = [], kept: Set<String> = []) -> String? {
+		let free = schemes.filter { !isRegistered($0) && !kept.contains($0) }
+		return free.first { !held.contains($0) } ?? free.first
 	}
 
 	/// Info.plist with every check scheme removed and `scheme` added, in a URL
