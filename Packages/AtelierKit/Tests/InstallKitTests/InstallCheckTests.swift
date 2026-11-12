@@ -40,6 +40,19 @@ final class InstallCheckTests: XCTestCase {
 		XCTAssertNil(InstallCheck.freeScheme { _ in true })
 	}
 
+	/// Nuvio's re-sign took the scheme offloaded Bazaart still held, which
+	/// then read as installed (12 Nov 2026).
+	func testFreeSchemeLeavesHeldAndOffloadedOnes() {
+		let taken: Set = ["atelier-check-1"]
+		let isRegistered = { (scheme: String) in taken.contains(scheme) }
+		// A deleted app's entry holds 2, an offloaded app's 3: 4 comes first.
+		XCTAssertEqual(InstallCheck.freeScheme(isRegistered: isRegistered, held: ["atelier-check-2", "atelier-check-3"], kept: ["atelier-check-3"]), "atelier-check-4")
+		// With every other scheme held, a deleted app's goes, never an offloaded one's.
+		let others = Set(InstallCheck.schemes.dropFirst(3))
+		XCTAssertEqual(InstallCheck.freeScheme(isRegistered: isRegistered, held: others.union(["atelier-check-2", "atelier-check-3"]), kept: ["atelier-check-3"]), "atelier-check-2")
+		XCTAssertNil(InstallCheck.freeScheme(isRegistered: { $0 != "atelier-check-3" }, kept: ["atelier-check-3"]))
+	}
+
 	func testFindsTheSchemeAnAppCarries() {
 		XCTAssertEqual(InstallCheck.scheme(of: IPAInfo(bundleID: "a", version: "1", name: "A", urlSchemes: ["fb123", "atelier-check-9"])), "atelier-check-9")
 		XCTAssertNil(InstallCheck.scheme(of: IPAInfo(bundleID: "a", version: "1", name: "A", urlSchemes: ["atelier-check-99"])))
