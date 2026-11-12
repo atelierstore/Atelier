@@ -400,10 +400,10 @@ struct YourGapsView: View {
 }
 
 /// Find Open Spaces Automatically's alert (12 Nov 2026), in the style of
-/// iOS's own, which draws its text in grey: iOS's notice comes first, in
-/// red, since once Atelier has pressed Home, iOS might say “Atelier” can
-/// view and control this iPhone. It dims the whole screen, as iOS's alerts
-/// do, and fades in and out like them.
+/// iOS's own, which draws its text in grey: it shows the notification iOS
+/// posts some time after a look, then says in red that it's normal. It
+/// dims the whole screen, as iOS's alerts do, and fades in and out like
+/// them.
 private struct FindOpenSpacesAlert: View {
 	/// The page, counted from 1.
 	let page: Int
@@ -439,10 +439,12 @@ private struct FindOpenSpacesAlert: View {
 			Text("Find open spaces on page \(page)?")
 				.font(.headline)
 				.accessibilityAddTraits(.isHeader)
-			Text("Afterwards, iOS might say “Atelier” can view and control this iPhone. That’s normal: it’s because Atelier will take a screenshot of the page to locate the open spaces. Keep it paired.")
+			DeviceHubNotification()
+				.padding(.top, 12)
+			Text("Afterwards, iOS might show this. That’s normal: it’s because Atelier will take a screenshot of the page to locate the open spaces. Keep it paired.")
 				.font(.subheadline.weight(.semibold))
 				.foregroundStyle(.red)
-				.padding(.top, 8)
+				.padding(.top, 12)
 			Text("Don’t touch your iPhone until Atelier is back, in a few seconds.")
 				.font(.subheadline)
 				.foregroundStyle(.secondary)
@@ -484,6 +486,46 @@ private struct FindOpenSpacesAlert: View {
 		} completion: {
 			close(finding)
 		}
+	}
+}
+
+/// The notification iOS posts some time after a look (12 Nov 2026), drawn
+/// as iOS draws it, so that you know it when it comes: Device Hub, which
+/// takes Atelier's screen stream for a Mac's, says this iPhone was viewed
+/// remotely from a Mac.
+private struct DeviceHubNotification: View {
+	var body: some View {
+		HStack(spacing: 11) {
+			RoundedRectangle(cornerRadius: 8.5, style: .continuous)
+				.fill(LinearGradient(colors: [Color(white: 0.63), Color(white: 0.42)], startPoint: .top, endPoint: .bottom))
+				.frame(width: 38, height: 38)
+				.overlay {
+					Image(systemName: "gearshape.fill")
+						.font(.system(size: 25))
+						.foregroundStyle(Color(white: 0.9))
+				}
+			VStack(alignment: .leading, spacing: 1) {
+				HStack(alignment: .firstTextBaseline, spacing: 8) {
+					Text("Device Hub")
+						.font(.subheadline.weight(.semibold))
+					Spacer(minLength: 0)
+					Text("now")
+						.font(.footnote)
+						.foregroundStyle(.secondary)
+				}
+				Text("This device was viewed remotely from Mac")
+					.font(.subheadline)
+			}
+		}
+		.padding(EdgeInsets(top: 11, leading: 11, bottom: 11, trailing: 14))
+		.background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+		.overlay {
+			RoundedRectangle(cornerRadius: 22, style: .continuous)
+				.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
+		}
+		.shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+		.accessibilityElement(children: .ignore)
+		.accessibilityLabel("iOS’s notification: Device Hub, This device was viewed remotely from Mac")
 	}
 }
 
