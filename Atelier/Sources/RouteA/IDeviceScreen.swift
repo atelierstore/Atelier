@@ -87,6 +87,14 @@ final class ScreenSession: @unchecked Sendable {
 		try screenCheck(atelier_screen_swipe(session, fromX, toX, y))
 	}
 
+	/// Slides a finger along the screen at height `y`, from `fromX` to
+	/// `toX`, each a fraction of the screen from its top left: it rests at
+	/// the start for `hold`, moves for `move` and rests at the end for
+	/// `settle` before it lifts.
+	func slide(fromX: Double, toX: Double, y: Double, hold: Duration, move: Duration, settle: Duration) throws {
+		try screenCheck(atelier_screen_slide(session, fromX, toX, y, hold.milliseconds, move.milliseconds, settle.milliseconds))
+	}
+
 	/// The screen as it is now, as PNG data.
 	func screenshot() throws -> Data {
 		var png: UnsafeMutablePointer<UInt8>?
@@ -123,6 +131,15 @@ private func screenCheck(_ error: UnsafeMutablePointer<IdeviceFfiError>?) throws
 	)
 	idevice_error_free(error)
 	throw failure
+}
+
+private extension Duration {
+	/// Whole milliseconds, for the screen module.
+	var milliseconds: UInt64 {
+		let (seconds, attoseconds) = components
+		let millis = seconds * 1000 + attoseconds / 1_000_000_000_000_000
+		return UInt64(max(millis, 0))
+	}
 }
 
 private extension Data {

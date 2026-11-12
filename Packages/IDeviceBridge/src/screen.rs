@@ -24,9 +24,9 @@ use std::time::Duration;
 
 use idevice::core_device::{
     AppServiceClient, ButtonState, CallInfoBlob, DisplayServiceClient, ImageFormat,
-    IndigoHidClient, ScreenCaptureServiceClient, UniversalHidServiceClient,
-    build_screen_audio_offer, build_screen_video_offer, build_start_audio_parameters,
-    build_start_video_parameters,
+    IndigoHidClient, ScreenCaptureServiceClient, TOUCHSCREEN_STATE_CONTACT,
+    TOUCHSCREEN_STATE_RELEASE, UniversalHidServiceClient, build_screen_audio_offer,
+    build_screen_video_offer, build_start_audio_parameters, build_start_video_parameters,
 };
 use idevice::cryptexd::Cryptex1Assets;
 use idevice::lockdown::LockdownClient;
@@ -75,6 +75,9 @@ const HOME_HOLD: Duration = Duration::from_millis(80);
 /// second, which the Home Screen takes as a swipe rather than a tap.
 const SWIPE_STEPS: u32 = 20;
 const SWIPE_STEP_MS: u64 = 16;
+/// A slide's touch samples come this far apart, a screen refresh, also while
+/// the finger rests, so iOS sees a touch held rather than one let go.
+const SLIDE_STEP_MS: u64 = 16;
 
 /// The developer services iOS doesn't list in this tunnel's handshake, one
 /// per line, or an empty string when they're all there: all of them before
@@ -435,6 +438,63 @@ pub unsafe extern "C" fn atelier_screen_swipe(
             .touches
             .drag(from_x, y, to_x, y, SWIPE_STEPS, SWIPE_STEP_MS),
     ));
+    match result {
+        Ok(()) => null_mut(),
+        Err(e) => ffi_err!(e),
+    }
+}
+
+/// Slides a finger along the screen at height `y`, from `from_x` to `to_x`,
+/// each a fraction of the screen from its top left, 0 to 1: it rests at the
+/// start for `hold_ms`, moves for `move_ms` and rests at the end for
+/// `settle_ms` before it lifts. On the Home Screen's page dots, sliding
+/// goes through the pages, as a finger does (12 Nov 2026).
+///
+/// # Safety
+/// `session` must be a live session.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atelier_screen_slide(
+    session: *mut AtelierScreenSession,
+    from_x: f64,
+    to_x: f64,
+    y: f64,
+    hold_ms: u64,
+    move_ms: u64,
+    settle_ms: u64,
+) -> *mut IdeviceFfiError {
+    if session.is_null() {
+        return ffi_err!(IdeviceError::FfiInvalidArg);
+    }
+    let session = unsafe { &mut *session };
+    let (from_x, to_x, y) = (touch_point(from_x), touch_point(to_x), touch_point(y));
+    let wait = STEP_WAIT + Duration::from_millis(hold_ms + move_ms + settle_ms);
+    let result = run_sync_local(within(wait, "sliding", async {
+        let touches = &mut session.touches;
+        for _ in 0..(hold_ms / SLIDE_STEP_MS).max(1) {
+            touches
+                .send_touchscreen(TOUCHSCREEN_STATE_CONTACT, from_x, y, None)
+                .await?;
+            tokio::time::sleep(Duration::from_millis(SLIDE_STEP_MS)).await;
+        }
+        let steps = (move_ms / SLIDE_STEP_MS).max(1);
+        for step in 1..=steps {
+            let t = step as f64 / steps as f64;
+            let x = (f64::from(from_x) + (f64::from(to_x) - f64::from(from_x)) * t).round() as u16;
+            touches
+                .send_touchscreen(TOUCHSCREEN_STATE_CONTACT, x, y, None)
+                .await?;
+            tokio::time::sleep(Duration::from_millis(SLIDE_STEP_MS)).await;
+        }
+        for _ in 0..(settle_ms / SLIDE_STEP_MS) {
+            touches
+                .send_touchscreen(TOUCHSCREEN_STATE_CONTACT, to_x, y, None)
+                .await?;
+            tokio::time::sleep(Duration::from_millis(SLIDE_STEP_MS)).await;
+        }
+        touches
+            .send_touchscreen(TOUCHSCREEN_STATE_RELEASE, to_x, y, None)
+            .await
+    }));
     match result {
         Ok(()) => null_mut(),
         Err(e) => ffi_err!(e),

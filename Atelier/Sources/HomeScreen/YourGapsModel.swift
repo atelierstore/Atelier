@@ -168,12 +168,13 @@ final class YourGapsModel {
 	/// open spaces it sees there, as if they were tapped.
 	func findOpenSpaces() async {
 		let page = page
-		guard mightHaveOpenSpaces, !isFinding else { return }
+		guard mightHaveOpenSpaces, !isFinding, let screen else { return }
 		findings[page] = .looking
 		do {
-			let look = try await HomeScreenLook.look(atPage: page)
-			let items = pages[page].filter { if case .item = $0 { true } else { false } }.count
-			guard let reading = await HomeScreenLook.read(look.screenshot, items: items, page: page),
+			let counts: [Int?] = screen.layout.pages.map { Self.canMark($0) ? $0.count : nil }
+			let target = HomeScreenLook.Target(page: page, icons: await itemIcons(page), counts: counts)
+			let look = try await HomeScreenLook.look(at: target)
+			guard let reading = look.reading,
 			      let marked = OpenSpacesFinder.slots(pages[page], empty: reading.empty) else {
 				findings[page] = .failed("Couldn’t look at your Home Screen: Atelier couldn’t make out page \(page + 1) in the screenshot. Mark them by hand, or try again.")
 				return
@@ -210,6 +211,31 @@ final class YourGapsModel {
 	}
 
 	// MARK: Helpers
+
+	/// The page's items in order, as Find Open Spaces Automatically looks
+	/// for them: each app's icon as SpringBoard draws it, asked for now if
+	/// it hasn't come yet, or nil for a folder.
+	private func itemIcons(_ page: Int) async -> [OpenSpacesFinder.Pixels?] {
+		var ids: [String?] = []
+		for slot in pages[page] {
+			guard case .item(let item) = slot else { continue }
+			if case .icon(let id, _) = item {
+				ids.append(id)
+			} else {
+				ids.append(nil)
+			}
+		}
+		let missing = ids.compactMap { $0 }.filter { icons[$0] == nil }
+		if !missing.isEmpty, let pngs = try? await installer.homeScreenIcons(missing) {
+			for (id, png) in pngs {
+				icons[id] = UIImage(data: png)
+			}
+		}
+		return ids.map { id in
+			guard let id, let image = icons[id]?.cgImage else { return nil }
+			return OpenSpacesFinder.Pixels(image: image, width: 96)
+		}
+	}
 
 	/// Replaces the page's gaps with the ones marked on it now.
 	private func save(page: Int) {

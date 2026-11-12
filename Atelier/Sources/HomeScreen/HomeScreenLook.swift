@@ -6,12 +6,17 @@ import UIKit
 
 /// Find Open Spaces Automatically's look at one page of the Home Screen
 /// (11 Nov 2026): Atelier mounts Apple's developer disk image if this
-/// iPhone hasn't got it yet, presses Home, swipes to the page, takes a
+/// iPhone hasn't got it yet, presses Home, goes to the page, takes a
 /// screenshot and opens itself again, through LocalDevVPN's tunnel to this
 /// iPhone (IDeviceScreen.swift). Silent audio keeps it running in the
 /// background meanwhile, as for pairing and installs. A step that fails
 /// says which it was, once Atelier is back in front, and the setup's log
 /// has each step.
+///
+/// To get to the page (12 Nov 2026), it slides a finger along the page
+/// dots, as you can by hand, and checks the screenshot shows that page's
+/// apps. If it doesn't, it presses Home again and swipes there one page at
+/// a time, without stopping.
 @MainActor
 enum HomeScreenLook {
 	/// The steps, as a failure names them.
@@ -25,25 +30,44 @@ enum HomeScreenLook {
 		var message: String
 	}
 
+	/// What a look at a page found.
 	struct Look {
-		/// The page, as PNG data.
-		var screenshot: Data
+		/// What the screenshot showed of the page, or nil when no grid of
+		/// icons showed in it.
+		var reading: OpenSpacesFinder.Reading?
 		/// Whether Atelier came back to the front by itself.
 		var cameBack: Bool
 	}
 
+	/// The page to look at, and what Atelier knows of it and the others.
+	struct Target: Sendable {
+		/// The page, from 0.
+		var page: Int
+		/// Its items in the order iOS lists them: each app's icon as
+		/// SpringBoard draws it, or nil for a folder or an app whose icon
+		/// didn't come.
+		var icons: [OpenSpacesFinder.Pixels?]
+		/// Each page's number of items, nil for a page with a widget.
+		var counts: [Int?]
+	}
+
 	/// How long the Home Screen takes to settle after a press, long enough
 	/// apart that two presses aren't a double press.
-	private static let afterHome: Duration = .milliseconds(1200)
-	/// And after a swipe to the next page.
-	private static let afterSwipe: Duration = .milliseconds(800)
-	/// Less than this between two screenshots is the same page: the mean
-	/// difference in brightness, 0 to 255.
-	private static let samePage = 3.0
+	private static let afterHome: Duration = .milliseconds(1000)
+	/// Between swipes straight through to a page: the next page is in place.
+	private static let betweenSwipes: Duration = .milliseconds(500)
+	/// Before the screenshot: the page has stopped moving.
+	private static let beforeScreenshot: Duration = .milliseconds(800)
+	/// The page dots, as iOS 26 draws them in place of the Search button
+	/// while pages change: 4 at a time, 14 points apart, their middle 150
+	/// points above the bottom of the screen, on a 6.1-inch iPhone with 11
+	/// pages (measured on a recording, 12 Nov 2026).
+	private static let dotSpacing = 14.0
+	private static let dotsAboveBottom = 150.0
 
-	/// Takes a screenshot of the Home Screen's `page`, from 0.
-	static func look(atPage page: Int) async throws -> Look {
-		say("page \(page + 1): looking")
+	/// Takes a screenshot of the Home Screen's page and reads it.
+	static func look(at target: Target) async throws -> Look {
+		say("page \(target.page + 1): looking")
 		if case .unavailable(let why) = await RouteASetup.shared.makeInstaller().check(startingVPN: true) {
 			say("connect: \(why)")
 			throw Failure(step: .connect, message: "Couldn’t look at your Home Screen. \(why)")
@@ -53,7 +77,7 @@ enum HomeScreenLook {
 		}
 		let tunnel = try await mountedTunnel(pairingFile)
 		do {
-			let look = try await leaveAndLook(tunnel, page: page)
+			let look = try await leaveAndLook(tunnel, target: target)
 			await quietly { tunnel.close() }
 			return look
 		} catch {
@@ -131,9 +155,9 @@ enum HomeScreenLook {
 
 	// MARK: The Home Screen
 
-	/// Leaves Atelier for the page and takes its screenshot, then comes
+	/// Leaves Atelier for the page and reads its screenshot, then comes
 	/// back, whatever happened on the way.
-	private static func leaveAndLook(_ tunnel: Tunnel, page: Int) async throws -> Look {
+	private static func leaveAndLook(_ tunnel: Tunnel, target: Target) async throws -> Look {
 		// Atelier keeps running once it isn't in front.
 		do {
 			try SilentAudio.shared.start(for: .openSpaces)
@@ -149,19 +173,22 @@ enum HomeScreenLook {
 			try tunnel.connection.startScreen()
 		}
 		say("started the screen stream")
-		let result: Result<Data, Error>
+		let result: Result<OpenSpacesFinder.Reading?, Error>
 		do {
-			result = .success(try await goAndLook(session, page: page))
+			result = .success(try await goAndRead(session, target: target))
 		} catch {
 			result = .failure(error)
 		}
 		await quietly { session.end() }
 		let cameBack = await comeBack(tunnel)
-		return Look(screenshot: try result.get(), cameBack: cameBack)
+		return Look(reading: try result.get(), cameBack: cameBack)
 	}
 
-	/// Presses Home, goes to the page and takes its screenshot.
-	private static func goAndLook(_ session: ScreenSession, page: Int) async throws -> Data {
+	/// Presses Home, goes to the page, and reads its screenshot: by sliding
+	/// along the page dots, then, if the screenshot shows another page, by
+	/// swiping.
+	private static func goAndRead(_ session: ScreenSession, target: Target) async throws -> OpenSpacesFinder.Reading? {
+		let page = target.page
 		try await step(.home, "this iPhone didn’t let Atelier press Home") { try session.pressHome() }
 		guard await comesTrue(within: .seconds(3), { UIApplication.shared.applicationState != .active }) else {
 			throw Failure(step: .home, message: message("this iPhone didn’t go to the Home Screen when Atelier pressed Home"))
@@ -169,53 +196,98 @@ enum HomeScreenLook {
 		say("pressed Home: Atelier is in the background")
 		// Home again goes to the first page, once a folder or the App Library
 		// that was open closes, and does nothing there.
-		for _ in 0..<2 {
+		try await pressHome(session, times: 2)
+		say("on the first page")
+		guard page > 0 else { return try await readScreen(session, target: target, how: "first page") }
+
+		// Slide there: a swipe brings out the page dots, then a finger slides
+		// along them from the second page's, a dot a page.
+		try await swipe(session)
+		var reading: OpenSpacesFinder.Reading?
+		if page > 1 {
+			try await Task.sleep(for: .milliseconds(350))
+			let screen = screenSize
+			let dot = dotSpacing / screen.width
+			let from = 0.5 - 0.5 * dot, to = from + Double(page - 1) * dot
+			let y = 1 - dotsAboveBottom / screen.height
+			let move = Duration.milliseconds(120 * (page - 1))
+			do {
+				try await call {
+					try session.slide(fromX: from, toX: to, y: y, hold: .milliseconds(150), move: move, settle: .milliseconds(300))
+				}
+				say("slid along the page dots from page 2 to where page \(page + 1)’s dot would be (\(rounded(from, 3)) to \(rounded(to, 3)) across, \(rounded(y, 3)) down)")
+			} catch {
+				say("slide: \(error)")
+			}
+		}
+		reading = try await readScreen(session, target: target, how: page > 1 ? "slide" : "swipe")
+		if isPage(reading, target: target) != false { return reading }
+
+		// Swipe there instead, from the first page.
+		say("swiping to page \(page + 1) instead")
+		try await pressHome(session, times: 2)
+		for _ in 0..<page {
+			try await swipe(session)
+			try await Task.sleep(for: betweenSwipes)
+		}
+		reading = try await readScreen(session, target: target, how: "swipes")
+		guard isPage(reading, target: target) == false, let reading else { return reading }
+		// A swipe too few or too many: once more, either way, when the
+		// number of outlines says which.
+		let shown = OpenSpacesFinder.page(showing: reading.outlines, near: page, counts: target.counts)
+		if shown == page - 1 {
+			say("one swipe short: swiping once more")
+			try await swipe(session)
+		} else if shown == page + 1 {
+			say("one swipe too many: swiping back")
+			try await swipe(session, back: true)
+		} else {
+			return reading
+		}
+		return try await readScreen(session, target: target, how: "one more swipe")
+	}
+
+	/// Presses Home `times` times, far enough apart not to be a double
+	/// press, and waits for the Home Screen to settle.
+	private static func pressHome(_ session: ScreenSession, times: Int) async throws {
+		for _ in 0..<times {
 			try await Task.sleep(for: afterHome)
 			try await step(.home, "this iPhone didn’t let Atelier press Home") { try session.pressHome() }
 		}
 		try await Task.sleep(for: afterHome)
-		var shot = try await screenshot(session)
-		say("on the first page")
-		guard page > 0 else { return shot }
-		for swipe in 1...page {
-			let before = shot
-			shot = try await swipeOnce(session)
-			if try await isSamePage(before, shot) {
-				say("swipe \(swipe) left the screen as it was; swiping again")
-				shot = try await swipeOnce(session)
-				if try await isSamePage(before, shot) {
-					throw Failure(step: .swipe, message: message("this iPhone didn’t take Atelier’s swipe"))
-				}
-			}
-		}
-		say("swiped to page \(page + 1)")
-		return shot
 	}
 
-	/// Swipes to the next page and takes its screenshot.
-	private static func swipeOnce(_ session: ScreenSession) async throws -> Data {
+	/// Swipes to the next page, or back to the one before.
+	private static func swipe(_ session: ScreenSession, back: Bool = false) async throws {
 		try await step(.swipe, "this iPhone didn’t take Atelier’s swipe") {
-			try session.swipe(fromX: 0.85, toX: 0.15, y: 0.55)
+			try session.swipe(fromX: back ? 0.15 : 0.85, toX: back ? 0.85 : 0.15, y: 0.55)
 		}
-		try await Task.sleep(for: afterSwipe)
-		return try await screenshot(session)
 	}
 
-	private static func screenshot(_ session: ScreenSession) async throws -> Data {
-		try await step(.screenshot, "this iPhone didn’t give Atelier a screenshot") { try session.screenshot() }
+	/// Takes a screenshot once the page has stopped moving, and reads it.
+	private static func readScreen(_ session: ScreenSession, target: Target, how: String) async throws -> OpenSpacesFinder.Reading? {
+		try await Task.sleep(for: beforeScreenshot)
+		let png = try await step(.screenshot, "this iPhone didn’t give Atelier a screenshot") { try session.screenshot() }
+		let reading = await read(png, target: target)
+		if let reading {
+			let pages = target.counts.indices.filter { target.counts[$0] == reading.outlines }.map { String($0 + 1) }
+			say("\(how): found \(reading.iconsFound) of \(reading.iconsKnown) apps’ icons where they go on page \(target.page + 1); \(reading.outlines) places show an outline, as many as page \(pages.isEmpty ? "none" : pages.joined(separator: ", ")) has items")
+		}
+		return reading
 	}
 
-	/// Whether two screenshots show the same page: a swipe that didn't take.
-	private static func isSamePage(_ first: Data, _ second: Data) async throws -> Bool {
-		let difference = await Task.detached {
-			guard let a = OpenSpacesFinder.Pixels(png: first, width: 90),
-			      let b = OpenSpacesFinder.Pixels(png: second, width: 90) else { return Double.infinity }
-			return OpenSpacesFinder.difference(a, b)
-		}.value
-		guard difference.isFinite else {
-			throw Failure(step: .screenshot, message: message("this iPhone didn’t give Atelier a screenshot"))
-		}
-		return difference < samePage
+	/// Whether a reading shows the page: nil when it can't tell, with no
+	/// apps' icons to go by.
+	private static func isPage(_ reading: OpenSpacesFinder.Reading?, target: Target) -> Bool? {
+		guard let reading else { return false }
+		guard reading.iconsKnown > 0 else { return nil }
+		return reading.iconsFound * 2 >= reading.iconsKnown
+	}
+
+	/// The screen's size in points.
+	private static var screenSize: CGSize {
+		let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+		return scenes.first?.screen.bounds.size ?? CGSize(width: 393, height: 852)
 	}
 
 	/// Opens Atelier again, if it isn't in front: whether it came back.
@@ -235,48 +307,58 @@ enum HomeScreenLook {
 
 	// MARK: Reading the screenshot
 
-	/// Reads the page's empty places from its screenshot, with `items`
-	/// icons and folders on it, and the grid an earlier reading on this
-	/// screen found. Keeps the grid when it reads the page clearly.
-	static func read(_ png: Data, items: Int, page: Int) async -> OpenSpacesFinder.Reading? {
-		guard let size = await Task.detached(operation: { pixelSize(of: png) }).value else {
+	/// Where the grid an earlier reading on this screen found is kept.
+	private static let gridKey = "openSpacesGrid2"
+
+	/// The grid kept, with the size of the screenshot read at
+	/// `OpenSpacesFinder.readingWidth` it was found on.
+	private struct KeptGrid: Codable, Sendable {
+		var width: Int
+		var height: Int
+		var grid: OpenSpacesFinder.Grid
+	}
+
+	/// Reads the page from its screenshot, with the grid an earlier reading
+	/// on this screen found. Keeps the grid when it reads the page clearly
+	/// and its rows show.
+	private static func read(_ png: Data, target: Target) async -> OpenSpacesFinder.Reading? {
+		let page = target.page
+		let kept = UserDefaults.standard.data(forKey: gridKey).flatMap { try? JSONDecoder().decode(KeptGrid.self, from: $0) }
+		let icons = target.icons
+		let result = await Task.detached { () -> (pixels: OpenSpacesFinder.Pixels, reading: OpenSpacesFinder.Reading?)? in
+			guard let pixels = OpenSpacesFinder.Pixels(png: png, width: OpenSpacesFinder.readingWidth) else { return nil }
+			let known = kept.flatMap { $0.width == pixels.width && $0.height == pixels.height ? $0.grid : nil }
+			return (pixels, OpenSpacesFinder.read(pixels, icons: icons, known: known))
+		}.value
+		guard let result else {
 			say("page \(page + 1): the screenshot couldn’t be read")
 			return nil
 		}
-		let key = "openSpacesGrid.\(size.width)x\(size.height)"
-		let known = UserDefaults.standard.data(forKey: key).flatMap { try? JSONDecoder().decode(OpenSpacesFinder.Grid.self, from: $0) }
-		let reading = await Task.detached {
-			OpenSpacesFinder.Pixels(png: png, width: OpenSpacesFinder.readingWidth).flatMap {
-				OpenSpacesFinder.read($0, items: items, known: known)
-			}
-		}.value
-		guard let reading else {
-			say("page \(page + 1): no grid in the \(size.width) × \(size.height) screenshot")
+		let size = "\(result.pixels.width) × \(result.pixels.height)"
+		guard let reading = result.reading else {
+			say("page \(page + 1): no grid of icons in the screenshot, read \(size)")
 			return nil
 		}
 		let grid = reading.grid
-		let found = reading.grid == known ? "the grid from before" : "a grid found now"
-		say("page \(page + 1): \(size.width) × \(size.height), \(found): columns \(rounded(grid.columns)), rows \(rounded(grid.rows)), at \(OpenSpacesFinder.readingWidth) px wide")
-		let empty = places(reading.empty), openSpaces = places(reading.openSpaces)
+		let found = reading.grid == kept?.grid ? "the grid from before" : "a grid found now"
+		say("page \(page + 1): read \(size), \(found): columns \(rounded(grid.columns)), rows \(rounded(grid.rows)), icons \(rounded(2 * grid.half, 0)) across")
+		let likeness = reading.likeness.map { $0.map { rounded($0, 2) } ?? "folder" }
 		let check = reading.isDoubtful ? "; check this page" : ""
-		say("page \(page + 1): scores \(rounded(reading.scores)); empty \(empty); open spaces \(openSpaces)\(check)")
-		if !reading.isDoubtful, let data = try? JSONEncoder().encode(grid) {
-			UserDefaults.standard.set(data, forKey: key)
+		say("page \(page + 1): outlines \(rounded(reading.scores)); items at \(places(reading.places)), likeness \(likeness.joined(separator: ", ")); open spaces \(places(reading.openSpaces))\(check)")
+		if !reading.isDoubtful, reading.placesTheRows,
+		   let data = try? JSONEncoder().encode(KeptGrid(width: result.pixels.width, height: result.pixels.height, grid: grid)) {
+			UserDefaults.standard.set(data, forKey: gridKey)
 		}
 		return reading
-	}
-
-	private nonisolated static func pixelSize(of png: Data) -> (width: Int, height: Int)? {
-		guard let source = CGImageSourceCreateWithData(png as CFData, nil),
-		      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
-		      let width = properties[kCGImagePropertyPixelWidth] as? Int,
-		      let height = properties[kCGImagePropertyPixelHeight] as? Int else { return nil }
-		return (width, height)
 	}
 
 	private static func rounded(_ values: [Double]) -> String {
 		let parts = values.map { (value: Double) -> String in String(format: "%.0f", value) }
 		return "[\(parts.joined(separator: ", "))]"
+	}
+
+	private static func rounded(_ value: Double, _ digits: Int) -> String {
+		String(format: "%.\(digits)f", value)
 	}
 
 	/// Places counted from 1, as people count them.
@@ -383,9 +465,13 @@ extension OpenSpacesFinder.Pixels {
 	/// `png` drawn `width` pixels wide, in sRGB.
 	init?(png: Data, width: Int) {
 		guard let source = CGImageSourceCreateWithData(png as CFData, nil),
-		      let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
-		      image.width > 0,
-		      let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
+		      let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
+		self.init(image: image, width: width)
+	}
+
+	/// `image` drawn `width` pixels wide, in sRGB, its clear parts clear.
+	init?(image: CGImage, width: Int) {
+		guard image.width > 0, let space = CGColorSpace(name: CGColorSpace.sRGB) else { return nil }
 		let scale = Double(width) / Double(image.width)
 		let scaled = (Double(image.height) * scale).rounded()
 		let height = max(Int(scaled), 1)
