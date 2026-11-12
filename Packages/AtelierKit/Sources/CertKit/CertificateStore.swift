@@ -323,6 +323,59 @@ public final class CertificateStore {
 	/// The Apple ID's own password, for signing in again.
 	public func appleIDPassword(for id: UUID) throws -> String? { try appleIDPasswords.password(for: id) }
 
+	// MARK: The installer's certificate (#152)
+
+	private var installerCertificateURL: URL {
+		directory.appendingPathComponent("Installer", isDirectory: true).appendingPathComponent(InstallerCertificate.fileName)
+	}
+
+	/// The certificate the iPhone-only installer left for Atelier, kept
+	/// until an Apple ID of its team signs in; nil when there's none.
+	public var installerCertificate: InstallerCertificate? {
+		guard let data = try? Data(contentsOf: installerCertificateURL) else { return nil }
+		return try? InstallerCertificate(plist: data)
+	}
+
+	/// Moves the certificate the installer left at `url` (`InstallerCertificate.handoffURL`)
+	/// into the store, written as the certificates' keys are, replacing one
+	/// kept before. One that can't be read is removed too, as it's no use.
+	/// Nil when there's nothing at `url`.
+	@discardableResult
+	public func keepInstallerCertificate(from url: URL) throws -> InstallerCertificate? {
+		guard FileManager.default.fileExists(atPath: url.path) else { return nil }
+		let data = try Data(contentsOf: url)
+		let certificate: InstallerCertificate
+		do {
+			certificate = try InstallerCertificate(plist: data)
+		} catch {
+			Self.remove(url)
+			throw error
+		}
+		var attributes: [FileAttributeKey: Any] = [:]
+		#if os(iOS)
+		attributes[.protectionKey] = SecretProtection.fileProtection
+		#endif
+		try FileManager.default.createDirectory(at: installerCertificateURL.deletingLastPathComponent(), withIntermediateDirectories: true, attributes: attributes)
+		try write(data, to: installerCertificateURL)
+		Self.remove(url)
+		return certificate
+	}
+
+	/// Once an Apple ID of its team signed in, or Apple no longer lists it.
+	public func forgetInstallerCertificate() {
+		Self.remove(installerCertificateURL)
+	}
+
+	/// Removes the file at `url`, and its folder once that's empty.
+	private static func remove(_ url: URL) {
+		let manager = FileManager.default
+		try? manager.removeItem(at: url)
+		let folder = url.deletingLastPathComponent()
+		if (try? manager.contentsOfDirectory(atPath: folder.path))?.isEmpty == true {
+			try? manager.removeItem(at: folder)
+		}
+	}
+
 	/// Records a revocation check (#5) of an Apple ID's certificate. Does
 	/// nothing if it was signed out of while it ran.
 	public func setAppleIDRevocation(_ state: RevocationState, for id: UUID) throws {

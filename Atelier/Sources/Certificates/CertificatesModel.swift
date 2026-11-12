@@ -392,6 +392,36 @@ final class CertificatesModel {
 		return try store.keysFolder(for: id)
 	}
 
+	// MARK: The installer's certificate (#152)
+
+	/// Moves the certificate the iPhone-only installer left in Atelier's
+	/// container, with its key, into the certificate storage, as Atelier
+	/// comes to the front: an Apple ID of its team uses it once it signs in,
+	/// rather than having Apple make another.
+	func keepInstallerCertificate() {
+		guard
+			let store,
+			let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+		else { return }
+		let url = InstallerCertificate.handoffURL(in: support)
+		guard FileManager.default.fileExists(atPath: url.path) else { return }
+		do {
+			guard let kept = try store.keepInstallerCertificate(from: url) else { return }
+			let made = [kept.machineName, kept.serialNumber].compactMap { $0 }.joined(separator: " ")
+			AppleIDLog.note("Installer: kept the certificate it left for team \(kept.teamID)\(made.isEmpty ? "" : ", \(made)")")
+		} catch {
+			AppleIDLog.note("Installer: couldn't keep the certificate it left: \(error)")
+		}
+	}
+
+	/// The certificate the installer left, until an Apple ID of its team
+	/// signs in.
+	var installerCertificate: InstallerCertificate? { store?.installerCertificate }
+
+	func forgetInstallerCertificate() {
+		store?.forgetInstallerCertificate()
+	}
+
 	/// Keeps an Apple ID once signed in, in use if nothing else is, and
 	/// checks its certificate. Returns whether it's in use.
 	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String) throws -> Bool {

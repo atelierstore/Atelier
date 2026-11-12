@@ -1884,6 +1884,7 @@ version = "0.1.68"
 dependencies = [
  "cbindgen",
  "futures",
+ "hex",
  "idevice",
  "isideload",
  "libc",
@@ -1892,14 +1893,17 @@ dependencies = [
  "plist",
  "plist_ffi",
  "rootcause",
+ "rsa",
  "rustls",
  "serde_json",
+ "sha2 0.11.1",
  "tokio",
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
  "uuid",
  "windows-sys 0.61.2",
+ "x509-cert 0.2.5",
 ]
 
 [[package]]

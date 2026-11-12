@@ -141,6 +141,10 @@ struct RootView: View {
 			// just updated (#24).
 			if phase == .background { SelfUpdate.shared.forgetRelaunch() }
 			guard phase == .active else { return }
+			// The certificate the iPhone-only installer left with its key,
+			// for its Apple ID's sign-in, out of the folder it wrote to
+			// (#152).
+			certificates.keepInstallerCertificate()
 			// Atelier in the Library as it runs, and how the install of
 			// itself that closed it ended (#24).
 			SelfUpdate.shared.launched(in: context, certificates: certificates, downloads: downloads)

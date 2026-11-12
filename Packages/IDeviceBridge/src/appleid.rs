@@ -26,6 +26,7 @@ use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Once;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::SystemTime;
 
 use isideload::SideloadError;
 use isideload::anisette::AnisetteClientInfo;
@@ -44,8 +45,15 @@ use isideload::sideload::builder::MaxCertsBehavior;
 use isideload::sideload::cert_identity::CertificateIdentity;
 use isideload::util::callbacks::MaxCertsCallbackBox;
 use isideload::util::fs_storage::FsStorage;
+use isideload::util::storage::SideloadingStorage;
 use plist::{Dictionary, Value};
 use rootcause::Report;
+use rsa::RsaPrivateKey;
+use rsa::pkcs1::EncodeRsaPublicKey;
+use rsa::pkcs8::DecodePrivateKey;
+use sha2::{Digest, Sha256};
+use x509_cert::Certificate;
+use x509_cert::der::Decode;
 
 use crate::{IdeviceFfiError, ffi_err, run_sync_local};
 
@@ -393,24 +401,8 @@ pub unsafe extern "C" fn atelier_appleid_certificate(
         let p12 = identity.as_p12(&p12_password).await?;
         let serial = identity.get_serial_number();
         let after = session.developer.list_ios_certs(&session.team).await?;
-
-        let mut info = Dictionary::new();
-        info.insert("serialNumber".into(), serial.clone().into());
-        info.insert("machineName".into(), identity.machine_name.clone().into());
-        info.insert("machineId".into(), identity.machine_id.clone().into());
         let made = !before.iter().any(|cert| same_serial(cert, &serial));
-        info.insert("made".into(), made.into());
-        info.insert("certificates".into(), (after.len() as u64).into());
-        if let Some(cert) = after.iter().find(|cert| same_serial(cert, &serial)) {
-            insert_some(&mut info, "name", cert.name.clone());
-            if let Some(expires) = cert.expiration_date {
-                info.insert("expires".into(), Value::Date(expires));
-            }
-            if let Some(content) = &cert.cert_content {
-                info.insert("content".into(), Value::Data(content.clone().into()));
-            }
-        }
-        Ok((p12, info))
+        Ok((p12, identity_info(&identity, made, &after)))
     });
     let (p12, info) = match result {
         Ok(made) => made,
@@ -418,6 +410,109 @@ pub unsafe extern "C" fn atelier_appleid_certificate(
     };
     unsafe {
         write_bytes(p12, out_p12, out_p12_length);
+        *out_info = xml_string(info);
+    }
+    null_mut()
+}
+
+/// The team's development certificate made with the RSA key `key` (PKCS#8
+/// DER), whatever app or Mac made it and whatever machine name Apple lists
+/// it under: the iPhone-only installer hands Atelier the key of the
+/// certificate it installed Atelier with (#152), so signing in with that
+/// Apple ID doesn't take another of the two certificates a free one may
+/// have. With `key` NULL, it's the key Atelier keeps for the session's
+/// Apple ID under `keys_path`, as an earlier sign-in left it.
+///
+/// `out_info` is an XML plist with `found`. When Apple lists one that
+/// hasn't run out, `found` is true, `out_p12` and the rest of `out_info` are
+/// as [`atelier_appleid_certificate`]'s, with `made` false, and a `key`
+/// given is kept under `keys_path` where isideload looks for it, so later
+/// sign-ins find the certificate too. Otherwise `out_p12` is NULL, nothing
+/// is kept, and `why` says why: `noKey` (none under `keys_path`),
+/// `unreadableKey` (not an RSA key in PKCS#8), or `notListed` (Apple lists
+/// none made with it, as once it was revoked or ran out), with
+/// `certificates`, how many Apple lists.
+///
+/// # Safety
+/// `session` must be a live session, `key` NULL or `key_length` readable
+/// bytes, the strings valid and NUL-terminated, and the out pointers
+/// writable. Free `out_p12` with [`atelier_appleid_data_free`] and its
+/// length.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn atelier_appleid_adopt_certificate(
+    session: *mut AtelierAppleIdSession,
+    key: *const u8,
+    key_length: libc::size_t,
+    p12_password: *const c_char,
+    keys_path: *const c_char,
+    out_p12: *mut *mut u8,
+    out_p12_length: *mut libc::size_t,
+    out_info: *mut *mut c_char,
+) -> *mut IdeviceFfiError {
+    if session.is_null() || out_p12.is_null() || out_p12_length.is_null() || out_info.is_null() {
+        return ffi_err!(IdeviceError::FfiInvalidArg);
+    }
+    let (Some(p12_password), Some(keys_path)) =
+        (unsafe { string(p12_password) }, unsafe { string(keys_path) })
+    else {
+        return ffi_err!(IdeviceError::FfiInvalidString);
+    };
+    let given =
+        (!key.is_null()).then(|| unsafe { std::slice::from_raw_parts(key, key_length) }.to_vec());
+    let session = unsafe { &mut *session };
+    let not_found = |why: &str, listed: Option<usize>| {
+        let mut info = Dictionary::new();
+        info.insert("found".into(), false.into());
+        info.insert("why".into(), why.into());
+        if let Some(listed) = listed {
+            info.insert("certificates".into(), (listed as u64).into());
+        }
+        (None, info)
+    };
+    let result: Result<(Option<Vec<u8>>, Dictionary), Report> = run_sync_local(async {
+        let keys = FsStorage::new(PathBuf::from(keys_path));
+        let key_name = key_storage_name(&session.email);
+        let der = match &given {
+            Some(der) => der.clone(),
+            None => match keys.retrieve_data(&key_name)? {
+                Some(der) if !der.is_empty() => der,
+                _ => return Ok(not_found("noKey", None)),
+            },
+        };
+        let Ok(private_key) = RsaPrivateKey::from_pkcs8_der(&der) else {
+            return Ok(not_found("unreadableKey", None));
+        };
+        let listed = session.developer.list_ios_certs(&session.team).await?;
+        let Some((cert, certificate)) = made_with(&private_key, &listed, SystemTime::now()) else {
+            return Ok(not_found("notListed", Some(listed.len())));
+        };
+        if given.is_some() {
+            keys.store_data(&key_name, &der)?;
+        }
+        let identity = CertificateIdentity {
+            machine_id: cert.machine_id.clone().unwrap_or_default(),
+            machine_name: cert.machine_name.clone().unwrap_or_default(),
+            private_key,
+            certificate,
+        };
+        let p12 = identity.as_p12(&p12_password).await?;
+        let mut info = identity_info(&identity, false, &listed);
+        info.insert("found".into(), true.into());
+        Ok((Some(p12), info))
+    });
+    let (p12, info) = match result {
+        Ok(answer) => answer,
+        Err(report) => return apple_error(&report, false),
+    };
+    unsafe {
+        match p12 {
+            Some(p12) => write_bytes(p12, out_p12, out_p12_length),
+            None => {
+                *out_p12 = null_mut();
+                *out_p12_length = 0;
+            }
+        }
         *out_info = xml_string(info);
     }
     null_mut()
@@ -895,6 +990,69 @@ fn same_serial(cert: &DevelopmentCertificate, serial: &str) -> bool {
         .is_some_and(|s| s.trim_start_matches('0').eq_ignore_ascii_case(serial))
 }
 
+/// What [`atelier_appleid_certificate`] and
+/// [`atelier_appleid_adopt_certificate`] say about the certificate:
+/// `listed` is the team's certificates as Apple lists them now.
+fn identity_info(
+    identity: &CertificateIdentity,
+    made: bool,
+    listed: &[DevelopmentCertificate],
+) -> Dictionary {
+    let serial = identity.get_serial_number();
+    let mut info = Dictionary::new();
+    info.insert("serialNumber".into(), serial.clone().into());
+    info.insert("machineName".into(), identity.machine_name.clone().into());
+    info.insert("machineId".into(), identity.machine_id.clone().into());
+    info.insert("made".into(), made.into());
+    info.insert("certificates".into(), (listed.len() as u64).into());
+    if let Some(cert) = listed.iter().find(|cert| same_serial(cert, &serial)) {
+        insert_some(&mut info, "name", cert.name.clone());
+        if let Some(expires) = cert.expiration_date {
+            info.insert("expires".into(), Value::Date(expires));
+        }
+        if let Some(content) = &cert.cert_content {
+            info.insert("content".into(), Value::Data(content.clone().into()));
+        }
+    }
+    info
+}
+
+/// Where isideload keeps the certificate's key for the Apple ID `email`
+/// under the keys folder, as `CertificateIdentity::retrieve` reads it: the
+/// hex SHA-256 of the Apple ID as the session has it, in lower case.
+fn key_storage_name(email: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(email.as_bytes());
+    format!("{}/key", hex::encode(hasher.finalize()))
+}
+
+/// The certificate among `listed` made with `private_key`, as isideload's
+/// `find_matching` tells (the certificate's public key is the key's), that
+/// hasn't run out by `now`, whatever machine name Apple lists it under.
+fn made_with(
+    private_key: &RsaPrivateKey,
+    listed: &[DevelopmentCertificate],
+    now: SystemTime,
+) -> Option<(DevelopmentCertificate, Certificate)> {
+    let public_key = private_key.to_public_key().to_pkcs1_der().ok()?;
+    listed
+        .iter()
+        .filter(|cert| cert.serial_number.is_some())
+        .filter(|cert| {
+            cert.expiration_date
+                .is_none_or(|ends| SystemTime::from(ends) > now)
+        })
+        .find_map(|cert| {
+            let certificate = Certificate::from_der(cert.cert_content.as_ref()?.as_ref()).ok()?;
+            let theirs = certificate
+                .tbs_certificate
+                .subject_public_key_info
+                .subject_public_key
+                .as_bytes()?;
+            (theirs == public_key.as_bytes()).then(|| (cert.clone(), certificate))
+        })
+}
+
 fn certificate_info(cert: &DevelopmentCertificate) -> Value {
     let mut entry = Dictionary::new();
     insert_some(&mut entry, "name", cert.name.clone());
@@ -1000,6 +1158,7 @@ unsafe fn write_bytes(bytes: Vec<u8>, out: *mut *mut u8, out_length: *mut libc::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use x509_cert::der::Encode;
 
     /// One `listTeams` entry, as Apple's XML plist gives it.
     fn team(body: &str) -> Dictionary {
@@ -1012,6 +1171,103 @@ mod tests {
     fn free(body: &str) -> Option<bool> {
         let raw = team(body);
         is_free_team(&raw, &membership_names(&raw))
+    }
+
+    /// A 512-bit RSA key, PKCS#8 DER in hex: small, as only its public half counts.
+    const KEY_A: &str = concat!(
+        "30820154020100300d06092a864886f70d01010105000482013e3082013a0201000241009efc4f04",
+        "db32af2dff03618b7f5ac9d38065f1aa2b6e7fed64183e4607e13abb40cf377b7054155d80a3490a",
+        "f0ea96446c708016cf10ce2833667693911595110203010001024054a8a22341dde16eaac6d0208a",
+        "367c1685dec32b0c6990f186456a93bc0a714d02127d0745b8f87c572fc770d0f67ad87b0ce5f8b0",
+        "c0ec8700d0150a4a7572a9022100d2292d417975e4800e3b3b957822b80f385dd3c908252e10740c",
+        "4c2822e1dbeb022100c1a9a419df645bd02474f1ae82ce71315c3ba0beee81a8dde37acf7be8f93f",
+        "f3022063ae8e3da90bc7270a19044900238fa4007b5891d8e031ba3221071a5e793ca30220337b73",
+        "62655e7a81d48f3a085841a519a81939dc47ef3402f88c17482b60c73d022100ce13346a85e7acc8",
+        "5a8084b8dd765da5df3bcdd96f8ece3188116303d5073c6b",
+    );
+    /// A certificate made with `KEY_A`, DER in hex.
+    const CERT_A: &str = concat!(
+        "308201753082011fa00302010202142a24811784b4716be95dac393e6aabc211ef10e7300d06092a",
+        "864886f70d01010b0500300f310d300b06035504030c0454657374301e170d323631313132313234",
+        "3035365a170d3336313130393132343035365a300f310d300b06035504030c0454657374305c300d",
+        "06092a864886f70d0101010500034b0030480241009efc4f04db32af2dff03618b7f5ac9d38065f1",
+        "aa2b6e7fed64183e4607e13abb40cf377b7054155d80a3490af0ea96446c708016cf10ce28336676",
+        "93911595110203010001a3533051301d0603551d0e04160414f4f3dff06186dc25addbb27886c87c",
+        "62485cd590301f0603551d23041830168014f4f3dff06186dc25addbb27886c87c62485cd590300f",
+        "0603551d130101ff040530030101ff300d06092a864886f70d01010b0500034100214ae84071e0bb",
+        "2887cb048ab07eb0b2469d01a0a41bc30ffafa03a3a10a5cd83830ab287ad1d74dd3f01669e84f3d",
+        "595ce589229a33c5e960b496f6ab24baac",
+    );
+    /// A certificate made with another key.
+    const CERT_B: &str = concat!(
+        "308201753082011fa00302010202144013f3b0a92fa2922831e0950bd12164eb40aa04300d06092a",
+        "864886f70d01010b0500300f310d300b06035504030c0454657374301e170d323631313132313234",
+        "3035365a170d3336313130393132343035365a300f310d300b06035504030c0454657374305c300d",
+        "06092a864886f70d0101010500034b00304802410099e3dcd66c7372157cf62aa4b269522bc6a4f5",
+        "91093dca50c7be2a0ca529d96d103f0c59bd8ba7e941cf0514b9b553f32f1d4a5538ff9f8f6ea8a7",
+        "f9919b878f0203010001a3533051301d0603551d0e04160414fa0b7ff7c96873bf99c1dedaa28519",
+        "40ad59f811301f0603551d23041830168014fa0b7ff7c96873bf99c1dedaa2851940ad59f811300f",
+        "0603551d130101ff040530030101ff300d06092a864886f70d01010b0500034100358fbc302a54fc",
+        "235af6824b414f230852d64cb2d5cacc76285d841b17537e6adeb72a5c03dc79920e5ef39b08cca8",
+        "39411265218053b6b3f493f27f7c320da9",
+    );
+
+    fn listed(
+        serial: Option<&str>,
+        content: &str,
+        machine: &str,
+        ends: SystemTime,
+    ) -> DevelopmentCertificate {
+        DevelopmentCertificate {
+            name: Some("iOS Development: Sam Test".into()),
+            certificate_id: Some("ABCDEF1234".into()),
+            serial_number: serial.map(str::to_owned),
+            machine_id: Some("0E5B1D2C-0000-4000-8000-000000000001".into()),
+            machine_name: Some(machine.into()),
+            cert_content: Some(plist::Data::new(hex::decode(content).unwrap())),
+            certificate_platform: Some("ios".into()),
+            certificate_type: None,
+            status: Some("Issued".into()),
+            status_code: Some(0),
+            expiration_date: Some(plist::Date::from(ends)),
+        }
+    }
+
+    #[test]
+    fn the_key_is_kept_where_isideload_looks() {
+        // The hex SHA-256 of the Apple ID, as the session has it.
+        assert_eq!(
+            key_storage_name("sam.test@icloud.com"),
+            "c74063d8c2ae167eebcff7b2534ba2ccb621c97494d69daac9fa299709e0251b/key"
+        );
+    }
+
+    #[test]
+    fn the_certificate_made_with_the_key_whatever_its_machine() {
+        let key = RsaPrivateKey::from_pkcs8_der(&hex::decode(KEY_A).unwrap()).unwrap();
+        let now = SystemTime::now();
+        let later = now + std::time::Duration::from_secs(86_400);
+        let theirs = listed(Some("1A2B"), CERT_B, "AltStore", later);
+        let installers = listed(Some("3C4D"), CERT_A, "Atelier Installer", later);
+        let (found, certificate) = made_with(&key, &[theirs.clone(), installers], now).unwrap();
+        assert_eq!(found.serial_number.as_deref(), Some("3C4D"));
+        assert_eq!(found.machine_name.as_deref(), Some("Atelier Installer"));
+        assert_eq!(certificate.to_der().unwrap(), hex::decode(CERT_A).unwrap());
+        // Another key's only.
+        assert!(made_with(&key, &[theirs], now).is_none());
+    }
+
+    #[test]
+    fn not_one_that_ran_out_or_has_no_serial() {
+        let key = RsaPrivateKey::from_pkcs8_der(&hex::decode(KEY_A).unwrap()).unwrap();
+        let now = SystemTime::now();
+        let earlier = now - std::time::Duration::from_secs(60);
+        let later = now + std::time::Duration::from_secs(86_400);
+        assert!(made_with(&key, &[listed(Some("3C4D"), CERT_A, "Atelier", earlier)], now).is_none());
+        assert!(made_with(&key, &[listed(None, CERT_A, "Atelier", later)], now).is_none());
+        let mut no_content = listed(Some("3C4D"), CERT_A, "Atelier", later);
+        no_content.cert_content = None;
+        assert!(made_with(&key, &[no_content], now).is_none());
     }
 
     #[test]
