@@ -230,9 +230,9 @@ public final class SourceLibrary {
 		} catch SourceFetcher.Problem.status(404) {
 			// A source kept in a private GitHub repo, which
 			// raw.githubusercontent.com answers 404 for, is read through a
-			// GitHub account that can see the repo (#74), as Atelier's own
-			// is while its repo is private (#24). Without one, it's
-			// `GitHubAPI.Problem.notFound` with no accounts.
+			// GitHub account that can see the repo (#74). Without one, it's
+			// `GitHubAPI.Problem.notFound` with no accounts. A repo GitHub
+			// shows says what it's missing instead: the branch or the file.
 			guard let file = GitHubFile(rawURL: url) else { throw SourceFetcher.Problem.status(404) }
 			return try await gitHub.fetch(file, etag: etag)
 		}

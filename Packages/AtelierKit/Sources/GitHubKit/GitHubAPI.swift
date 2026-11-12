@@ -27,6 +27,13 @@ public struct GitHubAPI: Sendable {
 		case status(Int)
 		case notJSON
 		case noReleases(GitHubRepo)
+		/// GitHub shows the repo, which it spells `repo`, but not the
+		/// branch a source's address names: as for Atelier's own, kept on
+		/// a branch its first release makes.
+		case noBranch(GitHubFile, repo: String)
+		/// GitHub shows the repo and the branch, but not the source's file
+		/// on it.
+		case noFile(GitHubFile, repo: String)
 
 		public var description: String {
 			switch self {
@@ -34,6 +41,11 @@ public struct GitHubAPI: Sendable {
 				Self.notFound(repo, accounts: accounts) + (organization.map {
 					" If \($0) limits which apps can read its repos, an owner has to approve Atelier first."
 				} ?? "")
+			case .noBranch(let file, let repo):
+				// What's missing first, as Browse's card has one line for it.
+				"There's no \(file.ref) branch in \(repo)."
+			case .noFile(let file, let repo):
+				"There's no \(file.path) on \(repo)'s \(file.ref) branch."
 			case .badToken(let account):
 				account.map { "GitHub didn't accept the sign-in of @\($0). Sign in to it again in Browse › Manage Sources." }
 					?? "GitHub didn't accept your sign-in. Sign in again in Browse › Manage Sources."
@@ -282,9 +294,32 @@ public struct GitHubAPI: Sendable {
 		var query = CharacterSet.urlQueryAllowed
 		query.remove(charactersIn: "&=+?#")
 		let escapedRef = file.ref.addingPercentEncoding(withAllowedCharacters: query) ?? file.ref
-		let (data, response) = try await get("repos/\(repo.owner)/\(repo.name)/contents/\(escapedPath)?ref=\(escapedRef)", repo: repo, etag: etag, accept: "application/vnd.github.raw+json")
+		let (data, response) = try await get("repos/\(repo.owner)/\(repo.name)/contents/\(escapedPath)?ref=\(escapedRef)", repo: repo, etag: etag, accept: "application/vnd.github.raw+json", file: file)
 		if response.statusCode == 304 { return .notModified }
 		return .fetched(data, etag: response.value(forHTTPHeaderField: "ETag"))
+	}
+
+	/// A source kept in a repo, read as `file(_:etag:)` reads it; when
+	/// GitHub can't find it, what's missing. GitHub answers 404 for a repo
+	/// this account can't see as for a file the repo doesn't have, so the
+	/// repo itself says which. Not for the images a source lists, as each
+	/// would ask about its repo again.
+	public func source(_ file: GitHubFile, etag: String? = nil) async throws -> FileResult {
+		do {
+			return try await self.file(file, etag: etag)
+		} catch Problem.noBranch {
+			// The repo's name as GitHub spells it, when it says.
+			let spelled = try? await repository(file.repo).fullName
+			throw Problem.noBranch(file, repo: spelled ?? file.repo.description)
+		} catch Problem.notFound(let repo, let accounts, let organization) {
+			let repository: Repository
+			do {
+				repository = try await self.repository(repo)
+			} catch Problem.notFound {
+				throw Problem.notFound(repo, accounts: accounts, organization: organization)
+			}
+			throw Problem.noFile(file, repo: repository.fullName)
+		}
 	}
 
 	/// Each of `releases`' assets' API URL, by its github.com URL, lowercased:
@@ -383,7 +418,8 @@ public struct GitHubAPI: Sendable {
 
 	// MARK: Requests
 
-	private func get(_ path: String, repo: GitHubRepo?, etag: String? = nil, accept: String = "application/vnd.github+json") async throws -> (Data, HTTPURLResponse) {
+	/// `file` is the one a request for a file in the repo asks for.
+	private func get(_ path: String, repo: GitHubRepo?, etag: String? = nil, accept: String = "application/vnd.github+json", file: GitHubFile? = nil) async throws -> (Data, HTTPURLResponse) {
 		var request = URLRequest(url: URL(string: "https://\(Self.apiHost)/\(path)")!, timeoutInterval: 30)
 		// Atelier keeps the list and its ETag itself, so a cached response
 		// must not stand in for GitHub's 304.
@@ -397,12 +433,12 @@ public struct GitHubAPI: Sendable {
 		let (data, response) = try await load(request)
 		guard let http = response as? HTTPURLResponse else { throw Problem.status(0) }
 		guard (200..<300).contains(http.statusCode) || http.statusCode == 304 else {
-			throw problem(for: http, data: data, repo: repo)
+			throw problem(for: http, data: data, repo: repo, file: file)
 		}
 		return (data, http)
 	}
 
-	private func problem(for response: HTTPURLResponse, data: Data, repo: GitHubRepo?) -> Problem {
+	private func problem(for response: HTTPURLResponse, data: Data, repo: GitHubRepo?, file: GitHubFile? = nil) -> Problem {
 		let remaining = response.value(forHTTPHeaderField: "X-RateLimit-Remaining")
 		let accounts = hasToken ? 1 : 0
 		switch response.statusCode {
@@ -415,6 +451,8 @@ public struct GitHubAPI: Sendable {
 			return .badToken()
 		case 403 where repo != nil && Self.isRestrictedByOrganization(data):
 			return .notFound(repo!, accounts: accounts, organization: repo!.owner)
+		case 404 where file != nil && Self.isMissingBranch(data):
+			return .noBranch(file!, repo: file!.repo.description)
 		case 404 where repo != nil:
 			return .notFound(repo!, accounts: accounts)
 		default:
@@ -428,6 +466,13 @@ public struct GitHubAPI: Sendable {
 	static func isRestrictedByOrganization(_ data: Data) -> Bool {
 		let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
 		return (json?["message"] as? String)?.contains("OAuth App access restrictions") == true
+	}
+
+	/// GitHub's answer for a file asked for at a branch or tag the repo
+	/// doesn't have, which it only gives an account that can see the repo.
+	static func isMissingBranch(_ data: Data) -> Bool {
+		let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+		return (json?["message"] as? String)?.hasPrefix("No commit found for the ref") == true
 	}
 
 	private static let dateFormatter = ISO8601DateFormatter()

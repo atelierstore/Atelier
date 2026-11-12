@@ -327,7 +327,7 @@ private struct AppDetailContent: View {
 			// What its source listed last, as it needs a GitHub sign-in
 			// (#134).
 			if let source = signInSource {
-				GitHubSignInNotice(sourceURL: source.url, sourceName: source.name, page: .app)
+				GitHubSignInNotice(sourceName: source.name, page: .app)
 					.padding([.horizontal, .top], 12)
 					.padding(.bottom, 4)
 					.frame(maxWidth: .infinity, alignment: .leading)
@@ -1035,7 +1035,7 @@ struct VersionHistoryView: View {
 			// (#134).
 			if sources.needsGitHubSignIn(source.url) {
 				Section {
-					GitHubSignInNotice(sourceURL: source.url, sourceName: source.name, page: .versions)
+					GitHubSignInNotice(sourceName: source.name, page: .versions)
 						.listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
 						.listRowBackground(ZStack {
 							Color(.secondarySystemGroupedBackground)
