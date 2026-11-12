@@ -8,6 +8,7 @@
 ## Fixes
 
 - When a source's GitHub repo doesn't have the branch or file the source points to, Atelier says which is missing, instead of saying your GitHub account can't see the repo. For a public repo, it no longer asks you to sign in (#13).
+- An app being re-signed shows once, in its own row in Re-sign, with its progress and the ring that stops it, rather than in Downloads too. It stays in Re-sign while it's deleted to be installed again. Reinstall and Custom Install… show in the app's row the same way. "Re-signed just now", "Updated just now" and "Renewed" stay on one line (#20).
 
 ## Behind the scenes
 
