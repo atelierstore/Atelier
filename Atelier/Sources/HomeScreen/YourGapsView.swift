@@ -400,8 +400,8 @@ struct YourGapsView: View {
 }
 
 /// Find Open Spaces Automatically's alert (12 Nov 2026), in the style of
-/// iOS's own, which draws its text in grey: it shows the notification iOS
-/// posts some time after a look, then says in red that it's normal. It
+/// iOS's own, which draws its text in grey: it says in red that iOS might
+/// show a notification afterwards, shows it, and says that's normal. It
 /// dims the whole screen, as iOS's alerts do, and fades in and out like
 /// them.
 private struct FindOpenSpacesAlert: View {
@@ -439,12 +439,18 @@ private struct FindOpenSpacesAlert: View {
 			Text("Find open spaces on page \(page)?")
 				.font(.headline)
 				.accessibilityAddTraits(.isHeader)
-			DeviceHubNotification()
-				.padding(.top, 12)
-			Text("Afterwards, iOS might show this. That’s normal: it’s because Atelier will take a screenshot of the page to locate the open spaces. Keep it paired.")
+			// The words come first, so the picture doesn't pass for iOS's own
+			// notification.
+			Text("Afterwards, iOS might show this:")
 				.font(.subheadline.weight(.semibold))
 				.foregroundStyle(.red)
-				.padding(.top, 12)
+				.padding(.top, 8)
+			DeviceHubNotification()
+				.padding(.top, 10)
+			Text("That’s normal: it’s because Atelier will take a screenshot of the page to locate the open spaces. Keep it paired.")
+				.font(.subheadline.weight(.semibold))
+				.foregroundStyle(.red)
+				.padding(.top, 10)
 			Text("Don’t touch your iPhone until Atelier is back, in a few seconds.")
 				.font(.subheadline)
 				.foregroundStyle(.secondary)
@@ -523,7 +529,7 @@ private struct DeviceHubNotification: View {
 			RoundedRectangle(cornerRadius: 22, style: .continuous)
 				.strokeBorder(Color.primary.opacity(0.08), lineWidth: 0.5)
 		}
-		.shadow(color: .black.opacity(0.12), radius: 10, y: 4)
+		.shadow(color: .black.opacity(0.08), radius: 6, y: 2)
 		.accessibilityElement(children: .ignore)
 		.accessibilityLabel("iOS’s notification: Device Hub, This device was viewed remotely from Mac")
 	}
