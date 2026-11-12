@@ -439,7 +439,7 @@ private struct FindOpenSpacesAlert: View {
 			Text("Find open spaces on page \(page)?")
 				.font(.headline)
 				.accessibilityAddTraits(.isHeader)
-			Text("Afterwards, iOS might say “Atelier” can view and control this iPhone. That’s normal: it’s how Atelier presses Home and takes the screenshot. Keep it paired.")
+			Text("Afterwards, iOS might say “Atelier” can view and control this iPhone. That’s normal: it’s because Atelier will take a screenshot of the page to locate the open spaces. Keep it paired.")
 				.font(.subheadline.weight(.semibold))
 				.foregroundStyle(.red)
 				.padding(.top, 8)
