@@ -147,6 +147,12 @@ targets:
         # a copy whose Info.plist says this, as builds before it don't look
         # for one.
         AtelierTakesCertificate: true
+        # The iPhone-only installer leaves its certificate, its key and its
+        # sign-in in Library/Caches/Installer/certificate.plist only for an
+        # Atelier whose Info.plist says this, the format's version
+        # (InstallerCertificate.version), so builds before it, which never
+        # read the file, don't keep a password they don't use (#152).
+        AtelierInstallerHandOff: 1
         # The install check (#11): Atelier adds one of these schemes to each
         # app it signs, and canOpenURL answering for it shows the install
         # worked. Must match InstallCheck.schemes; iOS 27 allows 25 at most.

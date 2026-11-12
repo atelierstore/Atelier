@@ -29,9 +29,11 @@ public struct StoredAppleID: Codable, Equatable, Identifiable, Sendable {
 	public var email: String
 	public var team: Team
 	/// The development certificate Atelier made on this iPhone, or found
-	/// again from an earlier sign-in, its key being here.
+	/// again from an earlier sign-in, its key being here, or the one the
+	/// iPhone-only installer made and handed over (#152).
 	public var certificate: SigningCertificate
-	/// The name Apple lists the certificate's machine under: "Atelier".
+	/// The name Apple lists the certificate's machine under: "Atelier", or
+	/// "Atelier Installer" for the installer's.
 	public var machineName: String
 	/// The last revocation check (#5), nil until one ran.
 	public var revocation: RevocationState?

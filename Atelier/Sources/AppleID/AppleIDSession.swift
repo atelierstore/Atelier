@@ -290,6 +290,55 @@ final class AppleIDSession: @unchecked Sendable {
 		}
 	}
 
+	/// What `adoptCertificate` found.
+	enum Adoption {
+		/// Apple lists it: `made` is false.
+		case found(MadeCertificate)
+		/// Atelier keeps no key for the Apple ID.
+		case noKey
+		/// The key isn't an RSA key in PKCS#8.
+		case unreadableKey
+		/// Apple lists none made with the key, as once it was revoked or ran
+		/// out. `listed` is how many it lists.
+		case notListed(listed: Int)
+	}
+
+	/// The team's development certificate made with `key` (PKCS#8 DER),
+	/// whatever app or Mac made it and whatever machine name Apple lists it
+	/// under: the one the iPhone-only installer installed Atelier with,
+	/// whose key it handed over (#152). With `key` nil, the key Atelier kept
+	/// in `keys` at an earlier sign-in. A `key` given is kept in `keys` once
+	/// Apple lists its certificate, so later sign-ins find it too.
+	func adoptCertificate(key: Data?, p12Password: String, keys: URL) async throws -> Adoption {
+		try await Self.run { [self] in
+			var p12: UnsafeMutablePointer<UInt8>?
+			var length = 0
+			var info: UnsafeMutablePointer<CChar>?
+			try Self.withOptionalBytes(key) { bytes, count in
+				try Self.check(atelier_appleid_adopt_certificate(handle, bytes, count, p12Password, keys.path, &p12, &length, &info))
+			}
+			defer {
+				atelier_appleid_data_free(p12, length)
+				atelier_appleid_string_free(info)
+			}
+			let answer = try Self.dictionary(info)
+			guard answer["found"] as? Bool == true else {
+				switch answer["why"] as? String {
+				case "noKey": return .noKey
+				case "unreadableKey": return .unreadableKey
+				default: return .notListed(listed: (answer["certificates"] as? NSNumber)?.intValue ?? 0)
+				}
+			}
+			guard let p12 else { throw AppleIDError.unreadable("the certificate") }
+			return .found(MadeCertificate(
+				p12: Data(bytes: p12, count: length),
+				certificate: Certificate(answer),
+				made: false,
+				count: (answer["certificates"] as? NSNumber)?.intValue ?? 0
+			))
+		}
+	}
+
 	/// Revokes the team's development certificate with `serialNumber`: one
 	/// the user picked at Apple's limit. Apps signed with it stop opening,
 	/// whichever app signed them.
@@ -389,6 +438,14 @@ final class AppleIDSession: @unchecked Sendable {
 	private static func withOptionalCString<T>(_ string: String?, _ body: (UnsafePointer<CChar>?) throws -> T) rethrows -> T {
 		guard let string else { return try body(nil) }
 		return try string.withCString(body)
+	}
+
+	/// `data`'s bytes and their count for `body`, or NULL and 0.
+	private static func withOptionalBytes<T>(_ data: Data?, _ body: (UnsafePointer<UInt8>?, Int) throws -> T) rethrows -> T {
+		guard let data else { return try body(nil, 0) }
+		return try data.withUnsafeBytes { buffer in
+			try body(buffer.bindMemory(to: UInt8.self).baseAddress, buffer.count)
+		}
 	}
 
 	private static func check(_ error: UnsafeMutablePointer<IdeviceFfiError>?) throws {

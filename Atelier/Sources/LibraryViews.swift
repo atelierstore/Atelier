@@ -249,6 +249,22 @@ struct LibraryItem: Identifiable {
 	/// (#20).
 	var needsResign: Bool { presence != .deleted && disabled == nil && attention != nil }
 
+	/// Installed with an Apple ID whose certificate Apple revoked or that
+	/// ended: Re-sign gets that Apple ID a new certificate, then signs it
+	/// again with it, keeping its App ID, rather than signing it with the
+	/// certificate re-signing uses (12 Nov 2026).
+	var resignsWithNewCertificate: Bool {
+		guard certificate == nil, let appleID else { return false }
+		return AppProfileRenewal.needsSignIn(appleID)
+	}
+
+	/// Signed with a certificate its Apple ID no longer has, as once New
+	/// Certificate made one: Atelier signs it again with the new one.
+	var signedWithOldCertificate: Bool {
+		guard let appleID, let appProfile else { return false }
+		return appleID.isSignedWithAnother(appProfile)
+	}
+
 	/// By its bundle ID, or the check scheme it was signed with (#55), while
 	/// Atelier knows it's on this iPhone; not Atelier itself, which is open
 	/// already (#24).
@@ -513,6 +529,9 @@ struct LibraryActions {
 	/// certificate re-signing uses, if any, and `failure` why its last
 	/// re-sign failed.
 	func resignNote(for item: LibraryItem, target: StoredCertificate?, failure: String?) -> ResignNote {
+		// Its own Apple ID gets a new certificate, whatever certificate
+		// re-signing uses (12 Nov 2026).
+		if item.resignsWithNewCertificate { return ResignNote(kind: .certificate, canResign: true) }
 		guard let target else { return ResignNote(kind: .certificate, canResign: false) }
 		// Atelier signs itself for the App ID it was installed with, or not
 		// at all: it can't delete itself to install again (#24).
@@ -603,7 +622,16 @@ struct LibraryRow: View {
 	@Environment(SourcesModel.self) private var sources
 
 	var body: some View {
-		let deleted = item.presence == .deleted
+		// An install over it, such as Re-sign's, shows here rather than in
+		// Downloads too, and an app deleted for it to be installed again
+		// keeps its icon meanwhile (12 Nov 2026).
+		let installing = installer.status(ofLibraryApp: item.install.bundleID, key: item.appKey)
+		let installLine = LibraryInstallLine(
+			status: installing,
+			download: installer.downloadID(ofLibraryApp: item.install.bundleID, key: item.appKey).flatMap { downloads.download(id: $0) },
+			downloads: downloads
+		)
+		let deleted = item.presence == .deleted && installing == nil
 		HStack(spacing: 12) {
 			if item.disabled != nil {
 				DisabledAppIcon(url: item.iconURL, tint: item.tint, size: 48)
@@ -629,6 +657,8 @@ struct LibraryRow: View {
 						.lineLimit(1)
 					if let line = selfInstallLine {
 						line
+					} else if case .running? = installing, let installLine {
+						installLine
 					} else if let download = item.updateDownload(downloads), let label = UpdateDownloadLabel(download: download, downloads: downloads) {
 						label
 						// New permissions still say so.
@@ -643,6 +673,8 @@ struct LibraryRow: View {
 						.lineLimit(1)
 					if let line = selfInstallLine {
 						line
+					} else if let installLine {
+						installLine
 					} else if let disabled = item.disabled {
 						// Off this iPhone, its data kept (#49). The cloud on its
 						// icon says so already (4 Nov 2026).
@@ -650,11 +682,10 @@ struct LibraryRow: View {
 							.font(.caption.weight(.medium))
 							.foregroundStyle(.secondary)
 							.lineLimit(1)
-					} else if let resign {
-						ResignNoteLabel(note: resign, attention: item.attention)
 					} else if renewals.isRenewing(item.install.bundleID) {
 						// In the background, or after Renew: a few seconds, with
-						// no install bar (#49).
+						// no install bar (#49). Also in Re-sign, once New
+						// Certificate made one (12 Nov 2026).
 						HStack(spacing: 5) {
 							ProgressView()
 								.controlSize(.mini)
@@ -662,6 +693,8 @@ struct LibraryRow: View {
 						}
 						.font(.caption.weight(.medium))
 						.foregroundStyle(.secondary)
+					} else if let resign {
+						ResignNoteLabel(note: resign, attention: item.attention)
 					} else if renews, let need = item.needsAppleID {
 						OwnSignInLabel(need: need, name: item.install.name)
 					} else if renews, let profile = item.appProfile {
@@ -678,26 +711,31 @@ struct LibraryRow: View {
 							.font(.caption.weight(.medium))
 							.foregroundStyle(.orange)
 					} else if justUpdated, case .daysLeft = item.status {
-						Label("Updated just now", systemImage: "checkmark")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.green)
+						JustDoneLabel("Updated just now", short: "Updated", systemImage: "checkmark")
 					} else if justResigned, case .daysLeft = item.status {
-						Label("Re-signed just now", systemImage: "checkmark")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.green)
+						JustDoneLabel("Re-signed just now", short: "Re-signed", systemImage: "checkmark")
 					} else if renewals.recentlyRenewed.contains(item.install.bundleID), case .daysLeft(let text) = item.status {
 						// Until the Library is left (#49).
-						Label("Renewed · \(text)", systemImage: "checkmark.seal.fill")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.green)
+						JustDoneLabel("Renewed · \(text)", short: "Renewed", systemImage: "checkmark.seal.fill")
 					} else {
 						LibraryStatusLabel(status: item.status)
 					}
 				}
 			}
+			// Icons close to their text, as Browse's, rather than in a
+			// column of their own, so a status fits next to Open (12 Nov 2026).
+			.labelStyle(InlineLabelStyle())
 			Spacer(minLength: 8)
-			if let action {
-				LibraryButton(action: action, status: installer.status(of: item.appKey)) { perform(action) }
+			if installing == nil, let fetching = installer.fetchingIPA(of: item.install.bundleID), downloads.download(id: fetching) != nil {
+				// Its IPA downloads, for Re-sign or Custom Install… to install
+				// over it: no install to stop yet, but the download (12 Nov 2026).
+				Button { installer.cancelIPADownload(of: item.install.bundleID, downloads: downloads) } label: {
+					GroupRing(fraction: downloads.progress[fetching]?.fraction)
+				}
+				.buttonStyle(.plain)
+				.accessibilityLabel("Cancel download")
+			} else if let action {
+				LibraryButton(action: action, status: installing) { perform(action) }
 					// Put Back waits for no install (#96).
 					.disabled(action == .putBack && !installer.canPutBack)
 			}
@@ -722,7 +760,7 @@ struct LibraryRow: View {
 		if renews, item.needsAppleID != nil { return .signIn }
 		if renews { return renewals.isRenewing(item.install.bundleID) ? nil : .renew }
 		guard let resign else { return dataWaits ? LibraryItem.Action.putBack : item.primary }
-		return resign.canResign ? .resign : nil
+		return resign.canResign && !renewals.isRenewing(item.install.bundleID) ? .resign : nil
 	}
 
 	/// Which apps renew, and why one didn't (#49).
@@ -753,6 +791,74 @@ struct LibraryRow: View {
 		case .daysLeft, .nothing: return true
 		default: return false
 		}
+	}
+}
+
+/// What an app's row says while an install over it waits or runs, or its
+/// IPA downloads for one, in place of its status, in blue as Update All's
+/// rows say it: Re-sign's, Reinstall's, Custom Install's or an update's,
+/// rather than a row in Downloads too (12 Nov 2026). Nil when there's
+/// none.
+struct LibraryInstallLine: View {
+	private let text: String
+	/// Under way, rather than waiting or paused.
+	private let active: Bool
+
+	init?(status: InstallModel.AppStatus?, download: Download?, downloads: DownloadManager) {
+		switch status {
+		case .running(let stage)?:
+			text = UpdateGroupRow.describe(stage)
+			active = true
+		case .waiting?, nil:
+			switch download?.status {
+			case .downloading?:
+				let fraction = download.flatMap { downloads.progress[$0.id]?.fraction }
+				text = fraction.map { "Downloading… \(Int($0 * 100))%" } ?? "Downloading…"
+				active = true
+			case .paused?:
+				text = "Download paused"
+				active = false
+			case .finished? where status != nil:
+				text = "Downloaded, waiting"
+				active = false
+			default:
+				guard status != nil else { return nil }
+				text = "Waiting"
+				active = false
+			}
+		}
+	}
+
+	var body: some View {
+		Text(text)
+			.font(.caption.weight(.medium))
+			.foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+			.lineLimit(1)
+	}
+}
+
+/// "Re-signed just now", in green on one line, or "Re-signed" alone in a
+/// row too narrow for it, rather than on two lines (12 Nov 2026).
+struct JustDoneLabel: View {
+	let text: String
+	let short: String
+	let systemImage: String
+
+	init(_ text: String, short: String, systemImage: String) {
+		self.text = text
+		self.short = short
+		self.systemImage = systemImage
+	}
+
+	var body: some View {
+		ViewThatFits(in: .horizontal) {
+			Label(text, systemImage: systemImage)
+				.lineLimit(1)
+			Label(short, systemImage: systemImage)
+				.lineLimit(1)
+		}
+		.font(.caption.weight(.medium))
+		.foregroundStyle(.green)
 	}
 }
 
@@ -835,15 +941,29 @@ struct ResignFooter: View {
 	@State private var routeA = RouteASetup.shared
 
 	var body: some View {
-		Text([cause, effect].compactMap { $0 }.joined(separator: " "))
+		Text([cause, effect, newCertificateEffect].compactMap { $0 }.joined(separator: " "))
 	}
 
-	/// "Signulous Development was revoked, so these apps won't open."
+	/// Those signed with a certificate, which Re-sign signs again with
+	/// `target`; the others' Apple ID gets a new certificate (12 Nov 2026).
+	private var certificateItems: [LibraryItem] { items.filter { !$0.resignsWithNewCertificate } }
+	private var certificateResignable: [LibraryItem] { resignable.filter { !$0.resignsWithNewCertificate } }
+	private var appleIDResignable: [LibraryItem] { resignable.filter(\.resignsWithNewCertificate) }
+
+	/// "Signulous Development was revoked, so these apps won't open.", or
+	/// "Apple revoked side@example.com's certificate, so Nuvio won't open."
 	private var cause: String {
 		let apps = items.count == 1 ? items[0].install.name : "these apps"
 		let attentions = items.compactMap(\.attention)
 		let names = Set(items.compactMap(\.certificateName))
 		if names.count == 1, let name = names.first, let attention = attentions.first, attentions.allSatisfy({ $0 == attention }) {
+			// An Apple ID, rather than a certificate of that name.
+			if items.allSatisfy(\.resignsWithNewCertificate) {
+				switch attention {
+				case .revoked: return "Apple revoked \(name)'s certificate, so \(apps) won't open."
+				case .expired, .expiring: return "\(name)'s certificate has ended, so \(apps) won't open."
+				}
+			}
 			switch attention {
 			case .revoked: return "\(name) was revoked, so \(apps) won't open."
 			case .expired: return "\(name) has expired, so \(apps) won't open."
@@ -860,14 +980,17 @@ struct ResignFooter: View {
 	/// for (#123).
 	private var effect: String? {
 		guard let effect = resignEffect else { return nil }
-		guard let own = resignable.first(where: \.isOwn) else { return effect }
+		guard let own = certificateResignable.first(where: \.isOwn) else { return effect }
 		let name = own.install.name
-		return resignable.count == 1
+		return certificateResignable.count == 1
 			? "\(effect) Then \(name) asks you to go to the Home Screen, for iOS to install it."
 			: "\(effect) \(name) goes last, then asks you to go to the Home Screen, for iOS to install it."
 	}
 
 	private var resignEffect: String? {
+		let items = certificateItems
+		let resignable = certificateResignable
+		guard !items.isEmpty else { return nil }
 		guard let target else {
 			return items.count == 1
 				? "Import a new certificate, and Atelier signs \(items[0].install.name) again with it and installs it over the old one."
@@ -893,6 +1016,7 @@ struct ResignFooter: View {
 	/// With Direct installs, those iOS can't replace are deleted and
 	/// installed again with their data (#96).
 	private func keepingData(_ target: StoredCertificate) -> String {
+		let resignable = certificateResignable
 		if resignable.count == 1 {
 			return "Re-sign signs \(resignable[0].install.name) again with \(target.displayName). It's deleted and installed again, and keeps its data."
 		}
@@ -900,6 +1024,25 @@ struct ResignFooter: View {
 			return "Re-sign All signs them again with \(target.displayName). They're deleted and installed again, and keep their data."
 		}
 		return "Re-sign All signs them again with \(target.displayName). Those marked Reinstall required are deleted and installed again. All of them keep their data."
+	}
+
+	/// For apps installed with an Apple ID whose certificate Apple revoked
+	/// or that ended: "Re-sign gets side@example.com a new certificate,
+	/// then signs Nuvio again with it. It stays installed and keeps its
+	/// data." (12 Nov 2026)
+	private var newCertificateEffect: String? {
+		let apps = appleIDResignable
+		guard !apps.isEmpty else { return nil }
+		let accounts = Set(apps.compactMap(\.appleID?.id))
+		guard accounts.count == 1, let account = apps[0].appleID else {
+			return "Re-sign on an app installed with an Apple ID gets that Apple ID a new certificate, then signs its apps again with it. They stay installed and keep their data."
+		}
+		let others = !certificateItems.isEmpty
+		if apps.count == 1 {
+			let name = apps[0].install.name
+			return "\(others ? "Re-sign on \(name)" : "Re-sign") gets \(account.displayName) a new certificate, then signs \(name) again with it. It stays installed and keeps its data."
+		}
+		return "Re-sign on \(others ? "an app installed with \(account.displayName)" : "any of them") gets \(account.displayName) a new certificate, then signs its apps again with it. They stay installed and keep their data."
 	}
 }
 

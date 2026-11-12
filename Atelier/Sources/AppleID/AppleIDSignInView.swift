@@ -47,8 +47,8 @@ struct AppleIDSignInView: View {
 			SignInForm(signIn: signIn, isSetUp: setup.isSetUp) { settingUp = true }
 		case .chooseTeam(let teams, let current):
 			ChooseTeam(signIn: signIn, teams: teams, picked: current)
-		case .revoke(let listed):
-			RevokeCertificate(signIn: signIn, email: signIn.email, listed: listed)
+		case .revoke(let listed, let revoked):
+			RevokeCertificate(signIn: signIn, email: signIn.email, listed: listed, revoked: revoked)
 		case .done(let done):
 			SignedInPage(done: done)
 		}
@@ -65,8 +65,10 @@ struct AppleIDSignInSheet: ViewModifier {
 	var isShown = true
 
 	func body(content: Content) -> some View {
+		// Not while Atelier signs in by itself with the installer's, until
+		// there's something to show (#152).
 		content.sheet(isPresented: Binding(
-			get: { isShown && certificates.signIn != nil },
+			get: { isShown && certificates.signIn?.isShown == true },
 			set: { if !$0 { certificates.endSignIn() } }
 		)) {
 			if let signIn = certificates.signIn {
@@ -118,11 +120,20 @@ private struct SignInForm: View {
 	var body: some View {
 		Form {
 			Section {
-				SheetHeading(
-					title: "Sign In with Apple ID",
-					text: "Atelier makes a certificate for this \(ThisDevice.name) with it, then the profiles your apps need.",
-					tile: AnyView(AppleIDTile(size: 60))
-				)
+				if signIn.renewing != nil {
+					// New Certificate (12 Nov 2026).
+					SheetHeading(
+						title: "New Certificate",
+						text: "Atelier signs in with the password in your Keychain, has Apple make a new certificate, then signs your apps again with it. They keep their data.",
+						tile: AnyView(AppleIDTile(size: 60))
+					)
+				} else {
+					SheetHeading(
+						title: "Sign In with Apple ID",
+						text: "Atelier makes a certificate for this \(ThisDevice.name) with it, then the profiles your apps need.",
+						tile: AnyView(AppleIDTile(size: 60))
+					)
+				}
 			}
 
 			if isSetUp {
@@ -144,7 +155,7 @@ private struct SignInForm: View {
 				}
 			}
 		}
-		.navigationTitle("Sign In")
+		.navigationTitle(signIn.renewing == nil ? "Sign In" : "New Certificate")
 		.toolbar {
 			ToolbarItem(placement: .cancellationAction) {
 				Button("Cancel", systemImage: "xmark") { certificates.endSignIn() }
@@ -172,6 +183,8 @@ private struct SignInForm: View {
 					.submitLabel(.next)
 					.focused($focus, equals: .email)
 					.onSubmit { focus = .password }
+					// New Certificate is for its Apple ID (12 Nov 2026).
+					.disabled(signIn.renewing != nil)
 			}
 			HStack {
 				Text("Password")
@@ -375,19 +388,23 @@ extension AppleIDSession.Team {
 /// start with, as its key isn't on this iPhone. Revoke and Continue asks
 /// once more. The one the Atelier that runs is signed with says so (#152),
 /// and is never picked to start with: revoking it makes Atelier sign itself
-/// again right after, with the one it makes.
+/// again right after, with the one it makes. When Apple still counts one
+/// just revoked, it comes again as Revoke Another?, saying why.
 private struct RevokeCertificate: View {
 	let signIn: AppleIDSignIn
 	let email: String
 	let listed: [AppleIDSession.Certificate]
+	/// Those revoked in this sign-in, which Apple still counts.
+	let revoked: [AppleIDSession.Certificate]
 	@State private var picked: AppleIDSession.Certificate.ID?
 	@State private var confirming: AppleIDSession.Certificate?
 	@Environment(CertificatesModel.self) private var certificates
 
-	init(signIn: AppleIDSignIn, email: String, listed: [AppleIDSession.Certificate]) {
+	init(signIn: AppleIDSignIn, email: String, listed: [AppleIDSession.Certificate], revoked: [AppleIDSession.Certificate]) {
 		self.signIn = signIn
 		self.email = email
 		self.listed = listed
+		self.revoked = revoked
 		// isideload found none whose key is here, so Atelier's are all from
 		// elsewhere.
 		_picked = State(initialValue: listed.first { Self.isAteliers($0) && $0.serialNumber != nil && !Self.signsThisAtelier($0) }?.id)
@@ -414,8 +431,10 @@ private struct RevokeCertificate: View {
 		Form {
 			Section {
 				SheetHeading(
-					title: "Revoke a Certificate?",
-					text: "\(email) has as many development certificates as Apple allows. Atelier can make its own once one is revoked.",
+					title: revoked.isEmpty ? "Revoke a Certificate?" : "Revoke Another?",
+					text: revoked.isEmpty
+						? "\(email) has as many development certificates as Apple allows. Atelier can make its own once one is revoked."
+						: Self.stillCounted(revoked),
 					tile: AnyView(WarningTile())
 				)
 			}
@@ -491,6 +510,17 @@ private struct RevokeCertificate: View {
 		certificate.machineName ?? certificate.name ?? "Development certificate"
 	}
 
+	/// "Apple still counts SideStore’s certificate, though it no longer
+	/// lists it. Waiting for Apple hasn’t freed its place before, but
+	/// revoking another one has."
+	private static func stillCounted(_ revoked: [AppleIDSession.Certificate]) -> String {
+		guard revoked.count == 1 else {
+			return "Apple still counts the certificates you revoked, though it no longer lists them. Waiting for Apple hasn’t freed their places before, but revoking another one has."
+		}
+		let which = revoked[0].machineName.map { "\($0)’s certificate" } ?? "the certificate you revoked"
+		return "Apple still counts \(which), though it no longer lists it. Waiting for Apple hasn’t freed its place before, but revoking another one has."
+	}
+
 	/// "Made 30 Oct 2026. Its key isn’t on this iPhone."
 	private func line(for certificate: AppleIDSession.Certificate) -> String? {
 		var when: String?
@@ -549,6 +579,13 @@ private struct SignedInPage: View {
 					Text(account.email)
 						.font(.subheadline)
 						.foregroundStyle(.secondary)
+					// Atelier signed in by itself after the installer (#152).
+					if done.byInstaller {
+						Text("\(SelfUpdate.shared.name) signed in with the Apple ID the installer used, so it’s ready to install your apps.")
+							.font(.subheadline)
+							.multilineTextAlignment(.center)
+							.padding(.top, 4)
+					}
 				}
 				.frame(maxWidth: .infinity)
 				.listRowBackground(Color.clear)
@@ -556,7 +593,7 @@ private struct SignedInPage: View {
 
 			Section {
 				Made(title: "Team", value: account.team.title, detail: account.team.detail)
-				Made(title: "Certificate", value: "Made", detail: "On this \(ThisDevice.name), valid until \(account.expiresAt.formatted(dates))")
+				certificateRow(until: account.expiresAt.formatted(dates))
 				Made(title: "This \(ThisDevice.name)", value: "Registered", detail: "With the UDID the setup read")
 			}
 
@@ -618,6 +655,18 @@ private struct SignedInPage: View {
 			ToolbarItem(placement: .confirmationAction) {
 				Button("Done") { certificates.endSignIn() }
 			}
+		}
+	}
+}
+
+extension SignedInPage {
+	/// Where the certificate came from (#152): Apple made it now, an earlier
+	/// sign-in did, or the installer.
+	fileprivate func certificateRow(until: String) -> Made {
+		switch done.source {
+		case .made: Made(title: "Certificate", value: "Made", detail: "On this \(ThisDevice.name), valid until \(until)")
+		case .found: Made(title: "Certificate", value: "Found", detail: "Made at an earlier sign-in, valid until \(until)")
+		case .installer: Made(title: "Certificate", value: "From the installer", detail: "The one it installed \(SelfUpdate.shared.name) with, valid until \(until)")
 		}
 	}
 }
