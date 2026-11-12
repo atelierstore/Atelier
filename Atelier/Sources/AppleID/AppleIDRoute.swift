@@ -92,7 +92,7 @@ enum AppleIDRoute {
 		switch error.kind {
 		case .developer, .signIn:
 			return error.message.isEmpty ? "\(what) (\(error.appleCode))." : "\(what) (\(error.appleCode)): \(error.message)"
-		case .cancelled, .noTeam, .other:
+		case .cancelled, .noTeam, .tokenRefused, .other:
 			return error.message.isEmpty ? "\(what)." : "\(what): \(error.message)"
 		}
 	}

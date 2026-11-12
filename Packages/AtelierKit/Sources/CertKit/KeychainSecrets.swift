@@ -27,6 +27,13 @@ public final class KeychainCertificateSecrets: CertificateSecrets {
 		KeychainCertificateSecrets(service: "com.atelier.app.apple-id-password", alwaysAfterFirstUnlock: true)
 	}
 
+	/// Where Apple's tokens for Apple IDs are kept (#182), as their
+	/// passwords are, so the renewals sign in again in the background with
+	/// them too.
+	public static func appleIDTokens() -> KeychainCertificateSecrets {
+		KeychainCertificateSecrets(service: "com.atelier.app.apple-id-token", alwaysAfterFirstUnlock: true)
+	}
+
 	public func setPassword(_ password: String, for id: UUID) throws {
 		try? deletePassword(for: id)
 		var item = query(for: id)

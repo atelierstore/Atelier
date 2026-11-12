@@ -67,7 +67,8 @@ final class CertificatesModel {
 			store = try CertificateStore(
 				directory: support.appendingPathComponent("Certificates", isDirectory: true),
 				secrets: KeychainCertificateSecrets(),
-				appleIDPasswords: KeychainCertificateSecrets.appleIDPasswords()
+				appleIDPasswords: KeychainCertificateSecrets.appleIDPasswords(),
+				appleIDTokens: KeychainCertificateSecrets.appleIDTokens()
 			)
 		} catch {
 			store = nil
@@ -481,11 +482,12 @@ final class CertificatesModel {
 		store?.forgetInstallerCertificate()
 	}
 
-	/// Keeps an Apple ID once signed in, in use if nothing else is, and
-	/// checks its certificate. Returns whether it's in use.
-	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String) throws -> Bool {
+	/// Keeps an Apple ID once signed in, with Apple's token from the
+	/// sign-in (#182), in use if nothing else is, and checks its
+	/// certificate. Returns whether it's in use.
+	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String, token: AppleIDToken?) throws -> Bool {
 		guard let store else { throw CertificateImportError.storageFailed(storeError ?? "") }
-		try store.saveAppleID(account, p12: p12, p12Password: p12Password, password: password)
+		try store.saveAppleID(account, p12: p12, p12Password: p12Password, password: password, token: token)
 		refresh()
 		Task { await check(account.id) }
 		return store.defaultID == account.id
@@ -521,6 +523,22 @@ final class CertificatesModel {
 	/// The Apple ID's own password, for signing in again (#49).
 	func appleIDPassword(for id: UUID) throws -> String? {
 		try store?.appleIDPassword(for: id)
+	}
+
+	/// Apple's token for signing in again as the Apple ID without the
+	/// password (#182).
+	func appleIDToken(for id: UUID) throws -> AppleIDToken? {
+		try store?.appleIDToken(for: id)
+	}
+
+	/// Keeps Apple's token for the Apple ID `id`, in place of the one
+	/// before, or deletes it with nil, as once Apple refused it (#182).
+	func setAppleIDToken(_ token: AppleIDToken?, for id: UUID) {
+		do {
+			try store?.setAppleIDToken(token, for: id)
+		} catch {
+			AppleIDLog.note("token: couldn't be \(token == nil ? "deleted" : "kept"): \(error)")
+		}
 	}
 
 	/// Keeps what changed about an Apple ID: an app's new profile, or what

@@ -13,6 +13,9 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		case cancelled
 		/// The Apple ID signed in, but isn't in any developer team.
 		case noTeam
+		/// Apple refused the token a sign-in again went with, as once it
+		/// ended (#182), with Apple's code when it gave one.
+		case tokenRefused
 		/// Anything else: no network, an anisette server that doesn't answer.
 		case other
 	}
@@ -49,7 +52,7 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		if isTryLater { return .refused }
 		if isTryAgain { return .tryAgain }
 		switch kind {
-		case .cancelled, .developer, .noTeam: return .final
+		case .cancelled, .developer, .noTeam, .tokenRefused: return .final
 		case .signIn: return isWrongPassword || isLocked ? .final : .server
 		case .other: return .server
 		}
@@ -60,6 +63,7 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		case .signIn: "Apple's sign-in said \(appleCode): \(message)"
 		case .developer: "Apple's developer services said \(appleCode): \(message)"
 		case .cancelled: "Cancelled at the verification code"
+		case .tokenRefused: "Apple refused the token\(appleCode == 0 ? "" : " (\(appleCode))"): \(message)"
 		case .noTeam, .other: message
 		}
 	}

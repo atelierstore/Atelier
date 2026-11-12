@@ -14,8 +14,9 @@ import Observation
 /// installer handed over (#152), else has Apple make one. At Apple's limit
 /// it lists the team's certificates and asks which one to revoke, never
 /// revoking one by itself. The Apple ID, its
-/// password and the certificate are then kept with the certificates
-/// (`CertificateStore.saveAppleID`), in use if nothing else is.
+/// password, Apple's token from the sign-in (#182) and the certificate are
+/// then kept with the certificates (`CertificateStore.saveAppleID`), in use
+/// if nothing else is.
 ///
 /// When the installer also handed over its sign-in, Atelier signs in with
 /// it by itself as it first opens (`CertificatesModel.signInAsInstaller`),
@@ -293,12 +294,13 @@ final class AppleIDSignIn {
 		let otherInUse = certificates.defaultID == id ? nil : certificates.inUseName
 		let inUse: Bool
 		do {
-			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password)
+			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password, token: signedIn.token)
 		} catch {
 			throw Stop.failed("Atelier couldn't keep the Apple ID: \(error.localizedDescription)")
 		}
 		// Not the other one's name, which may be an Apple ID.
 		note("kept, \(inUse ? "in use" : "another certificate staying in use")")
+		if let token = signedIn.token { note("token: kept, \(AppleIDLog.describe(token))") }
 		// The installs right after use this sign-in, and its page shows
 		// what it allows a moment later, asked with it (#49).
 		let access = AppleIDAccess.shared
