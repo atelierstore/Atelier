@@ -9,15 +9,21 @@ import Foundation
 /// first opens.
 ///
 /// The installer writes Library/Caches/Installer/certificate.plist, never
-/// in a backup, and only for an Atelier whose Info.plist has
-/// `AtelierInstallerHandOff`, the format's version (`version`). It's an XML
-/// property list: `teamID` and `privateKey` (PKCS#8 DER, RSA), with
-/// `machineName`, `machineID`, `serialNumber` and `certificate` (DER) as
-/// Apple listed it; and `appleID`, `password`, `udid`, `anisetteServer` and
-/// `anisetteState` (isideload's `anisette_state` from that server). Atelier
-/// moves it into its certificate storage as it opens, the password into
-/// the Keychain (`CertificateStore.keepInstallerCertificate`), and finds the
-/// certificate Apple lists by its key, whatever its machine name or serial.
+/// in a backup, and only for an Atelier whose Info.plist declares it: as
+/// `SideloadHandOff`'s `SigningIdentity`, in its version 2
+/// (`sideloadVersion`), or, for the installer's builds before that, as
+/// `AtelierInstallerHandOff`, version 1 (`version`). It's an XML property
+/// list: `teamID` and `privateKey` (PKCS#8 DER, RSA), with `machineName`,
+/// `machineID`, `serialNumber` and `certificate` (DER) as Apple listed it;
+/// and `appleID`, `udid`, `anisetteServer` and `anisetteState` (isideload's
+/// `anisette_state` from that server). In version 1, `password`. In
+/// version 2, which says its `version`, Apple's token in the password's
+/// place (#182): `adsid`, `token`, `tokenDuration`, `tokenExpiry`,
+/// `tokenReceived`, and `clientInfo` and `userAgent` when the sign-in sent
+/// its own. Atelier moves it into its certificate storage as it opens, the
+/// password or the token into the Keychain
+/// (`CertificateStore.keepInstallerCertificate`), and finds the certificate
+/// Apple lists by its key, whatever its machine name or serial.
 public struct InstallerCertificate: Equatable, Sendable {
 	/// The team the installer made it in: the Apple ID's own, for a free
 	/// one.
@@ -40,7 +46,11 @@ public struct InstallerCertificate: Equatable, Sendable {
 	public struct SignIn: Equatable, Sendable {
 		/// As typed into the installer.
 		public var appleID: String
-		public var password: String
+		/// The password, from the installer's version 1.
+		public var password: String?
+		/// Apple's token from the installer's sign-in, in the password's
+		/// place, from its version 2 (#182).
+		public var token: AppleIDToken?
 		/// This iPhone's, which the installer registered it with.
 		public var udid: String?
 		/// The anisette server the installer's sign-in went through, as
@@ -50,9 +60,10 @@ public struct InstallerCertificate: Equatable, Sendable {
 		/// saw.
 		public var anisetteState: Data?
 
-		public init(appleID: String, password: String, udid: String? = nil, anisetteServer: String? = nil, anisetteState: Data? = nil) {
+		public init(appleID: String, password: String? = nil, token: AppleIDToken? = nil, udid: String? = nil, anisetteServer: String? = nil, anisetteState: Data? = nil) {
 			self.appleID = appleID
 			self.password = password
+			self.token = token
 			self.udid = udid
 			self.anisetteServer = anisetteServer
 			self.anisetteState = anisetteState
@@ -66,9 +77,12 @@ public struct InstallerCertificate: Equatable, Sendable {
 		case missing(String)
 	}
 
-	/// The format the installer writes, which Atelier's Info.plist declares
-	/// as `AtelierInstallerHandOff`.
+	/// The format the installer's builds before `SideloadHandOff` write,
+	/// which Atelier's Info.plist declares as `AtelierInstallerHandOff`.
 	public static let version = 1
+	/// The format with Apple's token, which Atelier's Info.plist declares as
+	/// `SideloadHandOff`'s `Version` (#182).
+	public static let sideloadVersion = 2
 
 	public init(teamID: String, privateKey: Data, machineName: String? = nil, serialNumber: String? = nil, certificate: SigningCertificate? = nil, signIn: SignIn? = nil) {
 		self.teamID = teamID
@@ -80,10 +94,10 @@ public struct InstallerCertificate: Equatable, Sendable {
 	}
 
 	/// Reads the property list the installer writes, or the one Atelier
-	/// keeps, which leaves the password out: `password` is then the one
-	/// kept in the Keychain. Without an Apple ID or a password, there's no
-	/// sign-in.
-	public init(plist data: Data, password: String? = nil) throws {
+	/// keeps, which leaves the password and the token out: `password` and
+	/// `token` are then the ones kept in the Keychain. Without an Apple ID,
+	/// or without either a password or a token, there's no sign-in.
+	public init(plist data: Data, password: String? = nil, token: AppleIDToken? = nil) throws {
 		let dictionary = try Self.dictionary(data)
 		guard let teamID = (dictionary["teamID"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !teamID.isEmpty else {
 			throw Problem.missing("teamID")
@@ -92,13 +106,17 @@ public struct InstallerCertificate: Equatable, Sendable {
 			throw Problem.missing("privateKey")
 		}
 		var signIn: SignIn?
+		let anisetteServer = Self.text(dictionary["anisetteServer"])
+		let handedPassword = Self.text(dictionary[Self.passwordKey]) ?? password.flatMap { $0.isEmpty ? nil : $0 }
+		let handedToken = Self.token(in: dictionary, server: anisetteServer) ?? token
 		if let appleID = (dictionary["appleID"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !appleID.isEmpty,
-		   let password = (dictionary[Self.passwordKey] as? String).flatMap({ $0.isEmpty ? nil : $0 }) ?? password, !password.isEmpty {
+		   handedPassword != nil || handedToken != nil {
 			signIn = SignIn(
 				appleID: appleID,
-				password: password,
-				udid: (dictionary["udid"] as? String).flatMap { $0.isEmpty ? nil : $0 },
-				anisetteServer: (dictionary["anisetteServer"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+				password: handedPassword,
+				token: handedToken,
+				udid: Self.text(dictionary["udid"]),
+				anisetteServer: anisetteServer,
 				anisetteState: (dictionary["anisetteState"] as? Data).flatMap { $0.isEmpty ? nil : $0 }
 			)
 		}
@@ -123,9 +141,35 @@ public struct InstallerCertificate: Equatable, Sendable {
 	// MARK: The property list
 
 	static let passwordKey = "password"
+	/// Apple's token in version 2, which the Keychain keeps in place of the
+	/// file.
+	static let tokenKeys = ["adsid", "token", "tokenDuration", "tokenExpiry", "tokenReceived", "clientInfo", "userAgent"]
 	/// What goes with the sign-in, which Atelier keeps only until it has
 	/// signed in with it once.
-	static let signInKeys = ["appleID", passwordKey, "udid", "anisetteServer", "anisetteState"]
+	static let signInKeys = ["appleID", passwordKey, "udid", "anisetteServer", "anisetteState"] + tokenKeys
+
+	/// A string that says something.
+	private static func text(_ value: Any?) -> String? {
+		(value as? String).flatMap { $0.isEmpty ? nil : $0 }
+	}
+
+	/// Apple's token in version 2, through the anisette server `server`,
+	/// whose machine Apple knows it by. Nil without the account's adsid,
+	/// the token, or that server.
+	static func token(in dictionary: [String: Any], server: String?) -> AppleIDToken? {
+		guard let server, let adsid = text(dictionary["adsid"]), let token = text(dictionary["token"]) else { return nil }
+		let number = { (key: String) in (dictionary[key] as? NSNumber)?.uint64Value ?? 0 }
+		return AppleIDToken(
+			adsid: adsid,
+			token: token,
+			duration: number("tokenDuration"),
+			expiry: number("tokenExpiry"),
+			receivedAt: dictionary["tokenReceived"] as? Date ?? .now,
+			server: server,
+			clientInfo: text(dictionary["clientInfo"]),
+			userAgent: text(dictionary["userAgent"])
+		)
+	}
 
 	static func dictionary(_ data: Data) throws -> [String: Any] {
 		guard let dictionary = (try? PropertyListSerialization.propertyList(from: data, format: nil)) as? [String: Any] else {

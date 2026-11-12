@@ -5,12 +5,15 @@ import XCTest
 /// The certificate the iPhone-only installer hands Atelier (#152).
 final class InstallerCertificateTests: XCTestCase {
 	var root: URL!
-	/// The Keychain's Apple ID passwords, across launches.
+	/// The Keychain's Apple ID passwords and Apple's tokens, across
+	/// launches.
 	var passwords: InMemoryCertificateSecrets!
+	var tokens: InMemoryCertificateSecrets!
 
 	override func setUpWithError() throws {
 		root = FileManager.default.temporaryDirectory.appendingPathComponent("InstallerCertificateTests-\(UUID().uuidString)")
 		passwords = InMemoryCertificateSecrets()
+		tokens = InMemoryCertificateSecrets()
 	}
 
 	override func tearDownWithError() throws {
@@ -24,7 +27,8 @@ final class InstallerCertificateTests: XCTestCase {
 		try CertificateStore(
 			directory: root.appendingPathComponent("Application Support/Certificates", isDirectory: true),
 			secrets: InMemoryCertificateSecrets(),
-			appleIDPasswords: passwords
+			appleIDPasswords: passwords,
+			appleIDTokens: tokens
 		)
 	}
 
@@ -70,6 +74,46 @@ final class InstallerCertificateTests: XCTestCase {
 
 	private func plistSigningIn() throws -> Data {
 		try plist(certificateEntries().merging(signInEntries) { $1 })
+	}
+
+	/// What the installer's version 2 has in the password's place (#182),
+	/// as atelier-install writes it.
+	private let tokenEntries: [String: Any] = [
+		"version": 2,
+		"adsid": "000123-45-6789",
+		"token": "not a real token",
+		"tokenDuration": 31_536_000,
+		"tokenExpiry": 1_826_036_000_000 as UInt64,
+		"tokenReceived": Date(timeIntervalSince1970: 1_794_500_000),
+		"clientInfo": "<MacBookPro13,2> <macOS;13.1;22C65>",
+		"userAgent": "akd/1.0",
+	]
+
+	private var handedOverToken: AppleIDToken {
+		AppleIDToken(
+			adsid: "000123-45-6789",
+			token: "not a real token",
+			duration: 31_536_000,
+			expiry: 1_826_036_000_000,
+			receivedAt: Date(timeIntervalSince1970: 1_794_500_000),
+			server: "https://ani.example.com",
+			clientInfo: "<MacBookPro13,2> <macOS;13.1;22C65>",
+			userAgent: "akd/1.0"
+		)
+	}
+
+	/// Version 2's sign-in: the token, and no password.
+	private func plistWithToken() throws -> Data {
+		var entries = try certificateEntries().merging(signInEntries) { $1 }.merging(tokenEntries) { $1 }
+		entries["password"] = nil
+		return try plist(entries)
+	}
+
+	private var handedOverTokenSignIn: InstallerCertificate.SignIn {
+		var signIn = handedOverSignIn
+		signIn.password = nil
+		signIn.token = handedOverToken
+		return signIn
 	}
 
 	/// Writes `data` where the installer leaves it.
@@ -126,6 +170,59 @@ final class InstallerCertificateTests: XCTestCase {
 		XCTAssertEqual(try InstallerCertificate(plist: plist(entries), password: "kept").signIn?.password, "kept", "the one in the Keychain")
 		entries["appleID"] = " "
 		XCTAssertNil(try InstallerCertificate(plist: plist(entries), password: "kept").signIn)
+	}
+
+	func testReadsVersion2sTokenInThePasswordsPlace() throws {
+		let read = try InstallerCertificate(plist: plistWithToken())
+		XCTAssertEqual(read.signIn, handedOverTokenSignIn)
+		XCTAssertEqual(read.signIn?.token?.endsAt, Date(timeIntervalSince1970: 1_826_036_000))
+		XCTAssertEqual(read.teamID, "A1B2C3D4E5")
+
+		// Without the server it came through, whose machine Apple knows it
+		// by, or without the adsid, there's no token, so no sign-in.
+		var entries = try certificateEntries().merging(signInEntries) { $1 }.merging(tokenEntries) { $1 }
+		entries["password"] = nil
+		entries["anisetteServer"] = nil
+		XCTAssertNil(try InstallerCertificate(plist: plist(entries)).signIn)
+		entries["anisetteServer"] = "https://ani.example.com"
+		entries["adsid"] = ""
+		XCTAssertNil(try InstallerCertificate(plist: plist(entries)).signIn)
+
+		// What Apple didn't say is 0, and its end then unknown.
+		entries["adsid"] = "000123-45-6789"
+		for key in ["tokenDuration", "tokenExpiry", "clientInfo", "userAgent"] { entries[key] = nil }
+		let bare = try XCTUnwrap(InstallerCertificate(plist: plist(entries)).signIn?.token)
+		XCTAssertEqual([bare.duration, bare.expiry], [0, 0])
+		XCTAssertNil(bare.endsAt)
+		XCTAssertNil(bare.clientInfo)
+		XCTAssertEqual(InstallerCertificate.sideloadVersion, 2, "as Atelier's Info.plist says, in SideloadHandOff")
+	}
+
+	func testTheTokenGoesToTheKeychain() throws {
+		let store = try store()
+		let kept = try store.keepInstallerCertificate(from: leave(plistWithToken()))
+		XCTAssertEqual(kept?.signIn, handedOverTokenSignIn)
+		XCTAssertNotNil(try tokens.password(for: CertificateStore.installerPasswordID))
+		XCTAssertNil(try passwords.password(for: CertificateStore.installerPasswordID))
+		let file = root.appendingPathComponent("Application Support/Certificates/Installer/certificate.plist")
+		let written = try String(contentsOf: file, encoding: .utf8)
+		XCTAssertFalse(written.contains("not a real token"), "not in the file")
+		for key in InstallerCertificate.tokenKeys {
+			XCTAssertFalse(written.contains("<key>\(key)</key>"), key)
+		}
+		XCTAssertEqual(try self.store().installerCertificate?.signIn, handedOverTokenSignIn, "kept across launches")
+
+		// Tried once, it goes, and a later run's version 1 leaves none.
+		store.forgetInstallerSignIn()
+		XCTAssertNil(store.installerCertificate?.signIn)
+		XCTAssertNil(try tokens.password(for: CertificateStore.installerPasswordID))
+		try store.keepInstallerCertificate(from: leave(plistWithToken()))
+		try store.keepInstallerCertificate(from: leave(plistSigningIn()))
+		XCTAssertEqual(store.installerCertificate?.signIn, handedOverSignIn)
+		XCTAssertNil(try tokens.password(for: CertificateStore.installerPasswordID))
+		try store.keepInstallerCertificate(from: leave(plistWithToken()))
+		store.forgetInstallerCertificate()
+		XCTAssertNil(try tokens.password(for: CertificateStore.installerPasswordID))
 	}
 
 	func testThePasswordGoesToTheKeychain() throws {

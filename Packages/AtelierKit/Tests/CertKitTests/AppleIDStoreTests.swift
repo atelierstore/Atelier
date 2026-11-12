@@ -148,6 +148,21 @@ final class AppleIDStoreTests: XCTestCase {
 		XCTAssertNil(try store.appleIDToken(for: account.id))
 	}
 
+	func testATokenAloneKeepsNoPasswordAndLeavesOneFromBefore() throws {
+		let store = try open()
+		let account = try appleID()
+		// Signed in with the token the installer handed over (#182).
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: nil, token: token())
+		XCTAssertNil(try store.appleIDPassword(for: account.id))
+		XCTAssertEqual(try store.appleIDToken(for: account.id), token())
+
+		// One kept before stays.
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token())
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: nil, token: token("a later token"))
+		XCTAssertEqual(try store.appleIDPassword(for: account.id), "apple password")
+		XCTAssertEqual(try store.appleIDToken(for: account.id)?.token, "a later token")
+	}
+
 	func testSigningOutDeletesApplesToken() throws {
 		let store = try open()
 		let account = try appleID()

@@ -138,7 +138,7 @@ final class AppleIDAccess {
 	/// Why the machine Apple knows `token` by can't be used, if it can't:
 	/// the user's own anisette server is another, or Atelier no longer has
 	/// that server's state.
-	private static func unusableMachine(for token: AppleIDToken) -> String? {
+	static func unusableMachine(for token: AppleIDToken) -> String? {
 		if case .success(let custom?) = CustomAnisetteServer.current(), custom.absoluteString != token.server {
 			return "your own anisette server is another than the one it came through"
 		}

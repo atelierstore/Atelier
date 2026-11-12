@@ -485,7 +485,7 @@ final class CertificatesModel {
 	/// Keeps an Apple ID once signed in, with Apple's token from the
 	/// sign-in (#182), in use if nothing else is, and checks its
 	/// certificate. Returns whether it's in use.
-	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String, token: AppleIDToken?) throws -> Bool {
+	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String?, token: AppleIDToken?) throws -> Bool {
 		guard let store else { throw CertificateImportError.storageFailed(storeError ?? "") }
 		try store.saveAppleID(account, p12: p12, p12Password: p12Password, password: password, token: token)
 		refresh()

@@ -22,7 +22,11 @@ import Observation
 /// it by itself as it first opens (`CertificatesModel.signInAsInstaller`),
 /// out of sight, as the same machine to Apple and in the same team. The
 /// sheet comes up, filled in, once it has something to show: Apple's code,
-/// a choice, why it stopped, or You're Signed In.
+/// a choice, why it stopped, or You're Signed In. The installer's version 2
+/// hands over Apple's token from its sign-in in place of the password
+/// (#182): Atelier signs in with that, and keeps no password, unless Apple
+/// refuses it, when the sheet asks for the password. New Certificate signs
+/// in with the Apple ID's own token first too.
 ///
 /// Installing with it comes with the install PR, and renewing its apps'
 /// profiles every week with the one after.
@@ -64,6 +68,9 @@ final class AppleIDSignIn {
 	var email = ""
 	var password = ""
 	private(set) var stage = Stage.form(error: nil)
+	/// Whether Apple refused the token this sheet signs in with first, or
+	/// it ended: the password then signs in (#182).
+	private var tokenRefused = false
 	private(set) var codePrompt: AppleIDCodePrompt?
 
 	private let certificates: CertificatesModel
@@ -123,11 +130,12 @@ final class AppleIDSignIn {
 		revealed = true
 	}
 
-	/// Whether Sign In can be tapped: both fields filled, and nothing
-	/// running.
+	/// Whether Sign In can be tapped: both fields filled, or the Apple ID
+	/// and a token to sign in with (#182), and nothing running.
 	var canSignIn: Bool {
 		guard case .form = stage else { return false }
-		return !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+		let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+		return !email.isEmpty && (!password.isEmpty || token(for: email) != nil)
 	}
 
 	var isWorking: Bool {
@@ -294,7 +302,8 @@ final class AppleIDSignIn {
 		let otherInUse = certificates.defaultID == id ? nil : certificates.inUseName
 		let inUse: Bool
 		do {
-			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password, token: signedIn.token)
+			// Signed in with a token alone, there's no password to keep (#182).
+			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password.isEmpty ? nil : password, token: signedIn.token)
 		} catch {
 			throw Stop.failed("Atelier couldn't keep the Apple ID: \(error.localizedDescription)")
 		}
@@ -327,14 +336,64 @@ final class AppleIDSignIn {
 		return Done(account: account, inUse: inUse, otherInUse: inUse ? nil : otherInUse, source: source, byInstaller: installer != nil)
 	}
 
-	/// Signs in through each anisette server in turn until one works, as
-	/// `AnisetteRoute` says: the user's own only, when there's one.
+	/// Signs in with the token the installer handed over, or New
+	/// Certificate's Apple ID's own, when there's one Apple still takes
+	/// (#182); else through each anisette server in turn until one works,
+	/// as `AnisetteRoute` says: the user's own only, when there's one.
 	private func signInToApple(email: String, password: String) async throws -> AppleIDSession.SignedIn {
+		if let token = token(for: email), let resumed = try await resume(email: email, token: token, withPassword: !password.isEmpty) {
+			return resumed
+		}
 		// Through the installer's server first, whose machine Apple trusts.
 		let server = handedOver(for: email)?.signIn?.anisetteServer.flatMap(AnisetteList.serverURL)
 		return try await AppleIDRoute.signIn(email: email, password: password, firstServer: server, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
 			self?.waitForCode(request)
 		}
+	}
+
+	/// The token to sign in with first, without the password (#182): the
+	/// one the installer handed over for `email`, or New Certificate's Apple
+	/// ID's own, kept in the Keychain. Nil once Apple refused it.
+	private func token(for email: String) -> AppleIDToken? {
+		guard !tokenRefused else { return nil }
+		if let token = handedOver(for: email)?.signIn?.token { return token }
+		guard let renewing, renewing.email.caseInsensitiveCompare(email) == .orderedSame else { return nil }
+		return (try? certificates.appleIDToken(for: renewing.id)) ?? nil
+	}
+
+	/// Signs in with `token`, through the anisette server it came through,
+	/// as the same machine. Nil when Apple refused it, or it ended, and
+	/// there's a password to sign in with instead; without one, the sheet
+	/// asks for it. When Apple wasn't reached, it stops, keeping the token
+	/// to try again, unless there's a password.
+	private func resume(email: String, token: AppleIDToken, withPassword: Bool) async throws -> AppleIDSession.SignedIn? {
+		var token = token
+		// As Atelier's own sign-ins name it, which its state is kept by.
+		if let url = AnisetteList.serverURL(token.server) { token.server = url.absoluteString }
+		if !token.isUsable() {
+			note("token: Apple says it ended")
+		} else if let why = AppleIDAccess.unusableMachine(for: token) {
+			note("token: not tried, as \(why)")
+		} else {
+			note("Signing in with Apple's token, \(AppleIDLog.describe(token))")
+			do {
+				let resumed = try await AppleIDSession.resume(email: email, token: token, storage: Self.storage())
+				note("sign-in with the token: \(AppleIDLog.describe(resumed))")
+				return resumed
+			} catch let error as AppleIDError where error.kind == .tokenRefused {
+				note("token: Apple refused it\(error.appleCode == 0 ? "" : " (\(error.appleCode))"): \(error.message)")
+			} catch {
+				note("token: Apple wasn't reached with it: \(error)")
+				guard withPassword else { throw Stop.failed(Self.explain(error, "Atelier couldn't reach Apple")) }
+				return nil
+			}
+		}
+		tokenRefused = true
+		if let renewing { certificates.setAppleIDToken(nil, for: renewing.id) }
+		guard withPassword else {
+			throw Stop.failed("Apple no longer takes Atelier’s sign-in with this Apple ID. Type its password to sign in.")
+		}
+		return nil
 	}
 
 	/// What the installer handed over, while the sheet still has the Apple
