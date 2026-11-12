@@ -431,7 +431,8 @@ final class CertificatesModel {
 		do {
 			let file = try server.stateFile(in: AppleIDSignIn.storage())
 			guard !FileManager.default.fileExists(atPath: file.path) else {
-				return AppleIDLog.note("Installer: keeping Atelier's own machine for \(server.host)")
+				AppleIDLog.note("Installer: keeping Atelier's own machine for \(server.host)")
+				return
 			}
 			try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
 			try state.write(to: file, options: .atomic)
