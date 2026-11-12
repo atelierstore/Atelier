@@ -10,6 +10,15 @@
 //! picked at Apple's limit, add an App ID and download its provisioning
 //! profile. Structured answers come back as XML plists.
 //!
+//! A sign-in gets Apple's token for its developer services,
+//! `com.apple.gs.xcode.auth`, which every developer call goes with, and
+//! gives it to Swift through a call of its own
+//! ([`atelier_appleid_session_token`]), so that it never ends up in a log
+//! with the sign-in's info. [`atelier_appleid_resume`] makes a session with
+//! it later, without the password or Apple's code, until Apple refuses it
+//! (#182). Apple's session itself, which can ask for tokens for Apple's
+//! other services, is never handed out.
+//!
 //! Errors carry Apple's code where there is one: `code` says whose it is
 //! ([`ATELIER_APPLEID_SIGN_IN_ERROR`], [`ATELIER_APPLEID_DEVELOPER_ERROR`])
 //! and `sub_code` is Apple's, such as -20101 for a wrong password, -80045
@@ -32,7 +41,7 @@ use isideload::SideloadError;
 use isideload::anisette::AnisetteClientInfo;
 use isideload::anisette::remote_v3::RemoteV3AnisetteProvider;
 use isideload::auth::apple_account::{
-    AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse,
+    AppToken, AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse,
 };
 use isideload::dev::app_groups::AppGroupsApi;
 use isideload::dev::app_ids::{AppId, AppIdsApi};
@@ -47,7 +56,7 @@ use isideload::util::callbacks::MaxCertsCallbackBox;
 use isideload::util::fs_storage::FsStorage;
 use isideload::util::storage::SideloadingStorage;
 use plist::{Dictionary, Value};
-use rootcause::Report;
+use rootcause::{Report, report};
 use rsa::RsaPrivateKey;
 use rsa::pkcs1::EncodeRsaPublicKey;
 use rsa::pkcs8::DecodePrivateKey;
@@ -68,6 +77,13 @@ pub const ATELIER_APPLEID_CANCELLED: i32 = 9003;
 /// `IdeviceFfiError.code` when the Apple ID signed in but isn't in any
 /// developer team, so it has nothing to sign with.
 pub const ATELIER_APPLEID_NO_TEAM: i32 = 9004;
+/// `IdeviceFfiError.code` when Apple refused the token
+/// [`atelier_appleid_resume`] went with, as once it ended: Apple's
+/// developer services answered with an error of theirs, `sub_code` being
+/// their code, or with HTTP's 401 or 403. The token is no use any more, as
+/// opposed to a resume that failed for want of an answer, which fails with
+/// [`ATELIER_APPLEID_OTHER_ERROR`].
+pub const ATELIER_APPLEID_TOKEN_REFUSED: i32 = 9005;
 /// `IdeviceFfiError.code` for anything else, such as no network or an
 /// anisette server that doesn't answer.
 pub const ATELIER_APPLEID_OTHER_ERROR: i32 = 9000;
@@ -93,13 +109,19 @@ pub type AtelierAppleIdCodeCallback = Option<
 
 /// A signed-in Apple ID with its developer team picked: the first one Apple
 /// lists, or the one [`atelier_appleid_choose_team`] picked. Free with
-/// [`atelier_appleid_session_free`].
+/// [`atelier_appleid_session_free`]. Not `Debug`, so that its token can't
+/// end up in a log.
 pub struct AtelierAppleIdSession {
     email: String,
     developer: DeveloperSession,
     team: DeveloperTeam,
     /// Every team Apple lists for the Apple ID, in its order.
     teams: Vec<DeveloperTeam>,
+    /// Apple's token for its developer services, which the session's calls
+    /// go with, and the account's ID at Apple, which goes with it: what
+    /// [`atelier_appleid_resume`] takes to sign in again (#182).
+    token: AppToken,
+    adsid: String,
 }
 
 /// Signs in to Apple with `email` and `password`, through the anisette v3
@@ -116,6 +138,7 @@ pub struct AtelierAppleIdSession {
 /// `status`, `memberships`, the names of its programs, and `free`, when
 /// they tell whether it's a free team) and `codeAsked`. Free them with
 /// [`atelier_appleid_session_free`] and [`atelier_appleid_string_free`].
+/// [`atelier_appleid_session_token`] gives the session's token.
 ///
 /// # Safety
 /// The strings must be valid and NUL-terminated (`client_info` and
@@ -170,12 +193,7 @@ pub unsafe extern "C" fn atelier_appleid_sign_in(
         let asker = asker.clone();
         let email = email.clone();
         async move {
-            let provider = RemoteV3AnisetteProvider::new(
-                &anisette_url,
-                Box::new(FsStorage::new(anisette_folder(&storage, &anisette_url))),
-                "0".to_string(),
-            )?
-            .set_client_info_override(client_override);
+            let provider = provider(&anisette_url, &storage, client_override)?;
             let ask = move |params: TwoFactorCallbackParams| {
                 let asker = asker.clone();
                 async move { Ok(asker.ask(&params)) }
@@ -184,38 +202,226 @@ pub unsafe extern "C" fn atelier_appleid_sign_in(
                 .anisette_provider(provider)
                 .login(&password, ask)
                 .await?;
-            let mut developer = DeveloperSession::from_account(&mut account).await?;
-            // The teams as Apple lists them, rather than isideload's
-            // `list_teams`, which leaves out their memberships.
-            let teams: Vec<Dictionary> = developer
-                .send_dev_request(&dev_url("listTeams", DeveloperDeviceType::Any), None, "teams")
-                .await?;
-            let listed: Vec<DeveloperTeam> = teams.iter().filter_map(developer_team).collect();
-            let Some(team) = listed.first().cloned() else {
-                return Ok(None);
-            };
-            Ok(Some((
-                AtelierAppleIdSession {
-                    email,
-                    developer,
-                    team,
-                    teams: listed,
-                },
-                teams,
-            )))
+            // As isideload's `DeveloperSession::from_account`, keeping the
+            // token and the adsid for `atelier_appleid_session_token`.
+            let token = account.get_app_token("xcode.auth").await?;
+            let adsid = account
+                .spd
+                .as_ref()
+                .and_then(|spd| spd.get("adsid"))
+                .and_then(Value::as_string)
+                .ok_or_else(|| report!("Apple's sign-in didn't say the account's adsid"))?
+                .to_string();
+            let developer = DeveloperSession::new(
+                token.clone(),
+                adsid.clone(),
+                account.grandslam_client.clone(),
+                account.anisette_generator.clone(),
+            );
+            with_teams(email, developer, token, adsid).await
         }
     });
     let (session, teams) = match result {
         Ok(Some(signed_in)) => signed_in,
-        Ok(None) => {
-            return atelier_error(
-                ATELIER_APPLEID_NO_TEAM,
-                "This Apple ID isn't in any developer team",
-            );
-        }
+        Ok(None) => return no_team(),
         Err(report) => return apple_error(&report, asker.cancelled.load(Ordering::SeqCst)),
     };
+    let info = signed_in_info(&session, &teams, asker.asked.load(Ordering::SeqCst));
+    unsafe {
+        *out_info = xml_string(info);
+        *out_session = Box::into_raw(Box::new(session));
+    }
+    null_mut()
+}
 
+/// Signs in again as `email` without the password or Apple's code (#182),
+/// with Apple's token for its developer services and the account's
+/// `adsid`, as [`atelier_appleid_session_token`] gave them, through the
+/// anisette server the token's sign-in went through, at `anisette_url`,
+/// with its state under `storage_path`: the machine Apple knows the token
+/// by. `client_info` and `user_agent`, both or neither, are what that
+/// sign-in sent Apple in place of the server's.
+///
+/// It lists the teams, which tells whether Apple takes the token, and
+/// answers as [`atelier_appleid_sign_in`] does, `codeAsked` being false.
+/// When Apple refuses the token, as once it has ended, it fails with
+/// [`ATELIER_APPLEID_TOKEN_REFUSED`]; a resume that got no answer fails as
+/// any other call does, and the token may still do.
+///
+/// # Safety
+/// The strings must be valid and NUL-terminated (`client_info` and
+/// `user_agent` may be NULL), and `out_session` and `out_info` writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn atelier_appleid_resume(
+    email: *const c_char,
+    adsid: *const c_char,
+    token: *const c_char,
+    duration: u64,
+    expiry: u64,
+    anisette_url: *const c_char,
+    client_info: *const c_char,
+    user_agent: *const c_char,
+    storage_path: *const c_char,
+    out_session: *mut *mut AtelierAppleIdSession,
+    out_info: *mut *mut c_char,
+) -> *mut IdeviceFfiError {
+    if out_session.is_null() || out_info.is_null() {
+        return ffi_err!(IdeviceError::FfiInvalidArg);
+    }
+    let (Some(email), Some(adsid), Some(token), Some(anisette_url), Some(storage)) = (
+        unsafe { string(email) },
+        unsafe { string(adsid) },
+        unsafe { string(token) },
+        unsafe { string(anisette_url) },
+        unsafe { string(storage_path) },
+    ) else {
+        return ffi_err!(IdeviceError::FfiInvalidString);
+    };
+    let client_override = match (unsafe { string(client_info) }, unsafe { string(user_agent) }) {
+        (Some(client_info), Some(user_agent)) => Some(AnisetteClientInfo {
+            client_info,
+            user_agent,
+        }),
+        _ => None,
+    };
+    setup();
+
+    let email = email.to_lowercase();
+    let storage = PathBuf::from(storage);
+    let token = AppToken {
+        token,
+        duration,
+        expiry,
+    };
+    let result: Result<Option<(AtelierAppleIdSession, Vec<Dictionary>)>, Report> =
+        run_sync_local(async move {
+            let provider = provider(&anisette_url, &storage, client_override)?;
+            let account = AppleAccount::builder(&email)
+                .anisette_provider(provider)
+                .build()
+                .await?;
+            let developer = DeveloperSession::new(
+                token.clone(),
+                adsid.clone(),
+                account.grandslam_client.clone(),
+                account.anisette_generator.clone(),
+            );
+            with_teams(email, developer, token, adsid).await
+        });
+    let (session, teams) = match result {
+        Ok(Some(resumed)) => resumed,
+        Ok(None) => return no_team(),
+        Err(report) => {
+            let error = apple_error(&report, false);
+            if refused(&report) {
+                // Apple's code, if any, stays in `sub_code`.
+                unsafe { (*error).code = ATELIER_APPLEID_TOKEN_REFUSED };
+            }
+            return error;
+        }
+    };
+    let info = signed_in_info(&session, &teams, false);
+    unsafe {
+        *out_info = xml_string(info);
+        *out_session = Box::into_raw(Box::new(session));
+    }
+    null_mut()
+}
+
+/// The session's token for Apple's developer services (#182), as an XML
+/// plist in `out_token`: `adsid` and `token` (strings), and `duration` and
+/// `expiry` (integers) as Apple gave them: how long it lasts, in seconds,
+/// and when it ends, which Apple gives in milliseconds since 1970 as far as
+/// is known. [`atelier_appleid_resume`] takes them back. Free it with
+/// [`atelier_appleid_string_free`].
+///
+/// # Safety
+/// `session` must be a live session and `out_token` writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atelier_appleid_session_token(
+    session: *const AtelierAppleIdSession,
+    out_token: *mut *mut c_char,
+) -> *mut IdeviceFfiError {
+    if session.is_null() || out_token.is_null() {
+        return ffi_err!(IdeviceError::FfiInvalidArg);
+    }
+    let session = unsafe { &*session };
+    unsafe { *out_token = xml_string(token_info(&session.token, &session.adsid)) };
+    null_mut()
+}
+
+/// What [`atelier_appleid_session_token`] says.
+fn token_info(token: &AppToken, adsid: &str) -> Dictionary {
+    let mut info = Dictionary::new();
+    info.insert("adsid".into(), adsid.into());
+    info.insert("token".into(), token.token.clone().into());
+    info.insert("duration".into(), token.duration.into());
+    info.insert("expiry".into(), token.expiry.into());
+    info
+}
+
+/// isideload's provider for the anisette server `url`, with its state in
+/// its own folder under `storage`: the machine Apple knows sign-ins through
+/// it by.
+fn provider(
+    url: &str,
+    storage: &Path,
+    client_info: Option<AnisetteClientInfo>,
+) -> Result<RemoteV3AnisetteProvider, Report> {
+    Ok(RemoteV3AnisetteProvider::new(
+        url,
+        Box::new(FsStorage::new(anisette_folder(storage, url))),
+        "0".to_string(),
+    )?
+    .set_client_info_override(client_info))
+}
+
+/// The session for `developer`, in the first team Apple lists, with the
+/// teams as Apple lists them: None when it lists none. Listing them is
+/// also how a token tells whether Apple takes it.
+async fn with_teams(
+    email: String,
+    mut developer: DeveloperSession,
+    token: AppToken,
+    adsid: String,
+) -> Result<Option<(AtelierAppleIdSession, Vec<Dictionary>)>, Report> {
+    // As Apple lists them, rather than isideload's `list_teams`, which
+    // leaves out their memberships.
+    let teams: Vec<Dictionary> = developer
+        .send_dev_request(&dev_url("listTeams", DeveloperDeviceType::Any), None, "teams")
+        .await?;
+    let listed: Vec<DeveloperTeam> = teams.iter().filter_map(developer_team).collect();
+    let Some(team) = listed.first().cloned() else {
+        return Ok(None);
+    };
+    Ok(Some((
+        AtelierAppleIdSession {
+            email,
+            developer,
+            team,
+            teams: listed,
+            token,
+            adsid,
+        },
+        teams,
+    )))
+}
+
+fn no_team() -> *mut IdeviceFfiError {
+    atelier_error(
+        ATELIER_APPLEID_NO_TEAM,
+        "This Apple ID isn't in any developer team",
+    )
+}
+
+/// What [`atelier_appleid_sign_in`] and [`atelier_appleid_resume`] answer
+/// about `session`, with `teams` as Apple listed them.
+fn signed_in_info(
+    session: &AtelierAppleIdSession,
+    teams: &[Dictionary],
+    code_asked: bool,
+) -> Dictionary {
     let mut info = Dictionary::new();
     info.insert("teamId".into(), session.team.team_id.clone().into());
     insert_some(&mut info, "teamName", session.team.name.clone());
@@ -241,12 +447,24 @@ pub unsafe extern "C" fn atelier_appleid_sign_in(
         })
         .collect();
     info.insert("teams".into(), Value::Array(teams));
-    info.insert("codeAsked".into(), asker.asked.load(Ordering::SeqCst).into());
-    unsafe {
-        *out_info = xml_string(info);
-        *out_session = Box::into_raw(Box::new(session));
-    }
-    null_mut()
+    info.insert("codeAsked".into(), code_asked.into());
+    info
+}
+
+/// Whether Apple refused the token a resume went with, rather than not
+/// answering: its developer services said no, with a code of theirs, or
+/// with HTTP's 401 or 403, as the iPhone-only installer tells
+/// (atelierstore/atelier-install, `src/apple.rs`).
+fn refused(report: &Report) -> bool {
+    report.iter_reports().any(|node| {
+        matches!(
+            node.downcast_current_context::<SideloadError>(),
+            Some(SideloadError::DeveloperError(..))
+        ) || node
+            .downcast_current_context::<reqwest::Error>()
+            .and_then(reqwest::Error::status)
+            .is_some_and(|status| status.as_u16() == 401 || status.as_u16() == 403)
+    })
 }
 
 /// Makes the session's calls use the team `team_id`, one of those the
@@ -1231,6 +1449,40 @@ mod tests {
             status_code: Some(0),
             expiration_date: Some(plist::Date::from(ends)),
         }
+    }
+
+    #[test]
+    fn a_refused_token_is_told_from_no_answer() {
+        // Apple's developer services saying no, under isideload's own
+        // context, as `send_dev_request` reports it.
+        let developer = Report::new(SideloadError::DeveloperError(
+            1100,
+            "Your session has expired. Please log in.".into(),
+        ))
+        .context("Developer request failed")
+        .into_dynamic();
+        assert!(refused(&developer));
+        // Anything else: the token may still do.
+        let other = Report::new(SideloadError::AuthWithMessage(-22421, "Try again".into()))
+            .context("Failed to get anisette data")
+            .into_dynamic();
+        assert!(!refused(&other));
+        assert!(!refused(&report!("the anisette server didn't answer").into_dynamic()));
+    }
+
+    #[test]
+    fn the_token_goes_to_swift_as_apple_gave_it() {
+        let token = AppToken {
+            token: "a token".into(),
+            duration: 31_536_000,
+            expiry: 1_794_500_000_000,
+        };
+        let info = token_info(&token, "000123-45-6789");
+        assert_eq!(info["adsid"].as_string(), Some("000123-45-6789"));
+        assert_eq!(info["token"].as_string(), Some("a token"));
+        assert_eq!(info["duration"].as_unsigned_integer(), Some(31_536_000));
+        assert_eq!(info["expiry"].as_unsigned_integer(), Some(1_794_500_000_000));
+        assert_eq!(info.len(), 4);
     }
 
     #[test]

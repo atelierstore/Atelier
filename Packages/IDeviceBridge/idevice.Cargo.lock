@@ -1892,6 +1892,7 @@ dependencies = [
  "once_cell",
  "plist",
  "plist_ffi",
+ "reqwest",
  "rootcause",
  "rsa",
  "rustls",
