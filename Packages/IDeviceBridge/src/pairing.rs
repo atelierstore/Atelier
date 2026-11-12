@@ -38,9 +38,13 @@ use idevice::remote_pairing::{PairableHost, PairableHostInfo, RpPairingFile, RpP
 use tokio::net::TcpListener;
 use tokio::sync::Notify;
 
-/// The model the host reports. iOS treats a pairable host as a computer, and
-/// this Mac identifier is idevice's own default.
-const HOST_MODEL: &str = "Mac17,7";
+/// The model the host reports, which iOS keeps with the pairing. idevice's
+/// default, Mac17,7, made Atelier a MacBook Pro under Developer Mode, and
+/// iOS's notification after a look at the Home Screen said the iPhone was
+/// viewed remotely "from Mac", whatever the screen stream was named (12 Nov
+/// 2026). Atelier's own name is a try at "from Atelier" instead, though
+/// idevice advises a Mac identifier, as iOS takes the host for a computer.
+const HOST_MODEL: &str = "Atelier";
 
 /// What the app needs to advertise the host through Bonjour.
 #[derive(Debug, Clone)]

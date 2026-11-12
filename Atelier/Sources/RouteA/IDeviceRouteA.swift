@@ -44,8 +44,9 @@ struct IDeviceRouteA: RouteADevice {
 	/// One RemoteXPC tunnel, with AFC, installation_proxy and misagent
 	/// connected when first needed.
 	final class Connection: RouteAConnection {
-		private let adapter: OpaquePointer?
-		private let handshake: OpaquePointer?
+		/// The tunnel's handles, which IDeviceScreen.swift's calls take too.
+		let adapter: OpaquePointer?
+		let handshake: OpaquePointer?
 		private var installer: OpaquePointer?
 		private var profileAgent: OpaquePointer?
 

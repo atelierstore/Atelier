@@ -2,7 +2,8 @@ import AVFoundation
 import Foundation
 
 /// Keeps Atelier running in the background while pairing waits in Settings
-/// (#54) and while direct installs go on after the user leaves (#72), by
+/// (#54), while direct installs go on after the user leaves (#72) and while
+/// Find Open Spaces Automatically looks at the Home Screen, by
 /// looping a second of silence under the audio background mode, mixed with
 /// whatever else is playing.
 ///
@@ -22,6 +23,9 @@ final class SilentAudio {
 	enum Holder {
 		case pairing
 		case installs
+		/// Find Open Spaces Automatically, while Atelier is on the Home
+		/// Screen for a moment (11 Nov 2026).
+		case openSpaces
 	}
 
 	private var engine: AVAudioEngine?

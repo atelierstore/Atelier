@@ -6,6 +6,8 @@
 - Atelier installed with a free Apple ID renews itself every week, and signs its own updates and Custom Install… with that Apple ID, once you sign in with it in Atelier. Until then, it's in the Library's Renew section with Sign In (#3).
 - After the iPhone-only installer, Atelier is signed in from the start: on first open it signs in by itself with the Apple ID the installer used, as the same device to Apple so it shouldn't ask for a code again, and reuses the installer's certificate instead of making a second one, since a free Apple ID only gets two. If Apple still asks for a code, or the sign-in fails, the Sign In sheet opens already filled in. When Apple still counts a certificate you just revoked, Atelier offers the remaining ones again as Revoke Another? instead of stopping, as revoking another frees a place where waiting doesn't (#17).
 - Re-sign on an app installed with an Apple ID whose certificate Apple revoked or that ended gets that Apple ID a new certificate, signing in with the password in your Keychain, then signs the app again with it, even when another certificate is in use. The app is installed over, rather than deleted first, and keeps its data. The Apple ID's page has New Certificate too, so you don't sign out and in again (#21).
+- Find Open Spaces Automatically, in Settings › Home Screen › Open Spaces, goes to a page of your Home Screen for a moment, takes a screenshot and comes back, then marks the open spaces it saw there for you to check. It looks for each app's own icon, so a busy wallpaper or dark icons don't throw it off. The first time, it downloads Apple's developer disk image, which lets it press Home, go to the page and take the screenshot. iOS might then notify you that your iPhone was viewed remotely: that's normal (#16).
+- Settings › Home Screen › Open Spaces goes from page to page with a swipe, as on your Home Screen (#16).
 
 ## Fixes
 
@@ -18,3 +20,4 @@
 - Each signed build's record has an install link that opens iOS's install alert from Safari (#10).
 - Pull requests add their lines to the next release's notes as they're merged, and its build checks they did (#12).
 - The README is a front page for developers and sideloading enthusiasts: highlights, how the pipeline works, atelier-install, and up-to-date notes on the code, building and CI (#24).
+- jktcp, the TCP stack of the tunnel to the iPhone, is built from source with a change to how it receives, so one lost segment no longer slows a long transfer to a crawl (#16).

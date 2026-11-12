@@ -12,6 +12,7 @@ It uses, or plans to reuse code from, the projects below. Keep this list in sync
 | [OpenSSL](https://github.com/krzyzanowskim/OpenSSL) | Cryptography for zsign; comes in with Zsign-Package and ships in the app as OpenSSL.framework | Apache-2.0 (OpenSSL 3) | The OpenSSL Project Authors; packaged by Marcin Krzyżanowski |
 | [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) | Unpacking and repacking IPAs for signing | MIT | Thomas Zoechling |
 | [idevice](https://github.com/jkcoxson/idevice) | Talking to AFC and installd for the pairing-file install route, and pairing the iPhone on the phone itself (built from source, `Packages/IDeviceBridge`) | MIT | Jackson Coxson |
+| [jktcp](https://github.com/jkcoxson/jktcp) | idevice's TCP stack for the tunnel to the iPhone, built from source with Atelier's change to how it receives (`Packages/IDeviceBridge/src/jktcp-receive-window.patch`) | MIT | Jackson Coxson |
 | [IDeviceKit](https://github.com/khcrysalis/IDeviceKit) | Swift wrapper for idevice | MIT | khcrysalis |
 | [isideload](https://github.com/nab138/isideload) | Signing in with an Apple ID and asking Apple's developer services for certificates, App IDs and provisioning profiles, for free Apple ID signing (built from source with idevice, `Packages/IDeviceBridge`) | MIT | nab138 (Nicholas Sharp) |
 | [apple-codesign-quick](https://github.com/Dadoum/apple-crates) | Comes in with isideload, which signs apps with it; Atelier signs with zsign | LGPL-2.1-or-later | Dadoum |

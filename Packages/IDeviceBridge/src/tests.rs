@@ -280,7 +280,7 @@ fn check_advert(advert: &Advert) {
     };
     assert_eq!(get("name"), Some(DISPLAY_NAME));
     assert_eq!(get("identifier"), Some(advert.instance.as_str()));
-    assert_eq!(get("model"), Some("Mac17,7"));
+    assert_eq!(get("model"), Some("Atelier"));
     let tag = get("authTag").expect("authTag");
     assert_eq!(B64.decode(tag).expect("base64 authTag").len(), 6);
     assert_eq!(advert.instance.len(), 36, "a UUID: {}", advert.instance);
