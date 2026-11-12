@@ -17,3 +17,4 @@
 
 - Each signed build's record has an install link that opens iOS's install alert from Safari (#10).
 - Pull requests add their lines to the next release's notes as they're merged, and its build checks they did (#12).
+- The README is a front page for developers and sideloading enthusiasts: highlights, how the pipeline works, atelier-install, and up-to-date notes on the code, building and CI (#24).
