@@ -17,10 +17,13 @@ enum AppleIDRoute {
 
 	/// Signs in as `email`. `askCode` runs on the Apple ID queue when Apple
 	/// asks for a verification code, and waits there for the answer; nil
-	/// cancels. `isCancelled` is asked before each server.
+	/// cancels. `isCancelled` is asked before each server. `firstServer`
+	/// goes before the list's, as the one the iPhone-only installer signed
+	/// in through (#152), unless the user has their own.
 	static func signIn(
 		email: String,
 		password: String,
+		firstServer: URL? = nil,
 		isCancelled: @escaping @MainActor () -> Bool,
 		askCode: @escaping @Sendable (AppleIDSession.CodeRequest) -> AppleIDSession.CodeAnswer?
 	) async throws -> AppleIDSession.SignedIn {
@@ -39,7 +42,7 @@ enum AppleIDRoute {
 		let source = AnisetteListSource(folder: storage)
 		// Its client info goes to Apple through the user's server too.
 		let (list, origin) = await source.current()
-		var route = custom.map(AnisetteRoute.init(custom:)) ?? AnisetteRoute(list: list, lastWorked: source.lastWorked)
+		var route = custom.map(AnisetteRoute.init(custom:)) ?? AnisetteRoute(list: list, lastWorked: source.lastWorked, first: firstServer)
 		if let custom {
 			AppleIDLog.note("sign-in: your own anisette server, \(custom.host ?? custom.absoluteString)")
 		} else {

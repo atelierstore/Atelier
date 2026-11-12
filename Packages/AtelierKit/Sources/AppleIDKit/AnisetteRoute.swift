@@ -50,14 +50,24 @@ public struct AnisetteRoute: Sendable {
 	private var refusedKinds: Set<String> = []
 
 	/// Through Atelier's list, starting with the server the last sign-in
-	/// worked through, if the list still has it.
-	public init(list: AnisetteList, lastWorked: URL?) {
+	/// worked through, if the list still has it. Or starting with `first`,
+	/// the one the iPhone-only installer signed in through (#152), whose
+	/// machine Apple already trusts: the list's own when it has it, else
+	/// one more server than the list says.
+	public init(list: AnisetteList, lastWorked: URL?, first: URL? = nil) {
 		var order = list.servers
-		if let host = lastWorked?.host?.lowercased(), let index = order.firstIndex(where: { $0.host.lowercased() == host }) {
-			order.insert(order.remove(at: index), at: 0)
+		var tries = list.tries
+		for (preferred, added) in [(lastWorked, false), (first, true)] {
+			guard let preferred, let host = preferred.host?.lowercased() else { continue }
+			if let index = order.firstIndex(where: { $0.host.lowercased() == host }) {
+				order.insert(order.remove(at: index), at: 0)
+			} else if added {
+				order.insert(AnisetteList.Server(url: preferred, name: host), at: 0)
+				tries += 1
+			}
 		}
 		servers = order
-		tries = max(1, min(list.tries, order.count))
+		self.tries = max(1, min(tries, order.count))
 		isCustom = false
 	}
 

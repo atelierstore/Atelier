@@ -48,6 +48,22 @@ final class AnisetteRouteTests: XCTestCase {
 		XCTAssertEqual(walk(&route, [.server, .server]), ["stikstore", "mac-ani", "iloader"])
 	}
 
+	func testStartsWithTheInstallersServer() {
+		// One the list has, before the one that worked last.
+		var route = AnisetteRoute(list: list, lastWorked: URL(string: "https://stikstore.example"), first: URL(string: "https://iloader.example"))
+		XCTAssertEqual(walk(&route, [.server, .server, .server]), ["iloader", "stikstore", "mac-ani", "new-sidestore"])
+		// One it doesn't, as one more.
+		route = AnisetteRoute(list: list, lastWorked: nil, first: URL(string: "https://ani.installer.example"))
+		XCTAssertEqual(walk(&route, Array(repeating: .server, count: 10)), ["ani.installer.example", "mac-ani", "iloader", "new-sidestore", "stikstore"])
+	}
+
+	func testKeepsEachServersStateWhereTheBridgeLooks() {
+		// As appleid.rs's anisette_folder, tested with the same two.
+		let storage = URL(fileURLWithPath: "/AppleID")
+		XCTAssertEqual(AnisetteList.Server(url: URL(string: "https://ani.sidestore.io")!, name: "SideStore").stateFile(in: storage).path, "/AppleID/anisette/ani.sidestore.io/anisette_state")
+		XCTAssertEqual(AnisetteList.Server(url: URL(string: "http://192.168.1.20:6969")!, name: "Mine").stateFile(in: storage).path, "/AppleID/anisette/192.168.1.20_6969/anisette_state")
+	}
+
 	func testTriesTheListsTriesAtMost() {
 		var route = AnisetteRoute(list: list, lastWorked: nil)
 		XCTAssertEqual(walk(&route, Array(repeating: .server, count: 10)), ["mac-ani", "iloader", "new-sidestore", "stikstore"])

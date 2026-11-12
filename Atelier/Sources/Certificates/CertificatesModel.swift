@@ -1,3 +1,4 @@
+import AppleIDKit
 import CertKit
 import CryptoKit
 import Foundation
@@ -369,9 +370,14 @@ final class CertificatesModel {
 
 	// MARK: Apple IDs (#49)
 
-	/// Opens the Sign In with Apple ID sheet.
+	/// Opens the Sign In with Apple ID sheet, or brings up the sign-in
+	/// Atelier is making by itself with the installer's (#152).
 	func beginSignIn() {
-		if signIn == nil { signIn = AppleIDSignIn(certificates: self) }
+		if let signIn {
+			signIn.reveal()
+		} else {
+			signIn = AppleIDSignIn(certificates: self)
+		}
 	}
 
 	/// Closes it, stopping a sign-in that's running.
@@ -395,23 +401,59 @@ final class CertificatesModel {
 	// MARK: The installer's certificate (#152)
 
 	/// Moves the certificate the iPhone-only installer left in Atelier's
-	/// container, with its key, into the certificate storage, as Atelier
-	/// comes to the front: an Apple ID of its team uses it once it signs in,
-	/// rather than having Apple make another.
+	/// Caches, with its key and its sign-in, into the certificate storage
+	/// and the Keychain, as Atelier comes to the front: an Apple ID of its
+	/// team uses it once it signs in, rather than having Apple make another.
+	/// The machine Apple saw the installer sign in as goes where Atelier's
+	/// sign-in through the same server finds it, unless Atelier already has
+	/// one there.
 	func keepInstallerCertificate() {
 		guard
 			let store,
-			let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+			let caches = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
 		else { return }
-		let url = InstallerCertificate.handoffURL(in: support)
+		let url = InstallerCertificate.handoffURL(in: caches)
 		guard FileManager.default.fileExists(atPath: url.path) else { return }
 		do {
 			guard let kept = try store.keepInstallerCertificate(from: url) else { return }
 			let made = [kept.machineName, kept.serialNumber].compactMap { $0 }.joined(separator: " ")
-			AppleIDLog.note("Installer: kept the certificate it left for team \(kept.teamID)\(made.isEmpty ? "" : ", \(made)")")
+			let with = kept.signIn == nil ? "" : ", with its sign-in"
+			AppleIDLog.note("Installer: kept the certificate it left for team \(kept.teamID)\(made.isEmpty ? "" : ", \(made)")\(with)")
+			if let signIn = kept.signIn { keepAnisetteState(of: signIn) }
 		} catch {
 			AppleIDLog.note("Installer: couldn't keep the certificate it left: \(error)")
 		}
+	}
+
+	private func keepAnisetteState(of signIn: InstallerCertificate.SignIn) {
+		guard let state = signIn.anisetteState, let url = signIn.anisetteServer.flatMap(AnisetteList.serverURL) else { return }
+		let server = AnisetteList.Server(url: url, name: url.host ?? url.absoluteString)
+		do {
+			let file = try server.stateFile(in: AppleIDSignIn.storage())
+			guard !FileManager.default.fileExists(atPath: file.path) else {
+				return AppleIDLog.note("Installer: keeping Atelier's own machine for \(server.host)")
+			}
+			try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
+			try state.write(to: file, options: .atomic)
+			AppleIDLog.note("Installer: its machine for \(server.host) is Atelier's now")
+		} catch {
+			AppleIDLog.note("Installer: couldn't keep its machine for \(server.host): \(error)")
+		}
+	}
+
+	/// Signs in by itself with the Apple ID the installer used, as Atelier
+	/// first opens after it (#152), out of sight until it has something to
+	/// show. Tried once: the sheet then has it, filled in.
+	func signInAsInstaller() {
+		guard signIn == nil, let installer = store?.installerCertificate, installer.signIn != nil else { return }
+		let signIn = AppleIDSignIn(certificates: self, installer: installer)
+		self.signIn = signIn
+		signIn.signIn()
+	}
+
+	/// Once Atelier has tried the installer's sign-in.
+	func forgetInstallerSignIn() {
+		store?.forgetInstallerSignIn()
 	}
 
 	/// The certificate the installer left, until an Apple ID of its team

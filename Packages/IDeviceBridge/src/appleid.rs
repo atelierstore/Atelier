@@ -1243,6 +1243,22 @@ mod tests {
     }
 
     #[test]
+    fn each_servers_state_in_its_own_folder() {
+        // As Swift's AnisetteList.Server.stateFile, which places the state
+        // the iPhone-only installer hands over (#152), tested with the same
+        // two.
+        let storage = Path::new("/AppleID");
+        assert_eq!(
+            anisette_folder(storage, "https://ani.sidestore.io"),
+            Path::new("/AppleID/anisette/ani.sidestore.io")
+        );
+        assert_eq!(
+            anisette_folder(storage, "http://192.168.1.20:6969"),
+            Path::new("/AppleID/anisette/192.168.1.20_6969")
+        );
+    }
+
+    #[test]
     fn the_certificate_made_with_the_key_whatever_its_machine() {
         let key = RsaPrivateKey::from_pkcs8_der(&hex::decode(KEY_A).unwrap()).unwrap();
         let now = SystemTime::now();
