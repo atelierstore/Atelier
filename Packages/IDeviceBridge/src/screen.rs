@@ -250,24 +250,35 @@ pub struct AtelierScreenSession {
 
 /// Starts the screen stream and connects the services a look at the Home
 /// Screen uses. Needs the developer disk image mounted. The tunnel must
-/// outlive the session.
+/// outlive the session. `name`, unless NULL, is the name the stream gives
+/// for the computer it goes to, which iOS might show in its notification
+/// afterwards that the iPhone was viewed remotely (12 Nov 2026).
 ///
 /// # Safety
-/// `adapter` and `handshake` must be live handles from the same tunnel, and
-/// `out_session` writable.
+/// `adapter` and `handshake` must be live handles from the same tunnel,
+/// `name` NULL or a valid NUL-terminated string, and `out_session` writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn atelier_screen_session_start(
     adapter: *mut AdapterHandle,
     handshake: *mut RsdHandshakeHandle,
+    name: *const c_char,
     out_session: *mut *mut AtelierScreenSession,
 ) -> *mut IdeviceFfiError {
     if adapter.is_null() || handshake.is_null() || out_session.is_null() {
         return ffi_err!(IdeviceError::FfiInvalidArg);
     }
+    let name = if name.is_null() {
+        None
+    } else {
+        let Ok(name) = unsafe { CStr::from_ptr(name) }.to_str().map(str::to_owned) else {
+            return ffi_err!(IdeviceError::FfiInvalidString);
+        };
+        Some(name)
+    };
     let result = run_sync_local(async move {
         let adapter = unsafe { &mut (*adapter).0 };
         let handshake = unsafe { &mut (*handshake).0 };
-        within(START_WAIT, "starting the screen stream", start(adapter, handshake)).await
+        within(START_WAIT, "starting the screen stream", start(adapter, handshake, name)).await
     });
     match result {
         Ok(session) => {
@@ -281,6 +292,7 @@ pub unsafe extern "C" fn atelier_screen_session_start(
 async fn start(
     adapter: &mut Adapter,
     handshake: &mut RsdHandshake,
+    name: Option<String>,
 ) -> Result<AtelierScreenSession, IdeviceError> {
     let mut display = DisplayServiceClient::connect_rsd(adapter, handshake).await?;
     let audio = adapter.bind_udp(0).await?;
@@ -293,7 +305,7 @@ async fn start(
         device_type: "Mac17,7".into(),
         framework_version: "2205.3.1".into(),
         os_version: "25F71".into(),
-        device_name: None,
+        device_name: name,
         audio_device_uid: None,
     };
     // Audio first, which sets up the screen sharing session the video joins,

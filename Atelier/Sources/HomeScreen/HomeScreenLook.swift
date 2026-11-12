@@ -183,10 +183,7 @@ enum HomeScreenLook {
 			SilentAudio.shared.stop(for: .openSpaces)
 			background.end()
 		}
-		let session = try await step(.home, "this iPhone didn’t let Atelier press Home") {
-			try tunnel.connection.startScreen()
-		}
-		say("started the screen stream")
+		let session = try await startScreen(tunnel)
 		let result: Result<OpenSpacesFinder.Reading?, Error>
 		do {
 			result = .success(try await goAndRead(session, target: target))
@@ -198,6 +195,24 @@ enum HomeScreenLook {
 		await quietly { session.end() }
 		say("stopped the screen stream")
 		return Look(reading: try result.get(), cameBack: cameBack)
+	}
+
+	/// Starts the screen stream, named Atelier, so that iOS's notification
+	/// afterwards might say the iPhone was viewed from Atelier rather than
+	/// from a Mac (12 Nov 2026). Without the name if iOS doesn't take it.
+	private static func startScreen(_ tunnel: Tunnel) async throws -> ScreenSession {
+		do {
+			let session = try await call { try tunnel.connection.startScreen(named: "Atelier") }
+			say("started the screen stream, named Atelier")
+			return session
+		} catch {
+			say("the screen stream named Atelier didn’t start: \(error); starting it without a name")
+		}
+		let session = try await step(.home, "this iPhone didn’t let Atelier press Home") {
+			try tunnel.connection.startScreen(named: nil)
+		}
+		say("started the screen stream")
+		return session
 	}
 
 	/// Presses Home, goes to the page, and reads its screenshot: by sliding

@@ -55,9 +55,17 @@ extension IDeviceRouteA.Connection {
 	/// and swipes, and connects the services that make them and take the
 	/// screenshot. Needs the developer disk image mounted; the tunnel must
 	/// stay open until the session ends.
-	func startScreen() throws -> ScreenSession {
+	///
+	/// `name` is the name the stream gives for the computer it goes to,
+	/// which iOS might show in its notification afterwards that the iPhone
+	/// was viewed remotely; without one, it says a Mac.
+	func startScreen(named name: String?) throws -> ScreenSession {
 		var session: OpaquePointer?
-		try screenCheck(atelier_screen_session_start(adapter, handshake, &session))
+		if let name {
+			try screenCheck(atelier_screen_session_start(adapter, handshake, name, &session))
+		} else {
+			try screenCheck(atelier_screen_session_start(adapter, handshake, nil, &session))
+		}
 		return ScreenSession(session)
 	}
 
