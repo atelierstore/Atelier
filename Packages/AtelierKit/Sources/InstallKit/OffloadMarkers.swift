@@ -72,10 +72,61 @@ public enum OffloadMarkers {
 		return url.pathComponents.dropFirst().first.flatMap { $0.isEmpty ? nil : $0 }
 	}
 
+	// MARK: Reading a web clip's link
+
+	/// The text in `value`, in order, to look for a link in: a string, a
+	/// URL, the strings in a list or a dictionary, as CFURL's own form
+	/// (`_CFURLString`), and the property list or text in data, as an
+	/// archived URL.
+	static func texts(in value: Any, depth: Int = 0) -> [String] {
+		guard depth < 8 else { return [] }
+		switch value {
+		case let text as String:
+			return [text]
+		case let url as URL:
+			return [url.absoluteString]
+		case let data as Data:
+			// A binary or XML property list, as an archived URL is, or text.
+			let isPlist = ["bplist", "<?xml", "<plist"].contains { data.starts(with: $0.utf8) }
+			if isPlist, let plist = try? PropertyListSerialization.propertyList(from: data, options: [], format: nil), !(plist is Data) {
+				return texts(in: plist, depth: depth + 1)
+			}
+			return String(data: data, encoding: .utf8).map { [$0] } ?? []
+		case let dictionary as [String: Any]:
+			return dictionary.keys.sorted().flatMap { texts(in: dictionary[$0] as Any, depth: depth + 1) }
+		case let list as [Any]:
+			return list.flatMap { texts(in: $0, depth: depth + 1) }
+		default:
+			return []
+		}
+	}
+
+	/// What `value`, as iOS gives a web clip's `webClipURL`, is, for the
+	/// log: "a string, “https://…”", "data, 412 bytes, with “…”".
+	public static func described(_ value: Any?) -> String {
+		guard let value else { return "nothing" }
+		let kind: String
+		switch value {
+		case is String: kind = "a string"
+		case is URL: kind = "a URL"
+		case let data as Data: kind = "data, \(data.count) bytes"
+		case let dictionary as [String: Any]: kind = "a dictionary of \(dictionary.keys.sorted().joined(separator: ", "))"
+		case let list as [Any]: kind = "a list of \(list.count)"
+		default: kind = "\(type(of: value))"
+		}
+		// Links first, then the rest, without an archive's "$null".
+		let all = texts(in: value).filter { !$0.isEmpty && !$0.hasPrefix("$") }
+		let found = (all.filter { $0.contains("://") } + all.filter { !$0.contains("://") }).prefix(4).map { text in
+			"“\(text.count > 80 ? String(text.prefix(80)) + "…" : text)”"
+		}
+		return found.isEmpty ? kind : "\(kind), with \(found.joined(separator: ", "))"
+	}
+
 	/// The configuration profile with `count` markers, each a web clip with
 	/// `icon`, a PNG, named `label`, that opens its link. They can be
-	/// removed, as an app can, and open the link as Safari would, rather
-	/// than full screen.
+	/// removed, as an app can. They open full screen: opened as Safari
+	/// would, a tap showed Safari before iOS asked to open Atelier
+	/// (12 Nov 2026).
 	public static func profile(count: Int, scheme: String, bundleID: String, icon: Data, label: String = label) throws -> Data {
 		let identifier = profileIdentifier(bundleID: bundleID)
 		let clips: [[String: Any]] = (1 ... max(count, 1)).map { number in
@@ -90,7 +141,7 @@ public enum OffloadMarkers {
 				"Icon": icon,
 				"IsRemovable": true,
 				"Precomposed": true,
-				"FullScreen": false,
+				"FullScreen": true,
 			]
 		}
 		let profile: [String: Any] = [
@@ -250,10 +301,15 @@ extension HomeScreenLayout {
 	}
 
 	/// The marker number in any of a web clip's links that `scheme` opens.
+	/// iOS gives the link as `webClipURL`, though not as a plain string, as
+	/// the test on 12 Nov 2026 found, so the link is looked for in
+	/// whatever form it takes (`OffloadMarkers.texts(in:)`).
 	static func markerNumber(_ raw: PlistDictionary, scheme: String) -> Int? {
-		for case let text as String in raw.values.values {
-			if let url = URL(string: text), let number = OffloadMarkers.number(of: url, scheme: scheme) {
-				return number
+		for key in raw.values.keys.sorted() {
+			for text in OffloadMarkers.texts(in: raw.values[key] as Any) {
+				if let url = URL(string: text), let number = OffloadMarkers.number(of: url, scheme: scheme) {
+					return number
+				}
 			}
 		}
 		return nil
@@ -284,6 +340,27 @@ extension HomeScreenLayout {
 	public func raw(of id: String) -> PlistDictionary? {
 		guard case .icon(_, let raw)? = item(id) else { return nil }
 		return raw
+	}
+
+	/// What's on page `page`, from 0, in order, for the log: apps by
+	/// `names`, markers by their number in `markers`, other web clips by
+	/// their name, then folders and widgets.
+	public func described(page: Int, names: [String: String], markers: [String: Int] = [:]) -> String {
+		guard pages.indices.contains(page) else { return "no page \(page + 1)" }
+		guard !pages[page].isEmpty else { return "nothing" }
+		return pages[page].map { item -> String in
+			switch item {
+			case .icon(let id, let raw):
+				if let number = markers[id] { return "Marker \(number)" }
+				return names[id] ?? raw.string("displayName").map { "\($0) (\(id))" } ?? id
+			case .folder(let name, _, _):
+				return "folder \(name)"
+			case .widget:
+				return "a widget"
+			case .other:
+				return "something else"
+			}
+		}.joined(separator: ", ")
 	}
 
 	/// The layout with `ids` in a folder named `name` at the end of the last

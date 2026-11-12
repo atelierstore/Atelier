@@ -225,18 +225,7 @@ struct RootView: View {
 			// Atelier: StoreLinkHandling acts on them (#93).
 			StoreLinks.shared.open(url)
 		}
-		.sheet(isPresented: $markerTest.showsFromLink) {
-			NavigationStack {
-				OffloadMarkersTestView()
-					.toolbar {
-						ToolbarItem(placement: .confirmationAction) {
-							Button("Done") { markerTest.showsFromLink = false }
-						}
-					}
-			}
-			.environment(certificates)
-			.environment(catalog)
-		}
+		.modifier(OffloadMarkersTestSheet(test: markerTest, certificates: certificates, catalog: catalog))
 		// Sources refresh on launch, and in the background (#19).
 		.task { await sources.refreshAll() }
 		// Apps installed before Atelier kept the bundle ID their source
@@ -368,6 +357,32 @@ private struct WelcomeCover: ViewModifier {
 		), onDismiss: onDismiss) {
 			WelcomeFlow()
 				.environment(certificates)
+		}
+	}
+}
+
+/// The Offload Markers Test's page over the whole app, once one of its
+/// markers or stand-ins opened Atelier (9 Nov 2026). A modifier of its
+/// own, so `RootView`'s body still type-checks in time. What it shows only
+/// gets the environment from above `RootView`, so the certificates and
+/// the catalog are passed on.
+private struct OffloadMarkersTestSheet: ViewModifier {
+	@Bindable var test: OffloadMarkersTest
+	let certificates: CertificatesModel
+	let catalog: CatalogModel
+
+	func body(content: Content) -> some View {
+		content.sheet(isPresented: $test.showsFromLink) {
+			NavigationStack {
+				OffloadMarkersTestView()
+					.toolbar {
+						ToolbarItem(placement: .confirmationAction) {
+							Button("Done") { test.showsFromLink = false }
+						}
+					}
+			}
+			.environment(certificates)
+			.environment(catalog)
 		}
 	}
 }

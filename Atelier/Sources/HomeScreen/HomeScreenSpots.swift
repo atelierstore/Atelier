@@ -200,6 +200,15 @@ final class HomeScreenSpots: HomeScreenKeeping {
 			.compactMapValues(\.spot)
 	}
 
+	/// What's noted for each app Atelier deleted that isn't back yet, by
+	/// bundle ID: none of `installed` has it. For the Offload Markers
+	/// Test's stand-ins, which also go in a spot that isn't kept empty,
+	/// when nothing came into it.
+	static func away(installed: [HomeScreenApp]) -> [String: Noted] {
+		let back = Set(installed.map(\.bundleID))
+		return all().filter { !back.contains($0.key) }
+	}
+
 	/// Stops keeping the spot of `bundleID` empty, as something came into
 	/// it, and returns its app's name. The spot stays noted, for Reinstall
 	/// to find it taken.

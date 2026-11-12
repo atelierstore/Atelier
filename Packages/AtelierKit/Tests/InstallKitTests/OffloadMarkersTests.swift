@@ -37,6 +37,7 @@ final class OffloadMarkersTests: XCTestCase {
 		XCTAssertEqual(Set(clips.compactMap { $0["Label"] as? String }), ["Offloaded"])
 		XCTAssertEqual(clips[0]["PayloadType"] as? String, "com.apple.webClip.managed")
 		XCTAssertEqual(clips[0]["Icon"] as? Data, icon)
+		XCTAssertEqual(clips[0]["FullScreen"] as? Bool, true)
 		XCTAssertEqual(Set(clips.compactMap { $0["PayloadUUID"] as? String }).count, 3)
 	}
 
@@ -76,6 +77,45 @@ final class OffloadMarkersTests: XCTestCase {
 		XCTAssertEqual(markers[1].spot?.description, "Page 1, 2nd")
 		XCTAssertEqual(markers[0].spot?.folder?.name, "Markers")
 		XCTAssertEqual(Set(layout.webClipKeys.keys), ["W1", "W2"])
+	}
+
+	func testFindsTheLinkInWhateverFormIOSGivesIt() throws {
+		let link = "\(scheme)://marker/3"
+		let plist = try PropertyListSerialization.data(fromPropertyList: ["URL": link], format: .binary, options: 0)
+		var forms: [Any] = [
+			Data(link.utf8),
+			["_CFURLString": link, "_CFURLStringType": 15] as [String: Any],
+			[["relative": link]] as [Any],
+			plist,
+		]
+		#if canImport(Darwin)
+		let archive = try NSKeyedArchiver.archivedData(withRootObject: NSURL(string: link)!, requiringSecureCoding: true)
+		forms.append(archive)
+		#endif
+		for form in forms {
+			let layout = try XCTUnwrap(HomeScreenLayout(iconState: [
+				[] as [Any],
+				["com.example.a", ["displayIdentifier": "W9", "displayName": "Offloaded", "webClipURL": form] as [String: Any]],
+			] as [Any]))
+			let markers = layout.markers(scheme: scheme)
+			XCTAssertEqual(markers.map(\.number), [3], "\(type(of: form))")
+			XCTAssertEqual(markers.first?.byLink, true, "\(type(of: form))")
+		}
+	}
+
+	func testDescribesWhatIOSGivesForALinkAndAPage() throws {
+		let link = "\(scheme)://marker/1"
+		XCTAssertEqual(OffloadMarkers.described(link), "a string, with “\(link)”")
+		XCTAssertEqual(OffloadMarkers.described(nil), "nothing")
+		XCTAssertEqual(OffloadMarkers.described(["_CFURLString": link, "_CFURLStringType": 15] as [String: Any]), "a dictionary of _CFURLString, _CFURLStringType, with “\(link)”")
+		XCTAssertEqual(OffloadMarkers.described(Data(link.utf8)), "data, \(link.utf8.count) bytes, with “\(link)”")
+
+		let layout = try XCTUnwrap(HomeScreenLayout(iconState: [
+			[] as [Any],
+			["com.example.a", ["displayIdentifier": "W1", "displayName": "Offloaded"], ["displayIdentifier": "W2", "displayName": "Weather"], ["displayName": "Tools", "listType": "folder", "iconLists": [["com.example.b"]]]],
+		] as [Any]))
+		XCTAssertEqual(layout.described(page: 0, names: ["com.example.a": "Alpha"], markers: ["W1": 1]), "Alpha, Marker 1, Weather (W2), folder Tools")
+		XCTAssertEqual(layout.described(page: 1, names: [:]), "no page 2")
 	}
 
 	func testWithoutLinksMarkersAreNumberedInOrder() throws {

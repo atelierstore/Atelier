@@ -15,7 +15,8 @@ struct StandInApp: App {
 			Text("Opening Atelier…")
 				.foregroundStyle(.secondary)
 		}
-		.onChange(of: scenePhase) { _, phase in
+		// From the start too, as a cold launch may come up active already.
+		.onChange(of: scenePhase, initial: true) { _, phase in
 			guard phase == .active,
 			      let text = Bundle.main.object(forInfoDictionaryKey: "AtelierStandInLink") as? String,
 			      let url = URL(string: text)

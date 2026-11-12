@@ -81,6 +81,20 @@ final class OffloadMarkersTest {
 		var standIns: [String: String] = [:]
 		/// Where each stand-in is, in words, by its app's bundle ID.
 		var standInPlaces: [String: String] = [:]
+		/// The apps whose spot Offload kept empty before their stand-in
+		/// came, by bundle ID, to keep empty again once it goes.
+		var standInsHeld: Set<String> = []
+	}
+
+	/// The Home Screen as it was when Make Markers sent the profile, to put
+	/// back once the markers come (12 Nov 2026): a JSON `Before`.
+	static let beforeKey = "offloadMarkersTestBefore"
+
+	struct Before: Codable {
+		/// The layout, as getIconState gave it.
+		var plist: Data
+		/// The markers on the Home Screen then, which aren't new.
+		var markers: [String]
 	}
 
 	private(set) var state: State
@@ -88,6 +102,8 @@ final class OffloadMarkersTest {
 	private(set) var running: Step?
 	/// Shows the test's page over Atelier, when a marker opened it.
 	var showsFromLink = false
+	/// Whether it's looking for new markers.
+	@ObservationIgnored private var refreshing = false
 
 	init() {
 		state = UserDefaults.standard.data(forKey: Self.stateKey).flatMap { try? JSONDecoder().decode(State.self, from: $0) } ?? State()
@@ -109,6 +125,12 @@ final class OffloadMarkersTest {
 		guard running == nil else { return }
 		running = step
 		for (bundleID, app) in apps { state.names[bundleID] = app.name }
+		// Moving the markers ends the wait for new ones, which would put
+		// them out of sight.
+		if [.hide, .folder, .fill].contains(step) {
+			state.sent = nil
+			Self.before = nil
+		}
 		// A read and a write can take a while; a locked iPhone would stop them.
 		UIApplication.shared.isIdleTimerDisabled = true
 		Task {
@@ -153,11 +175,25 @@ final class OffloadMarkersTest {
 	// MARK: The steps
 
 	/// Hands iOS the profile with the markers, for you to approve in
-	/// Settings.
+	/// Settings, and keeps the Home Screen as it is, to put back once they
+	/// come.
 	private func make(_ installer: PairingInstaller) async throws -> String {
 		let bundleID = Bundle.main.bundleIdentifier ?? "com.atelier.app"
 		let profile = try OffloadMarkers.profile(count: Self.count, scheme: scheme, bundleID: bundleID, icon: Self.markerIcon())
-		log("profile: sending \(Self.count) markers opening \(scheme)://marker/…, \(ByteCountFormatter.string(fromByteCount: Int64(profile.count), countStyle: .file))")
+		do {
+			let screen = try await installer.homeScreen()
+			let gaps = YourGaps.gaps(installed: screen.apps)
+			let kept = gaps.held.sorted { $0.key < $1.key }.map { "\(name($0.key))’s at \(HomeScreenSpots.text($0.value))" }
+			log("read: before the markers, spots kept empty: \(kept.isEmpty ? "none" : kept.joined(separator: ", ")); your open spaces: \(YourGaps.summary(gaps.marked).lowercased())")
+			if let last = screen.layout.pages.indices.last {
+				log("read: before the markers, page \(last + 1): \(screen.layout.described(page: last, names: screen.names))")
+			}
+			Self.before = screen.plist.map { Before(plist: $0, markers: screen.layout.markers(scheme: scheme).map(\.id)) }
+		} catch {
+			Self.before = nil
+			log("read: couldn't read the Home Screen before the markers, so it can't be put back as it was: \(HomeScreenSpots.why(error))")
+		}
+		log("profile: sending \(Self.count) markers opening \(scheme)://marker/…, full screen, \(ByteCountFormatter.string(fromByteCount: Int64(profile.count), countStyle: .file))")
 		let requests: [OffloadMarkers.Request] = [.hello, .list, .install(profile)]
 		let answers = try await installer.profileRequests(requests)
 		for (request, answer) in zip(requests, answers) {
@@ -170,26 +206,120 @@ final class OffloadMarkersTest {
 		guard let install = answers.last, answers.count == requests.count else { return "iOS gave no answer to the profile." }
 		guard install.isAcknowledged else { return "iOS didn’t take the profile: \(install.error ?? "no reason given")." }
 		state.sent = .now
-		return "Sent at \(Self.time(.now)). Approve it in Settings › General › VPN & Device Management, then come back here, and Atelier looks for the markers."
+		return "Sent at \(Self.time(.now)). Approve it in Settings › General › VPN & Device Management, then come back here. Atelier puts the markers out of sight once they come, with your Home Screen as it was."
 	}
 
-	/// Once the profile is approved, finds its markers on the Home Screen.
-	/// Atelier looks when the page shows and when it comes back to the
-	/// front.
+	/// Once the profile is approved, finds its new markers on the Home
+	/// Screen, and puts them out of sight. Atelier looks when the page shows
+	/// and when it comes back to the front.
 	func refresh() async {
-		guard let sent = state.sent, running == nil else { return }
+		guard let sent = state.sent, running == nil, !refreshing else { return }
+		refreshing = true
+		defer { refreshing = false }
 		let installer = RouteASetup.shared.makeInstaller()
 		guard case .ready = await installer.check(startingVPN: false) else { return }
-		guard let screen = try? await installer.homeScreen() else { return }
-		let found = note(screen.layout)
+		guard var screen = try? await installer.homeScreen() else { return }
+		let before = Self.before
+		var found = newMarkers(in: screen.layout, before: before)
 		guard !found.isEmpty else {
 			log("read: no markers yet")
 			save()
 			return
 		}
+		// SpringBoard places them a moment apart.
+		var waited = 0
+		while found.count < Self.count, waited < 5 {
+			waited += 1
+			try? await Task.sleep(for: .seconds(1))
+			guard let again = try? await installer.homeScreen() else { break }
+			screen = again
+			found = newMarkers(in: screen.layout, before: before)
+		}
+		// A step that moves the markers ends the wait.
+		guard state.sent != nil, running == nil else { return }
 		state.sent = nil
-		state.results[Step.make.rawValue] = "\(found.count) \(found.count == 1 ? "marker" : "markers"), approved by \(Self.time(.now)), sent at \(Self.time(sent)). iOS put them \(Self.whereabouts(found))."
+		let line = "\(found.count) \(found.count == 1 ? "marker" : "markers"), approved by \(Self.time(.now)), sent at \(Self.time(sent)). iOS put them \(Self.whereabouts(found))."
+		state.results[Step.make.rawValue] = line
 		save()
+		let hidden = await hideNew(installer, screen: screen, found: found, before: before)
+		state.results[Step.make.rawValue] = "\(line) \(hidden)"
+		save()
+	}
+
+	/// The markers `layout` places that came with the profile just sent:
+	/// not on the Home Screen when it went, and not lent to an app's spot.
+	private func newMarkers(in layout: HomeScreenLayout, before: Before?) -> [OffloadMarker] {
+		let old = Set(before?.markers ?? []).union(state.lent.keys.compactMap { state.ids[$0] })
+		return note(layout).filter { !old.contains($0.id) }
+	}
+
+	/// Puts markers that just came out of sight, in the App Library's list,
+	/// with the Home Screen as it was before they came when no app came or
+	/// went meanwhile (12 Nov 2026): iOS puts new web clips in the first
+	/// free places on the last page, a spot Offload keeps empty or an open
+	/// space you marked included, and the write after took them as gone.
+	/// Says what it did, for Make Markers' result.
+	private func hideNew(_ installer: PairingInstaller, screen: HomeScreenState, found: [OffloadMarker], before: Before?) async -> String {
+		let numbers = Dictionary(found.map { ($0.id, $0.number) }, uniquingKeysWith: { first, _ in first })
+		for marker in found {
+			let link = OffloadMarkers.described(screen.layout.raw(of: marker.id)?.values["webClipURL"])
+			log("read: marker \(marker.number) at \(HomeScreenSpots.text(marker.spot)), \(marker.byLink ? "numbered by its link" : "numbered in order"); its webClipURL is \(link)")
+		}
+		for page in Set(found.compactMap { $0.spot?.page }).sorted() {
+			log("read: page \(page + 1) now: \(screen.layout.described(page: page, names: screen.names, markers: numbers))")
+		}
+		Self.before = nil
+		if ThisDevice.name == "iPhone", !GapsQuestion.isAnswered {
+			return "Mark the open spaces to keep in Settings › Open Spaces, then tap Hide Them in the App Library."
+		}
+		running = .hide
+		UIApplication.shared.isIdleTimerDisabled = true
+		defer {
+			UIApplication.shared.isIdleTimerDisabled = false
+			running = nil
+		}
+		returnLent()
+		let ids = Set(found.map(\.id)).union(state.ids.values).sorted()
+		var now = screen.layout
+		for id in ids { now = now.removing(id) }
+		var layout = now
+		var asBefore = false
+		if let before, var then = HomeScreenLayout(plist: before.plist) {
+			for id in Set(then.markers(scheme: scheme).map(\.id)).union(ids) { then = then.removing(id) }
+			if then.placedIDs == now.placedIDs, then.folderCount == now.folderCount, then.widgetCount == now.widgetCount {
+				let moved = now.differences(from: then, names: screen.names)
+				log("read: without the markers, \(moved.isEmpty ? "nothing moved since Make Markers" : "\(moved.count) moved since Make Markers: \(moved.prefix(HomeScreenSpots.differencesShown).joined(separator: "; "))")")
+				layout = then
+				asBefore = true
+			} else {
+				log("read: apps came or went since Make Markers, so the Home Screen stays as it is, without the markers")
+			}
+		} else {
+			log("read: no Home Screen kept from before the markers, so it stays as it is, without them")
+		}
+		let gaps = YourGaps.gaps(installed: screen.apps)
+		let appLibrary = layout.appLibrary(installed: screen.apps) + ids
+		log("write: \(asBefore ? "the Home Screen as it was before the markers" : "the Home Screen without the markers"), which go in the App Library's list, with \(appLibrary.count) there\(YourGaps.kept(layout, gaps))")
+		do {
+			let after = try await installer.writeHomeScreen(layout, appLibrary: appLibrary, gaps: gaps)
+			YourGaps.written(layout, gaps: gaps, names: screen.names) { self.log("write: \($0)") }
+			HomeScreenSpots.readBack(after, written: layout, names: screen.names) { self.log($0) }
+			state.hiddenIn = .appLibrary
+			let back = note(after)
+			guard back.isEmpty else {
+				return "Atelier wrote your Home Screen without them, but iOS kept \(back.count) on it, \(Self.whereabouts(back))."
+			}
+			return asBefore ? "Atelier put them out of sight, with your Home Screen as it was before they came." : "Atelier put them out of sight."
+		} catch {
+			log("write: failed: \(HomeScreenSpots.why(error))")
+			return "Atelier couldn’t put them out of sight: \(HomeScreenSpots.why(error)). Tap Hide Them in the App Library."
+		}
+	}
+
+	/// The Home Screen kept when Make Markers sent the profile.
+	private static var before: Before? {
+		get { UserDefaults.standard.data(forKey: beforeKey).flatMap { try? JSONDecoder().decode(Before.self, from: $0) } }
+		set { UserDefaults.standard.set(newValue.flatMap { try? JSONEncoder().encode($0) }, forKey: beforeKey) }
 	}
 
 	/// Writes the Home Screen without the markers, and puts them in the App
@@ -363,33 +493,64 @@ final class OffloadMarkersTest {
 		state.places = [:]
 		state.hiddenIn = nil
 		state.sent = nil
+		Self.before = nil
 		let left = (try? await installer.homeScreen()).map { note($0.layout) } ?? []
 		return left.isEmpty
 			? "Removed at \(Self.time(.now)). None left on the Home Screen."
 			: "Removed at \(Self.time(.now)), but \(left.count) still on the Home Screen, \(Self.whereabouts(left))."
 	}
 
-	/// Installs a stand-in in each spot Offload keeps empty for an app that
-	/// isn't a free Apple ID's, signed with the certificate the app was,
-	/// as Offload would.
+	/// Installs a stand-in in the spot of each offloaded app that isn't a
+	/// free Apple ID's, signed with the certificate the app was, as Offload
+	/// would: a spot Offload keeps empty, or one nothing came into since
+	/// the app left it, as Offload keeps none at the end of a page
+	/// (12 Nov 2026). Says why it made none for each other one.
 	private func makeStandIns(_ installer: PairingInstaller, apps: [String: App]) async throws -> String {
 		guard let package = Bundle.main.url(forResource: "StandIn", withExtension: "ipa") else {
 			return "This build of Atelier has no stand-in app."
 		}
 		let screen = try await installer.homeScreen()
 		let held = HomeScreenSpots.heldGaps(installed: screen.apps)
-		let waiting = held
-			.filter { apps[$0.key].map { !$0.isFreeAppleID } == true && state.standIns[$0.key] == nil }
-			.sorted { name($0.key).lowercased() < name($1.key).lowercased() }
-		log("stand-ins: \(held.count) spots kept empty, \(waiting.count) of them other apps’ without a stand-in")
-		guard !waiting.isEmpty else {
-			return held.isEmpty
-				? "No spot is kept empty: offload an app that isn’t a free Apple ID’s first, with Keep apps’ spots on."
-				: "No other app’s spot is kept empty without a stand-in. The ones kept are free Apple ID apps’, for markers."
-		}
-		var made: [(bundleID: String, standIn: String, spot: HomeScreenSpot)] = []
+		let away = HomeScreenSpots.away(installed: screen.apps).sorted { name($0.key).lowercased() < name($1.key).lowercased() }
+		var waiting: [(bundleID: String, spot: HomeScreenSpot, held: Bool)] = []
 		var notMade: [String] = []
-		for (bundleID, spot) in waiting {
+		for (bundleID, noted) in away {
+			let why: String
+			if state.standIns[bundleID] != nil {
+				why = "it has one already"
+			} else if apps[bundleID] == nil {
+				why = "Atelier has no record of installing it"
+			} else if apps[bundleID]?.isFreeAppleID == true {
+				why = "a free Apple ID signed it, so it gets a marker"
+			} else if let spot = held[bundleID] {
+				log("stand-ins: \(name(bundleID)): its spot at \(HomeScreenSpots.text(spot)) is kept empty")
+				waiting.append((bundleID, spot, true))
+				continue
+			} else if let spot = noted.spot {
+				switch screen.layout.taken(spot) {
+				case let taken? where taken.isEmpty:
+					log("stand-ins: \(name(bundleID)): its spot at \(HomeScreenSpots.text(spot)) isn’t kept empty, and nothing came into it")
+					waiting.append((bundleID, spot, false))
+					continue
+				case let taken?:
+					why = "\(YourGaps.names(taken, screen.names)) came into its spot at \(HomeScreenSpots.text(spot))"
+				case nil:
+					why = "the icons around its spot at \(HomeScreenSpots.text(spot)) aren’t there now"
+				}
+			} else {
+				why = "it was only in the App Library"
+			}
+			log("stand-ins: \(name(bundleID)): none, as \(why)")
+			notMade.append("None for \(name(bundleID)), as \(why)")
+		}
+		log("stand-ins: \(away.count) \(away.count == 1 ? "app" : "apps") offloaded, \(waiting.count) to make")
+		guard !waiting.isEmpty else {
+			return away.isEmpty
+				? "No app is offloaded: offload one that isn’t a free Apple ID’s first."
+				: notMade.joined(separator: ". ") + "."
+		}
+		var made: [(bundleID: String, standIn: String, spot: HomeScreenSpot, held: Bool)] = []
+		for (bundleID, spot, wasHeld) in waiting {
 			let app = apps[bundleID]
 			guard let certificateID = app?.certificateID else {
 				log("stand-ins: \(name(bundleID)): Atelier doesn’t know what signed it")
@@ -418,7 +579,7 @@ final class OffloadMarkersTest {
 				}
 				log("stand-ins: \(name(bundleID)): installed, \(result == .unconfirmed ? "unconfirmed" : "confirmed")")
 				state.standIns[bundleID] = standIn
-				made.append((bundleID, standIn, spot))
+				made.append((bundleID, standIn, spot, wasHeld))
 			} catch {
 				log("stand-ins: \(name(bundleID)): failed: \(HomeScreenSpots.why(error))")
 				notMade.append("None for \(name(bundleID)): \(HomeScreenSpots.why(error))")
@@ -428,16 +589,36 @@ final class OffloadMarkersTest {
 		guard !made.isEmpty else { return notMade.joined(separator: ". ") + "." }
 		// SpringBoard places a new app a moment after installd has it, or
 		// never, when new apps go to the App Library only.
+		let standIns = Set(made.map(\.standIn))
 		var screenNow = try await installer.homeScreen()
 		var waited = 0
-		while waited < 5, !made.allSatisfy({ screenNow.layout.placedIDs.contains($0.standIn) }) {
+		while waited < 5, !standIns.isSubset(of: screenNow.layout.placedIDs) {
 			waited += 1
 			try await Task.sleep(for: .seconds(1))
 			screenNow = try await installer.homeScreen()
 		}
-		let unplaced = made.filter { !screenNow.layout.placedIDs.contains($0.standIn) }.map(\.standIn)
+		let unplaced = standIns.subtracting(screenNow.layout.placedIDs).sorted()
 		log("read: after \(waited) s, \(unplaced.isEmpty ? "iOS has put every stand-in on the Home Screen" : "not on the Home Screen yet: \(unplaced.joined(separator: ", "))")")
+		let placedNow = made.compactMap { screenNow.layout.spot(of: $0.standIn)?.page }
+		for page in Set(placedNow).sorted() {
+			log("read: page \(page + 1) now: \(screenNow.layout.described(page: page, names: screenNow.names))")
+		}
+		// iOS puts a new app in the first free place on the last page, a
+		// spot kept empty or an open space included, so the stand-ins go
+		// into the Home Screen as it was before they came, when no other
+		// app came or went meanwhile.
 		var layout = screenNow.layout
+		var then = screen.layout
+		for standIn in standIns { then = then.removing(standIn) }
+		var others = screenNow.layout
+		for standIn in standIns { others = others.removing(standIn) }
+		if then.placedIDs == others.placedIDs, then.folderCount == others.folderCount, then.widgetCount == others.widgetCount {
+			let moved = others.differences(from: then, names: screenNow.names)
+			log("read: besides the stand-ins, \(moved.isEmpty ? "nothing moved" : "\(moved.count) moved: \(moved.prefix(HomeScreenSpots.differencesShown).joined(separator: "; "))")")
+			layout = then
+		} else {
+			log("read: other apps came or went meanwhile, so the stand-ins go into the Home Screen as it is")
+		}
 		var gaps = YourGaps.gaps(installed: screenNow.apps)
 		for standIn in made {
 			log("write: \(name(standIn.bundleID))’s stand-in in its spot, \(HomeScreenSpots.text(standIn.spot))")
@@ -446,11 +627,13 @@ final class OffloadMarkersTest {
 		}
 		let after = try await installer.writeHomeScreen(layout, appLibrary: appLibrary(layout, installed: screenNow.apps), gaps: gaps)
 		YourGaps.written(layout, gaps: gaps, names: screenNow.names) { self.log("write: \($0)") }
+		HomeScreenSpots.readBack(after, written: layout, names: screenNow.names) { self.log($0) }
 		var lines: [String] = []
 		for standIn in made {
 			// The stand-in holds the spot now, so writes stop keeping it
 			// empty until Remove Stand-ins.
 			HomeScreenSpots.release(standIn.bundleID)
+			if standIn.held { state.standInsHeld.insert(standIn.bundleID) }
 			let now = after.spot(of: standIn.standIn)
 			let asWritten = now?.description == layout.spot(of: standIn.standIn)?.description
 			state.standInPlaces[standIn.bundleID] = HomeScreenSpots.text(now)
@@ -461,14 +644,15 @@ final class OffloadMarkersTest {
 		return (lines + notMade).joined(separator: ". ") + "."
 	}
 
-	/// Deletes the stand-ins, and has writes keep their apps' spots empty
-	/// again, as Reinstall would before putting the apps back.
+	/// Deletes the stand-ins, and has writes keep empty again the spots
+	/// Offload kept empty before them, as Reinstall would before putting the
+	/// apps back.
 	private func removeStandIns(_ installer: PairingInstaller) async throws -> String {
 		guard !state.standIns.isEmpty else { return "No stand-in to remove." }
 		var removed: [String] = []
+		var keptAgain = 0
 		var left: [String] = []
 		for (bundleID, standIn) in state.standIns.sorted(by: { $0.key < $1.key }) {
-			HomeScreenSpots.hold(again: bundleID)
 			do {
 				if await installer.isInstalled(standIn) == false {
 					log("stand-ins: \(standIn) was gone already")
@@ -476,30 +660,41 @@ final class OffloadMarkersTest {
 					try await installer.uninstall(standIn)
 					log("stand-ins: deleted \(standIn)")
 				}
+				if state.standInsHeld.contains(bundleID) {
+					HomeScreenSpots.hold(again: bundleID)
+					keptAgain += 1
+				}
 				state.standIns[bundleID] = nil
 				state.standInPlaces[bundleID] = nil
+				state.standInsHeld.remove(bundleID)
 				removed.append(standIn)
 			} catch {
-				HomeScreenSpots.release(bundleID)
 				log("stand-ins: couldn't delete \(standIn): \(HomeScreenSpots.why(error))")
 				left.append("\(name(bundleID))’s couldn’t be deleted: \(HomeScreenSpots.why(error))")
 			}
 		}
 		save()
 		guard !removed.isEmpty else { return left.joined(separator: ". ") + "." }
-		// Their spots, empty again, as Offload left them.
+		// Their spots, empty again where Offload left them so.
 		let screen = try await installer.homeScreen()
 		var layout = screen.layout
 		for standIn in removed { layout = layout.removing(standIn) }
-		let gaps = YourGaps.gaps(installed: screen.apps.filter { !removed.contains($0.bundleID) })
-		log("write: \(removed.count) \(removed.count == 1 ? "spot" : "spots") kept empty again")
-		let after = try await installer.writeHomeScreen(layout, appLibrary: appLibrary(layout, installed: screen.apps.filter { !removed.contains($0.bundleID) }), gaps: gaps)
+		let installed = screen.apps.filter { !removed.contains($0.bundleID) }
+		let gaps = YourGaps.gaps(installed: installed)
+		log("write: without \(removed.count) \(removed.count == 1 ? "stand-in" : "stand-ins"), \(keptAgain) \(keptAgain == 1 ? "spot" : "spots") kept empty again")
+		let after = try await installer.writeHomeScreen(layout, appLibrary: appLibrary(layout, installed: installed), gaps: gaps)
 		YourGaps.written(layout, gaps: gaps, names: screen.names) { self.log("write: \($0)") }
 		note(after)
 		let still = removed.filter { after.placedIDs.contains($0) }
 		if !still.isEmpty { log("read back: still on the Home Screen: \(still.joined(separator: ", "))") }
 		let deleted = state.standIns.isEmpty ? "All deleted" : "\(removed.count) deleted"
-		return (["\(deleted), and their spots kept empty again"] + left).joined(separator: ". ") + "."
+		let spots: String
+		switch keptAgain {
+		case 0: spots = ""
+		case removed.count: spots = removed.count == 1 ? ", and its spot is kept empty again" : ", and their spots are kept empty again"
+		default: spots = ", and \(keptAgain) of their spots are kept empty again"
+		}
+		return (["\(deleted)\(spots)"] + left).joined(separator: ". ") + "."
 	}
 
 	// MARK: A tap on a marker
@@ -669,6 +864,7 @@ extension OffloadMarkersTest.State {
 		log = try values.decodeIfPresent([String].self, forKey: .log) ?? []
 		standIns = try values.decodeIfPresent([String: String].self, forKey: .standIns) ?? [:]
 		standInPlaces = try values.decodeIfPresent([String: String].self, forKey: .standInPlaces) ?? [:]
+		standInsHeld = try values.decodeIfPresent(Set<String>.self, forKey: .standInsHeld) ?? []
 	}
 }
 
