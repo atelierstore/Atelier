@@ -52,6 +52,10 @@ final class SelfUpdate {
 	let identity: SignedAppIdentity?
 	/// The profile it was installed with.
 	let installedProfile: ProvisioningProfile?
+	/// The certificate this build was signed with, and the App Groups it
+	/// asks for (#152): another tool's certificate when that tool installed
+	/// it, which each new profile from its Apple ID has to list.
+	let signature: AppSignature
 	/// Its icon as a file, as rows and the install bar load icons by URL: its
 	/// row's until its source was read.
 	let iconURL: URL?
@@ -81,6 +85,7 @@ final class SelfUpdate {
 		copyMarker = CopyMarker(bundle: bundle)
 		identity = SignedAppIdentity.read(app: bundle.bundleURL, originalBundleID: Self.sourceBundleID)
 		installedProfile = (try? Data(contentsOf: Self.installedProfileURL)).flatMap { try? ProvisioningProfile(data: $0) }
+		signature = AppSignature.read(app: bundle.bundleURL, profile: installedProfile)
 		iconURL = Self.writeIcon(build: build)
 	}
 
@@ -176,6 +181,110 @@ final class SelfUpdate {
 		}
 	}
 
+	// MARK: One of an Apple ID's apps (#152)
+
+	/// What Atelier was installed with, as far as its own profile and the
+	/// Apple IDs signed in tell (`OwnAppleID`). An imported certificate its
+	/// profile is, or lists, signs it as before (#24), unless the profile is
+	/// a free Apple ID's, which only the Apple ID renews.
+	func installedWith(_ certificates: CertificatesModel) -> OwnAppleID.Installed {
+		let found = OwnAppleID.installed(
+			applicationIdentifier: identity?.applicationIdentifier,
+			bundleID: bundleID,
+			profile: installedProfile,
+			accounts: certificates.appleIDs
+		)
+		let isFree = installedProfile.map(FreeAppleID.isFree) ?? false
+		if !isFree, installedCertificate(in: certificates) != nil { return .other }
+		return found
+	}
+
+	/// The Apple ID Atelier is one of the apps of: the one that installed
+	/// it, signed in here. It renews Atelier's own profile with its other
+	/// apps', and signs Atelier's updates.
+	func appleID(in certificates: CertificatesModel) -> StoredAppleID? {
+		guard case .appleID(let id) = installedWith(certificates) else { return nil }
+		return certificates.appleID(id)
+	}
+
+	/// A free Apple ID installed Atelier, and isn't signed in here: until it
+	/// is, nothing renews Atelier's own profile, which ends at `expires`, as
+	/// the build says it; nil once that date has passed with Atelier still
+	/// opening, as another tool put a later profile on, which Atelier can't
+	/// read from here.
+	func needsAppleID(in certificates: CertificatesModel) -> (expires: Date?, hasOthers: Bool)? {
+		guard case .freeAppleID(_, let expires) = installedWith(certificates) else { return nil }
+		let ends: Date? = expires > .now ? expires : nil
+		return (ends, !certificates.appleIDs.isEmpty)
+	}
+
+	/// What signs Atelier's own install: an imported certificate, or its
+	/// Apple ID.
+	enum Signer {
+		case certificate(OwnAppSigning.Choice)
+		case appleID(StoredAppleID)
+
+		var id: UUID {
+			switch self {
+			case .certificate(let choice): choice.certificateID
+			case .appleID(let account): account.id
+			}
+		}
+	}
+
+	/// What Atelier signs itself with: `picked` when it's given, as by
+	/// Custom Install…, Re-sign or Renew; else its Apple ID when it's one of
+	/// its apps, then a certificate as before (`signing`). Nil when nothing
+	/// signs for Atelier's App ID.
+	func signer(picked: UUID?, resigning: Bool, certificates: CertificatesModel, context: ModelContext) -> Signer? {
+		let own = appleID(in: certificates)
+		if let picked, let account = certificates.appleID(picked) {
+			// Another Apple ID's team can't sign for Atelier's App ID.
+			return own?.id == account.id ? .appleID(account) : nil
+		}
+		if picked == nil, let own, CertificatesModel.canSign(with: own) { return .appleID(own) }
+		if let choice = signing(picked: picked, resigning: resigning, certificates: certificates, context: context) {
+			return .certificate(choice)
+		}
+		// Its Apple ID's certificate was revoked or ended: the install says
+		// so, and to sign in again, as for its other apps.
+		if picked == nil, let own { return .appleID(own) }
+		return nil
+	}
+
+	/// Whether Atelier can update itself: something signs for its App ID.
+	func canSignItself(certificates: CertificatesModel, context: ModelContext) -> Bool {
+		signer(picked: nil, resigning: false, certificates: certificates, context: context) != nil
+	}
+
+	/// Keeps Atelier's own profile with the Apple ID it's an app of, from
+	/// the build that runs (`OwnAppleID.profile`), so it renews with the
+	/// Apple ID's other apps, and counts among a free one's 3 places on this
+	/// iPhone, which it holds as it runs. At each launch, and once an Apple
+	/// ID signs in.
+	func syncAppleID(certificates: CertificatesModel) {
+		guard let account = appleID(in: certificates), let installedProfile else { return }
+		let noted = account.profile(for: bundleID)
+		let profile = OwnAppleID.profile(
+			bundleID: bundleID,
+			installed: installedProfile,
+			signerSerial: signature.certificate?.serialNumber,
+			appGroups: signature.appGroups,
+			noted: noted
+		)
+		let places = account.limits?.apps
+		let counts = !account.isFree || places == nil || places?.apps.contains { $0.bundleID == bundleID } == true
+		guard profile != noted || !counts else { return }
+		let app = FreeApp(bundleID: bundleID, name: name, teamID: account.team.id)
+		certificates.updateAppleID(account.id) { stored in
+			stored.note(profile)
+			if !counts, let places = stored.limits?.apps {
+				stored.limits?.apps = AppleIDLimits.Apps(checkedAt: places.checkedAt, apps: places.apps + [app])
+			}
+		}
+		if profile.uuid != noted?.uuid { ProfileRenewals.shared.installed(bundleID) }
+	}
+
 	// MARK: Its Library entry
 
 	/// Once per launch, with the store: how the install of itself that
@@ -262,11 +371,18 @@ final class SelfUpdate {
 			record.certificateID = installed.certificateID
 			record.limits = installed.limits
 			record.permissions = installed.permissions
+		}
+		if let account = appleID(in: certificates) {
+			// One of this Apple ID's apps (#152), whichever tool installed it.
+			if record.certificateID != account.id { record.certificateID = account.id }
+		} else if installed != nil {
+			// As it noted when it signed itself.
 		} else if !isInstalledWith(record.certificateID, certificates: certificates) {
 			let found = installedCertificate(in: certificates)
 			if record.certificateID != found { record.certificateID = found }
 		}
 		if context.hasChanges { try? context.save() }
+		syncAppleID(certificates: certificates)
 	}
 
 	/// Whether `id` is a certificate Atelier's profile is, or lists. With

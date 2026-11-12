@@ -73,11 +73,11 @@ final class CheckupModel {
 			setup = .checking
 		}
 		let own = SelfUpdate.shared
-		// An Apple ID signs apps for App IDs of its own, never Atelier's
-		// (#49), so with only Apple IDs, none signs Atelier.
+		// An Apple ID signs apps for App IDs of its own, so not Atelier's,
+		// unless it's the one that installed Atelier (#49, #152).
 		let canUpdateAtelier = certificates.certificates.isEmpty && certificates.appleIDs.isEmpty
 			? nil
-			: own.signing(picked: nil, resigning: false, certificates: certificates, context: context) != nil
+			: own.canSignItself(certificates: certificates, context: context)
 		return CheckupFacts(
 			certificate: certificates.defaultCertificate,
 			appleID: certificates.defaultAppleID,

@@ -103,6 +103,39 @@ enum MachO {
 		}
 	}
 
+	/// The CMS signature the first slice carries, which holds the
+	/// certificate it was signed with (#152); nil when it has none, as an
+	/// ad hoc signature. Slices of one binary are signed with the same
+	/// certificate.
+	static func cmsSignature(_ url: URL) throws -> Data? {
+		try withReader(url) { reader in
+			guard let slice = try slices(reader)?.first, let signature = slice.codeSignature else { return nil }
+			let base = slice.offset + UInt64(signature.offset)
+			guard let header = try reader.read(at: base, count: 12),
+			      header.count == 12,
+			      header.uint32(at: 0, bigEndian: true) == superBlobMagic
+			else { return nil }
+			let count = Int(header.uint32(at: 8, bigEndian: true))
+			guard count < 64, let index = try reader.read(at: base + 12, count: count * 8), index.count == count * 8 else { return nil }
+			for entry in stride(from: 0, to: index.count, by: 8) where index.uint32(at: entry, bigEndian: true) == cmsSlot {
+				let offset = UInt64(index.uint32(at: entry + 4, bigEndian: true))
+				guard offset + 8 <= UInt64(signature.size),
+				      let wrapper = try reader.read(at: base + offset, count: 8),
+				      wrapper.count == 8,
+				      wrapper.uint32(at: 0, bigEndian: true) == blobWrapperMagic
+				else { return nil }
+				let length = UInt64(wrapper.uint32(at: 4, bigEndian: true))
+				// A signature with Apple's certificates is a few kilobytes.
+				guard length > 8, offset + length <= UInt64(signature.size), length <= 1 << 20,
+				      let cms = try reader.read(at: base + offset + 8, count: Int(length - 8)),
+				      cms.count == Int(length - 8)
+				else { return nil }
+				return Data(cms)
+			}
+			return nil
+		}
+	}
+
 	private static func withReader<T>(_ url: URL, _ body: (Reader) throws -> T) throws -> T {
 		let handle = try FileHandle(forReadingFrom: url)
 		defer { try? handle.close() }

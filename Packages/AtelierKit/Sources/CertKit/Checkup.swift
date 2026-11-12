@@ -236,7 +236,9 @@ extension Checkup {
 		guard let certificate = facts.certificate else {
 			if let account = facts.appleID { return appleID(account, facts) }
 			let hint = facts.ownProfile.map { profile in
-				profile.teamName.map { "Atelier itself was installed with one from \($0). Import that one, and Atelier can update itself too." }
+				// A free Apple ID's certificate can't be imported (#152).
+				if FreeAppleID.isFree(profile) { return "A free Apple ID installed Atelier itself. Sign in with it, and Atelier renews and updates itself too." }
+				return profile.teamName.map { "Atelier itself was installed with one from \($0). Import that one, and Atelier can update itself too." }
 					?? "Import the certificate Atelier itself was installed with, and it can update itself too."
 			}
 			return Item(
@@ -339,6 +341,15 @@ extension Checkup {
 
 	private static func ownUpdates(_ facts: CheckupFacts) -> Item? {
 		guard facts.certificate != nil || facts.appleID != nil, facts.canUpdateAtelier == false else { return nil }
+		// A free Apple ID installed it, which only signing in with it
+		// fixes (#152).
+		if let own = facts.ownProfile, FreeAppleID.isFree(own) {
+			return Item(
+				kind: .ownUpdates, state: .warning, title: "Atelier can't update itself",
+				text: "A free Apple ID installed Atelier, and it isn't signed in here. Sign in with it, and Atelier renews and updates itself.",
+				actions: [.signInWithAppleID], summary: "Can't update Atelier"
+			)
+		}
 		let which = facts.ownProfile?.teamName.map { "Import the one from \($0) that Atelier was installed with." }
 			?? "Import the one Atelier was installed with."
 		return Item(

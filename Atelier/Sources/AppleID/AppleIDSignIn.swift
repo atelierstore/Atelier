@@ -206,10 +206,18 @@ final class AppleIDSignIn {
 		let access = AppleIDAccess.shared
 		access.keep(signedIn.session, for: account)
 		let saved = certificates.appleID(id) ?? account
+		// Atelier itself becomes one of its apps when it's the Apple ID that
+		// installed it (#152), signed with the certificate of the tool that
+		// did.
+		if let context = AutoUpdates.container?.mainContext {
+			SelfUpdate.shared.syncRecord(in: context, certificates: certificates)
+		}
 		Task {
 			await access.checkLimits(of: saved, using: signedIn.session, startingVPN: false)
 			// Its apps signed with a certificate it no longer has, as after
-			// Apple revoked it, are renewed or signed again.
+			// Apple revoked it, are renewed or signed again: Atelier itself
+			// too, which then tells whether a new profile lists the
+			// certificate it was installed with.
 			await ProfileRenewals.shared.renewAfterSignIn(certificates.appleID(id) ?? saved)
 		}
 		return Done(account: account, inUse: inUse, otherInUse: inUse ? nil : otherInUse)

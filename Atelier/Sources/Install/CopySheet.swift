@@ -464,15 +464,17 @@ struct CopySheet: View {
 	// MARK: Certificates
 
 	/// The certificates and Apple IDs for the one picked, in order (#49):
-	/// those that sign it, for Atelier itself only certificates for its App
-	/// ID, then the rest, which it can't sign itself with (#24), as an
-	/// Apple ID would sign it as another bundle ID; for any other app
-	/// installed, those that need a reinstall last (#76).
+	/// those that sign it, for Atelier itself only those for its App ID,
+	/// certificates and the Apple ID it's one of the apps of (#152), then
+	/// the rest, which it can't sign itself with (#24), as another Apple ID
+	/// would sign it as another bundle ID; for any other app installed,
+	/// those that need a reinstall last (#76).
 	private var certificateGroups: (signing: [SigningChoice], otherAppID: [SigningChoice], reinstall: [SigningChoice]) {
 		let all = Self.ordered(certificates, installedWith: over?.certificateID)
 		guard let over else { return (all, [], []) }
 		if SelfUpdate.shared.isOwn(over) {
-			return (all.filter(Self.signsAtelier), all.filter { !Self.signsAtelier($0) }, [])
+			let signs = { Self.signsAtelier($0, certificates: certificates) }
+			return (all.filter(signs), all.filter { !signs($0) }, [])
 		}
 		return (all.filter { !needsReinstall(over, $0.id) }, [], all.filter { needsReinstall(over, $0.id) })
 	}
@@ -689,12 +691,12 @@ struct CopySheet: View {
 	/// The certificate or Apple ID picked to start with: for an app
 	/// installed, the one it was installed with while it can sign, else one
 	/// that signs it without a reinstall, the default first, for Atelier
-	/// itself a certificate for its App ID (#24); for New Copy, the default;
+	/// itself one for its App ID (#24, #152); for New Copy, the default;
 	/// else any that can sign.
 	private static func startingCertificate(for over: InstallRecord?, certificates: CertificatesModel, needsReinstall: (InstallRecord, UUID) -> Bool) -> UUID? {
 		let usable = ordered(certificates, installedWith: over?.certificateID).filter(canSign)
 		guard let over else { return usable.first?.id }
-		if SelfUpdate.shared.isOwn(over) { return usable.first(where: signsAtelier)?.id }
+		if SelfUpdate.shared.isOwn(over) { return usable.first { signsAtelier($0, certificates: certificates) }?.id }
 		return (usable.first { !needsReinstall(over, $0.id) } ?? usable.first)?.id
 	}
 
@@ -717,11 +719,14 @@ struct CopySheet: View {
 	}
 
 	/// Signs Atelier itself as it runs (#24): a certificate for the App ID
-	/// it was installed with, never an Apple ID, which would sign it as
-	/// another bundle ID (#49).
-	private static func signsAtelier(_ certificate: SigningChoice) -> Bool {
-		guard case .certificate(let certificate) = certificate else { return false }
-		return SelfUpdate.shared.signs(with: certificate)
+	/// it was installed with, or the Apple ID it's one of the apps of, which
+	/// signs its updates too (#152). Never another Apple ID, which would
+	/// sign it as another bundle ID (#49).
+	private static func signsAtelier(_ choice: SigningChoice, certificates: CertificatesModel) -> Bool {
+		switch choice {
+		case .certificate(let certificate): SelfUpdate.shared.signs(with: certificate)
+		case .appleID(let account): SelfUpdate.shared.appleID(in: certificates)?.id == account.id
+		}
 	}
 
 	/// Its icon as the Home Screen shows it: Atelier's as it runs (#24), else

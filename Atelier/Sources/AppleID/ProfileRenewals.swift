@@ -20,6 +20,11 @@ import UIKit
 /// is gone, the app is signed again and reinstalled, keeping its data: in
 /// the background only with automatic updates on. Atelier tells only when
 /// renewing needs the user (`RenewalNotifications`).
+///
+/// Atelier itself is one of these apps when the Apple ID that installed it
+/// is signed in (#152, `OwnAppleID`): it renews first, and four days ahead
+/// rather than two, as once its own profile has ended it can't open to
+/// renew anything. Signing it again closes it, so only Renew does that.
 @MainActor
 @Observable
 final class ProfileRenewals {
@@ -52,6 +57,12 @@ final class ProfileRenewals {
 			case .signAgain: "Renew signs it again and reinstalls it, keeping its data: a new profile alone won’t do, as the certificate it was signed with is gone."
 			case .failed(let why): why
 			}
+		}
+
+		/// The same under Atelier itself (#152), which installs over itself.
+		@MainActor func message(isOwn: Bool) -> String {
+			guard isOwn, self == .signAgain else { return message }
+			return "Renew signs \(SelfUpdate.shared.name) again and installs it over itself, so it asks you to go to the Home Screen: a new profile alone won’t do."
 		}
 
 		/// LocalDevVPN was off, or iOS didn't answer, which the Library's
@@ -119,19 +130,21 @@ final class ProfileRenewals {
 		defer { isBusy = false }
 		if trigger == .opened {
 			AutoUpdates.applyProtection()
-			// For the notifications when a renewal needs the user, asked once.
-			if CertificatesModel.shared.appleIDs.contains(where: { !($0.profiles ?? []).isEmpty }) {
+			// For the notifications when a renewal needs the user, asked once:
+			// also for Atelier itself, while the free Apple ID that installed
+			// it isn't signed in (#152).
+			if CertificatesModel.shared.appleIDs.contains(where: { !($0.profiles ?? []).isEmpty }) || SelfUpdate.shared.needsAppleID(in: .shared) != nil {
 				Task { await CertificateNotifications.requestAuthorization() }
 			}
 		}
-		for account in CertificatesModel.shared.appleIDs {
+		for account in accountsInOrder() {
 			// Every app of one whose certificate Apple revoked, or that ended,
 			// stopped opening: it has to sign in again.
 			if AppProfileRenewal.needsSignIn(account) {
 				mark(apps(of: account, in: Set((account.profiles ?? []).map(\.bundleID)), context: context), .signInAgain)
 				continue
 			}
-			let due = Set(account.profilesToRenew().map(\.bundleID))
+			let due = Set(account.profilesToRenew(own: ownBundleID(of: account)).map(\.bundleID))
 			let targets = apps(of: account, in: due, context: context)
 			guard !targets.isEmpty else { continue }
 			if !AppleIDAccess.shared.hasSession(for: account) {
@@ -153,7 +166,7 @@ final class ProfileRenewals {
 		await waitForTurn()
 		isBusy = true
 		defer { isBusy = false }
-		for account in CertificatesModel.shared.appleIDs {
+		for account in accountsInOrder() {
 			let targets = apps(of: account, in: Set(bundleIDs), context: context)
 			guard !targets.isEmpty else { continue }
 			await run(targets, of: account, trigger: .user, context: context)
@@ -186,15 +199,33 @@ final class ProfileRenewals {
 	/// Nov 2026). One Atelier is renewing stays in its section until it's
 	/// done.
 	func inRenewSection(_ item: LibraryItem, now: Date = .now) -> Bool {
+		// Atelier itself, from its first day, until the free Apple ID that
+		// installed it signs in (#152, decided 11 Nov 2026).
+		if item.needsAppleID != nil { return true }
 		guard canRenew(item), let account = item.appleID, let profile = item.appProfile else { return false }
-		guard AppProfileRenewal.isDue(profile, isFree: account.isFree, now: now) || profile.expires <= now else { return false }
+		guard AppProfileRenewal.isDue(profile, isFree: account.isFree, isOwn: item.isOwn, now: now) || profile.expires <= now else { return false }
 		return problems[item.install.bundleID] != nil || profile.expires <= now
 	}
 
 	/// When Atelier renews the app by itself: two days before its profile
-	/// ends, or once its App ID ended, when it waits for that.
-	nonisolated static func date(toRenew profile: AppProfile, of account: StoredAppleID) -> Date {
-		max(AppProfileRenewal.date(toRenew: profile, isFree: account.isFree), profile.waitsUntil ?? .distantPast)
+	/// ends, four for Atelier's own (`isOwn`, #152), or once its App ID
+	/// ended, when it waits for that.
+	nonisolated static func date(toRenew profile: AppProfile, of account: StoredAppleID, isOwn: Bool = false) -> Date {
+		max(AppProfileRenewal.date(toRenew: profile, isFree: account.isFree, isOwn: isOwn), profile.waitsUntil ?? .distantPast)
+	}
+
+	/// The Apple IDs, the one Atelier itself is an app of first (#152): its
+	/// own profile renews before any other app's.
+	private func accountsInOrder() -> [StoredAppleID] {
+		let all = CertificatesModel.shared.appleIDs
+		guard let own = SelfUpdate.shared.appleID(in: .shared)?.id else { return all }
+		return all.filter { $0.id == own } + all.filter { $0.id != own }
+	}
+
+	/// The bundle ID Atelier runs as, when it's one of `account`'s apps.
+	private func ownBundleID(of account: StoredAppleID) -> String? {
+		let own = SelfUpdate.shared
+		return own.appleID(in: .shared)?.id == account.id ? own.bundleID : nil
 	}
 
 	/// Once the Library is left, its rows no longer say Renewed.
@@ -221,15 +252,22 @@ final class ProfileRenewals {
 		let profile: AppProfile
 		var bundleID: String { profile.bundleID }
 		var name: String { record.name }
+		/// Atelier itself (#152).
+		@MainActor var isOwn: Bool { profile.bundleID == SelfUpdate.shared.bundleID }
 	}
 
 	/// The Apple ID's apps among `bundleIDs` that Atelier installed with it
 	/// and are still here: not deleted from the Home Screen or offloaded.
-	/// The one whose profile ends first comes first.
+	/// Atelier itself comes first (#152), then the one whose profile ends
+	/// first.
 	private func apps(of account: StoredAppleID, in bundleIDs: Set<String>, context: ModelContext) -> [Target] {
-		(account.profiles ?? [])
+		let own = SelfUpdate.shared.bundleID
+		return (account.profiles ?? [])
 			.filter { bundleIDs.contains($0.bundleID) }
-			.sorted { $0.expires < $1.expires }
+			.sorted { first, second in
+				let isOwn = first.bundleID == own
+				return isOwn != (second.bundleID == own) ? isOwn : first.expires < second.expires
+			}
 			.compactMap { profile in
 				guard let record = InstalledApps.record(profile.bundleID, in: context), record.certificateID == account.id,
 				      InstallModel.presence(of: record) != .deleted, InstallModel.shared.disabledApps[profile.bundleID] == nil
@@ -269,9 +307,10 @@ final class ProfileRenewals {
 			AppleIDLog.note("renewal: \(target.name) isn't on this \(ThisDevice.name), so it's left")
 			problems[target.bundleID] = nil
 		}
-		let here = targets.filter { listed.contains($0.bundleID) }
+		var here = targets.filter { listed.contains($0.bundleID) }
 		guard !here.isEmpty else { return }
 		let installed = read.profiles.compactMap { try? ProvisioningProfile(data: $0) }
+		here = here.map { $0.isOwn ? ownTarget($0, of: account, installed: installed) : $0 }
 
 		let session: AppleIDSession
 		do {
@@ -411,11 +450,29 @@ final class ProfileRenewals {
 		return .newProfile
 	}
 
+	/// Atelier's own profile as iOS has it (#152): another tool may have
+	/// put a later one on than the build or the last renewal says, as
+	/// AltStore's refresh does, which only the iPhone's list tells.
+	private func ownTarget(_ target: Target, of account: StoredAppleID, installed: [ProvisioningProfile]) -> Target {
+		let appID = "\(account.team.id).\(target.bundleID)"
+		guard let later = OwnAppleID.later(than: target.profile, applicationIdentifier: appID, among: installed) else { return target }
+		AppleIDLog.note("renewal: iOS has a later profile for \(target.name) than noted, until \(Self.logDate(later.expires))")
+		CertificatesModel.shared.updateAppleID(account.id) { $0.note(later) }
+		return Target(record: target.record, profile: later)
+	}
+
 	/// Signs the apps again with the Apple ID's certificate and reinstalls
 	/// them, keeping their data, from their source or their IPA's link: in
 	/// the background only with automatic updates on, which installs
-	/// already.
+	/// already. Atelier itself only with Renew (#152), as installing over
+	/// itself closes it.
 	private func signAgain(_ targets: [Target], of account: StoredAppleID, trigger: Trigger, context: ModelContext) async {
+		var targets = targets
+		if trigger != .user {
+			mark(targets.filter { $0.isOwn }, .signAgain)
+			targets.removeAll { $0.isOwn }
+		}
+		guard !targets.isEmpty else { return }
 		guard trigger == .user || AutoUpdates.isOn else {
 			mark(targets, .signAgain)
 			return
@@ -433,7 +490,9 @@ final class ProfileRenewals {
 			}
 			AppleIDLog.note("renewal: signing \(target.name) again, keeping its data")
 			installer.resign(target.record, with: account.id, deletingFirst: false, in: catalog, downloads: BackgroundDownloads.shared.manager, certificates: .shared, into: context)
-			problems[target.bundleID] = nil
+			// Atelier asks first, as it closes to install over itself (#152):
+			// its next launch tells whether it did.
+			if !target.isOwn { problems[target.bundleID] = nil }
 		}
 	}
 

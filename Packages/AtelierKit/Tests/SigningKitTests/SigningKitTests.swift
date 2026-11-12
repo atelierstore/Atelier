@@ -50,8 +50,9 @@ enum Fixture {
 	/// A thin Mach-O with a code signature: a code directory and, with
 	/// `cmsBytes` > 0, a CMS blob of that size, the way zsign lays them out.
 	/// `directoryBytes` pads the code directory, as a large binary's is.
-	/// With `entitlements`, the signature also carries that plist.
-	static func signedMachO(cmsBytes: Int, directoryBytes: Int = 0, entitlements: [String: Any]? = nil) -> Data {
+	/// With `entitlements`, the signature also carries that plist; with
+	/// `cms`, its CMS blob is that signature rather than zeros.
+	static func signedMachO(cmsBytes: Int, directoryBytes: Int = 0, entitlements: [String: Any]? = nil, cms: Data? = nil) -> Data {
 		var blobs: [(slot: UInt32, data: Data)] = [
 			(0, be32(0xFADE_0C02) + be32(UInt32(8 + directoryBytes)) + Data(count: directoryBytes)), // CSSLOT_CODEDIRECTORY
 		]
@@ -59,7 +60,8 @@ enum Fixture {
 			let plist = try! PropertyListSerialization.data(fromPropertyList: entitlements, format: .xml, options: 0)
 			blobs.append((5, be32(0xFADE_7171) + be32(UInt32(8 + plist.count)) + plist)) // CSSLOT_ENTITLEMENTS
 		}
-		blobs.append((0x10000, be32(0xFADE_0B01) + be32(UInt32(8 + cmsBytes)) + Data(count: cmsBytes))) // CSSLOT_SIGNATURESLOT
+		let cms = cms ?? Data(count: cmsBytes)
+		blobs.append((0x10000, be32(0xFADE_0B01) + be32(UInt32(8 + cms.count)) + cms)) // CSSLOT_SIGNATURESLOT
 		let headerSize = 12 + blobs.count * 8
 		var signature = Data()
 		signature.append(be32(0xFADE_0CC0))
