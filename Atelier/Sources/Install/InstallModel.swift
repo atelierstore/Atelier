@@ -2376,6 +2376,16 @@ final class InstallModel {
 		))
 	}
 
+	/// The check scheme the app signed now gets: one no installed app
+	/// registers, no Library entry holds if there's one, and never an
+	/// offloaded app's, which would then read as installed (12 Nov 2026).
+	private func freeCheckScheme(in context: ModelContext) -> String? {
+		let records = (try? context.fetch(FetchDescriptor<InstallRecord>())) ?? []
+		let held = Set(records.compactMap(\.checkScheme))
+		let kept = Set(records.filter { disabledApps[$0.bundleID] != nil }.compactMap(\.checkScheme))
+		return InstallCheck.freeScheme(isRegistered: { Self.isRegistered($0) }, held: held, kept: kept)
+	}
+
 	/// Whether an installed app registers `scheme`. canOpenURL is deprecated
 	/// in iOS 27 but still answers for declared schemes, and nothing else
 	/// tells a sandboxed app that an app is installed (#11).
@@ -3405,7 +3415,7 @@ final class InstallModel {
 				log.append("copy: \(marker.numberedID), keeping what was chosen for it")
 			}
 		} else {
-			let check = InstallCheck.freeScheme(isRegistered: { Self.isRegistered($0) })
+			let check = freeCheckScheme(in: job.context)
 			if let check {
 				log.append("install check: adding \(check) to the app")
 			} else {

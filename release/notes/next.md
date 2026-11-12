@@ -9,6 +9,7 @@
 ## Fixes
 
 - When a source's GitHub repo doesn't have the branch or file the source points to, Atelier says which is missing, instead of saying your GitHub account can't see the repo. For a public repo, it no longer asks you to sign in (#13).
+- An offloaded app stays in Offloaded while another app installs. Before, an install could take the install check the offloaded app still held, so the offloaded app briefly showed in Installed with "Data not put back" (#18).
 
 ## Behind the scenes
 
