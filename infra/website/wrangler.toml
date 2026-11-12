@@ -1,7 +1,8 @@
 # Atelier's website: the files in public/, served by a Cloudflare Worker
 # (Workers static assets), whose code (src/) reads the app an install link
 # installs and the source a source or app link names, and keeps the signed
-# Atelier the certificate page uploads for iOS to install. See README.md.
+# Atelier the certificate page uploads for iOS to install, and keeps the
+# site's counts for the Stats page. See README.md.
 name = "atelier-website"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
@@ -35,6 +36,12 @@ new_sqlite_classes = ["SignedApp"]
 [[migrations]]
 tag = "v2"
 new_sqlite_classes = ["BuildApp"]
+
+# The Durable Object that keeps the site's counts of what people view and
+# tap, a day's totals at a time, for the Stats page (src/stats.js).
+[[migrations]]
+tag = "v3"
+new_sqlite_classes = ["SiteStats"]
 
 [vars]
 # Whose builds /builds keeps: only this repo's build workflow can send them,

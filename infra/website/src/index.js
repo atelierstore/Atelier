@@ -12,7 +12,9 @@
 // IPAs GitHub Actions builds, kept for 7 days for Safari and Atelier's install
 // links (see builds.js). It also serves the home page, which Cloudflare runs
 // it first for, with AltStore PAL first for visitors where Apple allows it
-// (see region.js).
+// (see region.js). And it keeps the site's own counts of what people view and
+// tap: POST /tally, from every page (public/tally.js), and GET /stats/data,
+// for the Stats page (see stats.js).
 
 import { builds } from "./builds.js";
 import { json } from "./http.js";
@@ -21,11 +23,13 @@ import { ocspRelay } from "./ocsp-relay.js";
 import { ota } from "./ota.js";
 import { homePage } from "./region.js";
 import { SourceError, readSource } from "./source.js";
+import { statsData, tally, tallyReport } from "./stats.js";
 
-// The Durable Objects that keep what the certificate page uploads (ota.js)
-// and CI's builds (builds.js).
+// The Durable Objects that keep what the certificate page uploads (ota.js),
+// CI's builds (builds.js) and the site's counts (stats.js).
 export { SignedApp } from "./ota.js";
 export { BuildApp } from "./builds.js";
+export { SiteStats } from "./stats.js";
 
 export default {
   async fetch(request, env, ctx) {
@@ -38,8 +42,16 @@ export default {
     if (url.pathname === "/ota" || url.pathname.startsWith("/ota/")) return ota(request, ctx.exports.SignedApp);
     if (url.pathname === "/builds" || url.pathname.startsWith("/builds/")) return builds(request, env, ctx.exports.BuildApp);
     if (url.pathname === "/ocsp") return ocspRelay(request);
+    if (url.pathname === "/tally") return tallyReport(request, ctx);
+    if (url.pathname === "/stats/data") return statsData(request, env, ctx);
     // Whatever else static assets didn't match, such as a 404.
-    return env.ASSETS.fetch(request);
+    const response = await env.ASSETS.fetch(request);
+    // A page that isn't there, opened in a browser, counts as one; requests
+    // for other files that aren't there, and most bots', don't.
+    if (response.status === 404 && request.method === "GET" && request.headers.get("Sec-Fetch-Dest") === "document") {
+      ctx.waitUntil(tally(ctx.exports.SiteStats, ["view:notfound"]));
+    }
+    return response;
   },
 };
 
