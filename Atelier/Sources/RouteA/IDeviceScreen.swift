@@ -103,14 +103,15 @@ final class ScreenSession: @unchecked Sendable {
 		try screenCheck(atelier_screen_slide(session, fromX, toX, y, hold.milliseconds, move.milliseconds, settle.milliseconds))
 	}
 
-	/// The screen as it is now, as PNG data.
+	/// The screen as it is now: a JPEG image, or PNG once iOS didn't give
+	/// JPEG.
 	func screenshot() throws -> Data {
-		var png: UnsafeMutablePointer<UInt8>?
+		var image: UnsafeMutablePointer<UInt8>?
 		var length = 0
-		try screenCheck(atelier_screen_screenshot(session, &png, &length))
-		defer { atelier_screen_data_free(png, length) }
-		guard let png else { throw ScreenCallError(code: 0, message: "no screenshot came back") }
-		return Data(bytes: png, count: length)
+		try screenCheck(atelier_screen_screenshot(session, &image, &length))
+		defer { atelier_screen_data_free(image, length) }
+		guard let image else { throw ScreenCallError(code: 0, message: "no screenshot came back") }
+		return Data(bytes: image, count: length)
 	}
 
 	/// Stops the screen stream, as far as iOS answers.

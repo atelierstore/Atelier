@@ -243,6 +243,8 @@ pub struct AtelierScreenSession {
     buttons: IndigoHidClient<Box<dyn ReadWrite>>,
     touches: UniversalHidServiceClient<Box<dyn ReadWrite>>,
     capture: ScreenCaptureServiceClient<Box<dyn ReadWrite>>,
+    /// Whether iOS didn't give a screenshot as JPEG, so the rest are PNG.
+    png_only: bool,
     /// Read the stream's audio and video and throw them away, as jktcp keeps
     /// every datagram nobody reads.
     drains: Vec<tokio::task::JoinHandle<()>>,
@@ -341,6 +343,7 @@ async fn start(
             buttons,
             touches,
             capture,
+            png_only: false,
             drains,
         }),
         Err(e) => {
@@ -517,33 +520,38 @@ pub unsafe extern "C" fn atelier_screen_slide(
     }
 }
 
-/// A screenshot of the screen as it is, as PNG data. Free the bytes with
-/// [`atelier_screen_data_free`].
+/// A screenshot of the screen as it is: as JPEG, a fraction of the PNG's
+/// size, so it comes sooner over the tunnel (12 Nov 2026), or as PNG once
+/// iOS didn't give JPEG. Free the bytes with [`atelier_screen_data_free`].
 ///
 /// # Safety
-/// `session` must be a live session, and `out_png` and `out_length`
+/// `session` must be a live session, and `out_image` and `out_length`
 /// writable.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn atelier_screen_screenshot(
     session: *mut AtelierScreenSession,
-    out_png: *mut *mut u8,
+    out_image: *mut *mut u8,
     out_length: *mut libc::size_t,
 ) -> *mut IdeviceFfiError {
-    if session.is_null() || out_png.is_null() || out_length.is_null() {
+    if session.is_null() || out_image.is_null() || out_length.is_null() {
         return ffi_err!(IdeviceError::FfiInvalidArg);
     }
     let session = unsafe { &mut *session };
-    let result = run_sync_local(within(
-        STEP_WAIT,
-        "taking a screenshot",
-        session.capture.take_screenshot(None, ImageFormat::Png),
-    ));
+    let result = run_sync_local(within(STEP_WAIT, "taking a screenshot", async {
+        if !session.png_only {
+            match session.capture.take_screenshot(None, ImageFormat::Jpeg).await {
+                Ok(jpeg) => return Ok(jpeg),
+                Err(_) => session.png_only = true,
+            }
+        }
+        session.capture.take_screenshot(None, ImageFormat::Png).await
+    }));
     match result {
-        Ok(png) => {
-            let png = png.into_boxed_slice();
+        Ok(image) => {
+            let image = image.into_boxed_slice();
             unsafe {
-                *out_length = png.len();
-                *out_png = Box::into_raw(png).cast::<u8>();
+                *out_length = image.len();
+                *out_image = Box::into_raw(image).cast::<u8>();
             }
             null_mut()
         }

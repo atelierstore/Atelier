@@ -344,6 +344,19 @@ final class OpenSpacesFinderTests: XCTestCase {
 		XCTAssertNil(OpenSpacesFinder.page(showing: 12, near: 4, counts: counts))
 	}
 
+	func testTellsWhereASlideLanded() {
+		// Page 11 has 3 items, and the slide landed on page 9, the only
+		// other with 23.
+		let counts: [Int?] = [24, 24, nil, 24, 24, 22, 24, 24, 23, 24, 3]
+		let others = counts.indices.filter { $0 != 10 }
+		XCTAssertEqual(OpenSpacesFinder.page(showing: 23, among: others, counts: counts), 8)
+		XCTAssertEqual(OpenSpacesFinder.page(showing: 22, among: others, counts: counts), 5)
+		// Full pages, which most are, don't tell.
+		XCTAssertNil(OpenSpacesFinder.page(showing: 24, among: others, counts: counts))
+		// Nor does the page it went to, when its apps' icons didn't show.
+		XCTAssertNil(OpenSpacesFinder.page(showing: 3, among: others, counts: counts))
+	}
+
 	// MARK: Marking what it found
 
 	private func app(_ id: String) -> HomeScreenSlot {

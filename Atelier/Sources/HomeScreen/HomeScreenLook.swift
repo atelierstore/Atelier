@@ -15,11 +15,13 @@ import UIKit
 ///
 /// To get to the page (12 Nov 2026), it slides a finger along the page
 /// dots, as you can by hand, and checks the screenshot shows that page's
-/// apps. If it doesn't, it presses Home again and swipes there one page at
-/// a time, without stopping; after two such looks in a row, it swipes
-/// straight there. It keeps the Home Screen's waits short, and comes back
-/// as soon as it has the screenshot. The log says how long into the look
-/// each step was.
+/// apps. If it doesn't, it swipes there from the page it landed on, when
+/// that page's number of items says which it is, or else presses Home
+/// again and swipes there one page at a time, without stopping. After two
+/// such looks in a row, it swipes straight there. To a page near the
+/// first, it swipes. It keeps the Home Screen's waits short, takes the
+/// screenshot as JPEG, and comes back as soon as it has it. The log says
+/// how long into the look each step was.
 @MainActor
 enum HomeScreenLook {
 	/// The steps, as a failure names them.
@@ -70,11 +72,16 @@ enum HomeScreenLook {
 	/// The slide along the dots, once the swipe that brings them out is
 	/// done: a rest on the second page's dot, so iOS takes the touch, a dot
 	/// a page in `slidePerPage` milliseconds, and a rest on the page's dot
-	/// before letting go.
+	/// before letting go. iOS turns the pages one by one behind the finger:
+	/// at 60 milliseconds a dot, it had only got from page 2 to page 9 of
+	/// 11 when the finger let go (12 Nov 2026).
 	private static let beforeSlide: Duration = .milliseconds(250)
-	private static let slideHold: Duration = .milliseconds(100)
-	private static let slidePerPage = 60
-	private static let slideSettle: Duration = .milliseconds(150)
+	private static let slideHold: Duration = .milliseconds(200)
+	private static let slidePerPage = 100
+	private static let slideSettle: Duration = .milliseconds(300)
+	/// To the last page, the slide goes this many dots past its dot, as iOS
+	/// stops at the last page however far the finger goes.
+	private static let pastTheLastPage = 3
 	/// When the look started, for the log's times.
 	private static var started = ContinuousClock.now
 
@@ -233,19 +240,29 @@ enum HomeScreenLook {
 
 		// A swipe to the second page brings out the page dots. A finger then
 		// slides along them to the page, unless that landed on another page
-		// the last two times.
+		// the last two times, or the page is the third, which a swipe gets
+		// to sooner.
 		try await swipe(session)
-		if page > 1, slideMisses < 2 {
-			try await slide(session, to: page)
+		if page > 2, slideMisses < 2 {
+			try await slide(session, to: page, of: target.counts.count)
 			let slid = try await readScreen(session, target: target, how: "slide")
 			let landed = isPage(slid, target: target)
 			if let landed { slideMisses = landed ? 0 : slideMisses + 1 }
 			if landed != false { return slid }
+			// From the page it landed on, when its number of items says
+			// which, or else from the first page.
+			let others = target.counts.indices.filter { $0 != page }
+			if let slid, let shown = OpenSpacesFinder.page(showing: slid.outlines, among: others, counts: target.counts) {
+				say("the slide landed on page \(shown + 1): swiping to page \(page + 1) from there")
+				try await swipe(session, pages: page - shown)
+				let swiped = try await readScreen(session, target: target, how: "swipes from page \(shown + 1)")
+				if isPage(swiped, target: target) != false { return swiped }
+			}
 			say("swiping to page \(page + 1) instead, from the first page")
 			try await pressHome(session, times: 2)
 			try await swipe(session, pages: page)
 		} else if page > 1 {
-			say("the slide along the page dots landed elsewhere the last two times: swiping to page \(page + 1)")
+			if page > 2 { say("the slide along the page dots landed elsewhere the last two times: swiping to page \(page + 1)") }
 			try await Task.sleep(for: betweenSwipes)
 			try await swipe(session, pages: page - 1)
 		}
@@ -268,19 +285,21 @@ enum HomeScreenLook {
 
 	/// Slides a finger along the page dots, which the swipe to the second
 	/// page brought out, from its dot to where the page's would be, a dot a
-	/// page.
-	private static func slide(_ session: ScreenSession, to page: Int) async throws {
+	/// page, or past it for the last of the `pages`.
+	private static func slide(_ session: ScreenSession, to page: Int, of pages: Int) async throws {
 		try await Task.sleep(for: beforeSlide)
 		let screen = screenSize
 		let dot = dotSpacing / screen.width
-		let from = 0.5 - 0.5 * dot, to = from + Double(page - 1) * dot
+		let isLast = page == pages - 1
+		let dots = page - 1 + (isLast ? pastTheLastPage : 0)
+		let from = 0.5 - 0.5 * dot, to = min(from + Double(dots) * dot, 0.97)
 		let y = 1 - dotsAboveBottom / screen.height
-		let hold = slideHold, move = Duration.milliseconds(slidePerPage * (page - 1)), settle = slideSettle
+		let hold = slideHold, move = Duration.milliseconds(slidePerPage * dots), settle = slideSettle
 		do {
 			try await call {
 				try session.slide(fromX: from, toX: to, y: y, hold: hold, move: move, settle: settle)
 			}
-			say("slid along the page dots from page 2 to where page \(page + 1)’s dot would be (\(rounded(from, 3)) to \(rounded(to, 3)) across, \(rounded(y, 3)) down)")
+			say("slid along the page dots from page 2 to \(isLast ? "past " : "")where page \(page + 1)’s dot would be (\(rounded(from, 3)) to \(rounded(to, 3)) across, \(rounded(y, 3)) down)")
 		} catch {
 			say("slide: \(error)")
 		}
@@ -293,7 +312,9 @@ enum HomeScreenLook {
 		set { UserDefaults.standard.set(newValue, forKey: slideMissesKey) }
 	}
 
-	private static let slideMissesKey = "openSpacesSlideMisses"
+	/// A new key for the slower slide (12 Nov 2026), so it's tried after the
+	/// faster one missed.
+	private static let slideMissesKey = "openSpacesSlideMisses2"
 
 	/// Presses Home `times` times, far enough apart not to be a double
 	/// press, and waits for the Home Screen to settle.
@@ -312,20 +333,21 @@ enum HomeScreenLook {
 		}
 	}
 
-	/// Swipes `pages` pages on, one at a time, without stopping.
+	/// Swipes `pages` pages on, or back when it's less than 0, one at a
+	/// time, without stopping.
 	private static func swipe(_ session: ScreenSession, pages: Int) async throws {
-		for done in 0..<pages {
+		for done in 0..<abs(pages) {
 			if done > 0 { try await Task.sleep(for: betweenSwipes) }
-			try await swipe(session)
+			try await swipe(session, back: pages < 0)
 		}
 	}
 
 	/// Takes a screenshot once the page has stopped moving, and reads it.
 	private static func readScreen(_ session: ScreenSession, target: Target, how: String) async throws -> OpenSpacesFinder.Reading? {
 		try await Task.sleep(for: beforeScreenshot)
-		let png = try await step(.screenshot, "this iPhone didn’t give Atelier a screenshot") { try session.screenshot() }
-		say("took a screenshot, \(png.count / 1024) KB")
-		let reading = await read(png, target: target)
+		let image = try await step(.screenshot, "this iPhone didn’t give Atelier a screenshot") { try session.screenshot() }
+		say("took a screenshot, \(image.count / 1024) KB \(image.starts(with: [0xFF, 0xD8]) ? "JPEG" : "PNG")")
+		let reading = await read(image, target: target)
 		if let reading {
 			let pages = target.counts.indices.filter { target.counts[$0] == reading.outlines }.map { String($0 + 1) }
 			say("\(how): found \(reading.iconsFound) of \(reading.iconsKnown) apps’ icons where they go on page \(target.page + 1); \(reading.outlines) places show an outline, as many as page \(pages.isEmpty ? "none" : pages.joined(separator: ", ")) has items")
@@ -378,12 +400,12 @@ enum HomeScreenLook {
 	/// Reads the page from its screenshot, with the grid an earlier reading
 	/// on this screen found. Keeps the grid when it reads the page clearly
 	/// and its rows show.
-	private static func read(_ png: Data, target: Target) async -> OpenSpacesFinder.Reading? {
+	private static func read(_ image: Data, target: Target) async -> OpenSpacesFinder.Reading? {
 		let page = target.page
 		let kept = UserDefaults.standard.data(forKey: gridKey).flatMap { try? JSONDecoder().decode(KeptGrid.self, from: $0) }
 		let icons = target.icons
 		let result = await Task.detached { () -> (pixels: OpenSpacesFinder.Pixels, reading: OpenSpacesFinder.Reading?)? in
-			guard let pixels = OpenSpacesFinder.Pixels(png: png, width: OpenSpacesFinder.readingWidth) else { return nil }
+			guard let pixels = OpenSpacesFinder.Pixels(data: image, width: OpenSpacesFinder.readingWidth) else { return nil }
 			let known = kept.flatMap { $0.width == pixels.width && $0.height == pixels.height ? $0.grid : nil }
 			return (pixels, OpenSpacesFinder.read(pixels, icons: icons, known: known))
 		}.value
@@ -522,9 +544,9 @@ private final class BackgroundTime {
 }
 
 extension OpenSpacesFinder.Pixels {
-	/// `png` drawn `width` pixels wide, in sRGB.
-	init?(png: Data, width: Int) {
-		guard let source = CGImageSourceCreateWithData(png as CFData, nil),
+	/// `data`, a PNG or JPEG image, drawn `width` pixels wide, in sRGB.
+	init?(data: Data, width: Int) {
+		guard let source = CGImageSourceCreateWithData(data as CFData, nil),
 		      let image = CGImageSourceCreateImageAtIndex(source, 0, nil) else { return nil }
 		self.init(image: image, width: width)
 	}

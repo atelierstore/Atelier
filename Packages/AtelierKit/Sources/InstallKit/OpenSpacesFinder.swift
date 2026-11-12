@@ -680,10 +680,13 @@ extension OpenSpacesFinder {
 	/// count isn't known. `counts` has each page's items, nil for a page
 	/// with a widget.
 	public static func page(showing outlines: Int, near page: Int, counts: [Int?]) -> Int? {
-		var matching: [Int] = []
-		for candidate in [page, page - 1, page + 1] where counts.indices.contains(candidate) {
-			if let count = counts[candidate], count == outlines { matching.append(candidate) }
-		}
+		Self.page(showing: outlines, among: [page, page - 1, page + 1], counts: counts)
+	}
+
+	/// Which of `pages` a screenshot shows, by how many places show an
+	/// outline: the one with that many items, or nil.
+	public static func page(showing outlines: Int, among pages: [Int], counts: [Int?]) -> Int? {
+		let matching = pages.filter { counts.indices.contains($0) && counts[$0] == outlines }
 		return matching.count == 1 ? matching[0] : nil
 	}
 
