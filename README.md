@@ -9,9 +9,9 @@
 <p align="center">
   <a href="https://atelierstore.app"><b>Get Atelier</b></a>
   &nbsp;·&nbsp;
-  <a href="#add-the-source">Add the source</a>
+  <a href="#add-the-source">Add&nbsp;the&nbsp;source</a>
   &nbsp;·&nbsp;
-  <a href="docs/install.md">Install guide</a>
+  <a href="docs/install.md">Install&nbsp;guide</a>
   &nbsp;·&nbsp;
   <a href="https://atelierstore.app/donate">Donate</a>
 </p>
