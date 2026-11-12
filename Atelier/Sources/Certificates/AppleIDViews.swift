@@ -159,6 +159,21 @@ struct AppleIDDetailView: View {
 				}
 			}
 
+			// A new certificate without signing out and in again, once Apple
+			// revoked this one or it ended (12 Nov 2026).
+			if AppProfileRenewal.needsSignIn(account) {
+				Section {
+					Button {
+						model.beginNewCertificate(for: account)
+					} label: {
+						Text("New Certificate")
+							.frame(maxWidth: .infinity)
+					}
+				} footer: {
+					Text("\(health == .revoked ? "Apple revoked its certificate" : "Its certificate has ended"), so its apps don’t open. New Certificate signs in with the password in your Keychain, has Apple make a new one, then signs its apps again with it, keeping their data.")
+				}
+			}
+
 			// Its apps, which it lists when tapped, in a card of their own,
 			// then its Status, the same sections as a certificate's page
 			// (4 Nov 2026).

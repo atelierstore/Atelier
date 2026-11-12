@@ -72,6 +72,10 @@ final class AppleIDSignIn {
 	/// Whether the sheet shows it: always, but out of sight while Atelier
 	/// signs in by itself, until there's something to show.
 	private var revealed: Bool
+	/// New Certificate's Apple ID (12 Nov 2026): signed in with the password
+	/// in the Keychain, in its own team, to have Apple make it a new
+	/// certificate once its own was revoked or ended.
+	let renewing: StoredAppleID?
 	@ObservationIgnored private var task: Task<Void, Never>?
 	@ObservationIgnored private var cancelled = false
 	@ObservationIgnored private var teamChoice: CheckedContinuation<AppleIDSession.Team?, Never>?
@@ -81,6 +85,18 @@ final class AppleIDSignIn {
 		self.certificates = certificates
 		installer = nil
 		revealed = true
+		renewing = nil
+	}
+
+	/// New Certificate for `account` (12 Nov 2026), filled in with its kept
+	/// password.
+	init(certificates: CertificatesModel, newCertificateFor account: StoredAppleID, password: String) {
+		self.certificates = certificates
+		installer = nil
+		revealed = true
+		renewing = account
+		email = account.email
+		self.password = password
 	}
 
 	/// Filled in with the installer's sign-in, to sign in with by itself
@@ -91,6 +107,7 @@ final class AppleIDSignIn {
 		email = installer.signIn?.appleID ?? ""
 		password = installer.signIn?.password ?? ""
 		revealed = false
+		renewing = nil
 	}
 
 	/// Whether the sheet shows: not while Atelier signs in by itself and
@@ -121,7 +138,7 @@ final class AppleIDSignIn {
 		guard canSignIn, task == nil else { return }
 		let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
 		let password = password
-		stage = .working(handedOver(for: email) == nil ? "Signing in…" : "Signing in with the Apple ID the installer used…")
+		stage = .working(handedOver(for: email) != nil ? "Signing in with the Apple ID the installer used…" : renewing != nil ? "Signing in with your Keychain password…" : "Signing in…")
 		task = Task { await run(email: email, password: password) }
 	}
 
@@ -149,7 +166,7 @@ final class AppleIDSignIn {
 			// again, from the sheet filled in.
 			if installer != nil { certificates.forgetInstallerSignIn() }
 		}
-		AppleIDLog.note(installer == nil ? "Sign In with Apple ID" : "Sign In with Apple ID, by itself with the installer's (#152)")
+		AppleIDLog.note(installer != nil ? "Sign In with Apple ID, by itself with the installer's (#152)" : renewing != nil ? "New Certificate" : "Sign In with Apple ID")
 		do {
 			let done = try await signInAndSave(email: email, password: password)
 			guard !cancelled else { return note("done, after the sheet closed") }
@@ -199,6 +216,17 @@ final class AppleIDSignIn {
 				note("team: the installer's, \(handedOver.id), of \(signedIn.teams.count)")
 			}
 			team = handedOver
+		} else if let renewing, let own = signedIn.teams.first(where: { $0.id == renewing.team.id }) {
+			// New Certificate's Apple ID, in the team it was in (12 Nov 2026).
+			if own.id != team.id {
+				do {
+					try await signedIn.session.chooseTeam(own)
+				} catch {
+					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+				}
+				note("team: the Apple ID's own, \(own.id), of \(signedIn.teams.count)")
+			}
+			team = own
 		} else if signedIn.teams.count > 1 {
 			stage = .chooseTeam(signedIn.teams, current: team)
 			guard let picked = await chooseTeam() else { throw Stop.cancelled }
@@ -282,13 +310,17 @@ final class AppleIDSignIn {
 		if let context = AutoUpdates.container?.mainContext {
 			SelfUpdate.shared.syncRecord(in: context, certificates: certificates)
 		}
+		let renewsFirst = renewing != nil
 		Task {
+			// New Certificate's apps first, which wait in Re-sign meanwhile
+			// (12 Nov 2026).
+			if renewsFirst { await ProfileRenewals.shared.renewAfterSignIn(certificates.appleID(id) ?? saved) }
 			await access.checkLimits(of: saved, using: signedIn.session, startingVPN: false)
 			// Its apps signed with a certificate it no longer has, as after
 			// Apple revoked it, are renewed or signed again: Atelier itself
 			// too, which then tells whether a new profile lists the
 			// certificate it was installed with.
-			await ProfileRenewals.shared.renewAfterSignIn(certificates.appleID(id) ?? saved)
+			if !renewsFirst { await ProfileRenewals.shared.renewAfterSignIn(certificates.appleID(id) ?? saved) }
 		}
 		return Done(account: account, inUse: inUse, otherInUse: inUse ? nil : otherInUse, source: source, byInstaller: installer != nil)
 	}
@@ -330,6 +362,10 @@ final class AppleIDSignIn {
 	private func findOrMakeCertificate(with session: AppleIDSession, teamID: String, keys: URL, p12Password: String) async throws -> (AppleIDSession.MadeCertificate, CertificateSource) {
 		let installer = certificates.installerCertificate.flatMap { $0.teamID == teamID ? $0 : nil }
 		switch try await adoptCertificate(key: nil, with: session, keys: keys, p12Password: p12Password) {
+		case .found(let found) where renewing != nil && (found.certificate.expires ?? .distantFuture) <= .now:
+			// New Certificate is for another than the one that ended (12 Nov
+			// 2026).
+			note("certificate: the one whose key is here has ended")
 		case .found(let found):
 			if installer != nil {
 				note("certificate: leaving the installer's, as the team has the one whose key is here")

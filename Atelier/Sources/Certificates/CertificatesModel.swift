@@ -380,6 +380,22 @@ final class CertificatesModel {
 		}
 	}
 
+	/// New Certificate (12 Nov 2026), on an Apple ID's page and from
+	/// Re-sign on one of its apps, once Apple revoked its certificate or
+	/// that ended: the Sign In sheet for that Apple ID, signing in at once
+	/// with the password in the Keychain, as signing out and in again
+	/// would. Apple makes a new certificate, and the Apple ID's apps are
+	/// signed again with it (`ProfileRenewals.renewAfterSignIn`), keeping
+	/// their App IDs. Without a kept password, or before the setup is
+	/// done, the sheet waits for the user. One already open comes up.
+	func beginNewCertificate(for account: StoredAppleID) {
+		if let signIn { return signIn.reveal() }
+		let password = (try? appleIDPassword(for: account.id)) ?? nil
+		let signIn = AppleIDSignIn(certificates: self, newCertificateFor: account, password: password ?? "")
+		self.signIn = signIn
+		if RouteASetup.shared.isSetUp { signIn.signIn() }
+	}
+
 	/// Closes it, stopping a sign-in that's running.
 	func endSignIn() {
 		signIn?.cancel()
