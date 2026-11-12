@@ -553,6 +553,60 @@ final class InstallModel {
 		return waiting.first { $0.id == id || $0.downloadID == download.id }.map { .waiting($0) }
 	}
 
+	/// Where the install of the Library's app `bundleID` is at: one of it from
+	/// its source (`app`), as `status(of:)` says, or one over it, such as
+	/// Re-sign, Reinstall or Custom Install…, for its row's ring and stage,
+	/// in place of Downloads too (12 Nov 2026).
+	func status(ofLibraryApp bundleID: String, key app: AppKey) -> AppStatus? {
+		if let status = status(of: app) { return status }
+		guard let job = job(ofLibraryApp: bundleID, key: app) else { return nil }
+		if isRunning, shownJob?.id == job.id, let state { return .running(state) }
+		if currentID == job.id { return .running(.checking) }
+		return .waiting(job)
+	}
+
+	/// The download that install waits on or installs, also while Custom
+	/// Install… or Re-sign gets the IPA of an app installed from one: its
+	/// row shows it, rather than Downloads (12 Nov 2026).
+	func downloadID(ofLibraryApp bundleID: String, key app: AppKey) -> UUID? {
+		job(ofLibraryApp: bundleID, key: app)?.downloadID ?? fetchingIPA(of: bundleID)
+	}
+
+	/// The download of the app's IPA from its link, while Custom Install… or
+	/// Re-sign waits for it to install over the app; not one for a copy.
+	func fetchingIPA(of bundleID: String) -> UUID? {
+		ipaDownloads.first { $0.value.install.bundleID == bundleID && $0.value.action.isOverTheApp }?.key
+	}
+
+	/// Stops that download from the app's row, where it shows rather than
+	/// in Downloads (12 Nov 2026). One that was in Downloads already stays.
+	func cancelIPADownload(of bundleID: String, downloads: DownloadManager) {
+		for (id, fetching) in ipaDownloads where fetching.install.bundleID == bundleID && fetching.action.isOverTheApp {
+			ipaDownloads[id] = nil
+			if fetching.removesDownload { downloads.remove(id) }
+		}
+	}
+
+	/// Whether the app is being re-signed (#20): its install waits or runs,
+	/// or its IPA downloads for it. It stays in the Library's Re-sign section
+	/// meanwhile, also once it's deleted to be installed again (12 Nov 2026).
+	func isResigning(_ bundleID: String) -> Bool {
+		let resigns = { (job: Job) in job.isResign && job.replacesBundleID == bundleID }
+		if isRunning, let shownJob, resigns(shownJob) { return true }
+		if currentID != nil, let current = queue.current, resigns(current) { return true }
+		if waiting.contains(where: resigns) { return true }
+		return ipaDownloads.values.contains { $0.install.bundleID == bundleID && $0.action.isResign }
+	}
+
+	/// The install of the Library's app `bundleID` that's running or waiting,
+	/// running first.
+	private func job(ofLibraryApp bundleID: String, key app: AppKey) -> Job? {
+		let matches = { (job: Job) in job.app == app || job.replacesBundleID == bundleID }
+		if isRunning, let shownJob, matches(shownJob) { return shownJob }
+		if currentID != nil, let current = queue.current, matches(current) { return current }
+		return waiting.first(where: matches)
+	}
+
 	/// Whether the install `id` is waiting or running, for Re-sign All's
 	/// rows (#20).
 	func status(ofJob id: String) -> AppStatus? {
@@ -1319,6 +1373,17 @@ final class InstallModel {
 		/// Signs it again with the certificate re-signing uses, once its own
 		/// died (#20).
 		case resign(certificateID: UUID, deletingFirst: Bool, keepingData: Bool)
+
+		var isResign: Bool {
+			if case .resign = self { return true }
+			return false
+		}
+
+		/// It installs over the app, rather than a copy next to it.
+		var isOverTheApp: Bool {
+			if case .newCopy = self { return false }
+			return true
+		}
 	}
 
 	/// An app's IPA that Atelier asks the user to choose, in an alert whose
