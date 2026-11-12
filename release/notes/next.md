@@ -3,7 +3,7 @@
 - The website installs Atelier with your certificate from a computer too: it signs Atelier there and shows a QR code, which opens iOS's install alert on your iPhone (#11).
 - The website's Get Atelier lists AltStore PAL as planned, and recommends it first to visitors in the EU, Japan and Brazil, where Apple allows it (#7).
 - Apps signed with a certificate that comes with App Groups, as signing services' often do, keep theirs too: Atelier keeps each app's App Groups in a folder of its own in one of the certificate's, so its widgets and extensions see the app's data. Other apps signed with that certificate could read the folder. Custom Install › Advanced › Share App Groups turns it off for an app (#2).
-- Find Open Spaces Automatically, in Settings › Home Screen › Open Spaces, goes to your Home Screen for a moment, takes a screenshot of a page and comes back, then marks the open spaces it saw there for you to check. The first time, it downloads Apple's developer disk image, which lets it press Home, swipe and take the screenshot (#16).
+- Find Open Spaces Automatically, in Settings › Home Screen › Open Spaces, goes to a page of your Home Screen for a moment, takes a screenshot and comes back, then marks the open spaces it saw there for you to check. It looks for each app's own icon, so a busy wallpaper or dark icons don't throw it off. The first time, it downloads Apple's developer disk image, which lets it press Home, go to the page and take the screenshot. iOS might then say “Atelier” can view and control your iPhone: that's normal (#16).
 
 ## Fixes
 
