@@ -93,7 +93,7 @@ public struct InstallerCertificate: Equatable, Sendable {
 		}
 		var signIn: SignIn?
 		if let appleID = (dictionary["appleID"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !appleID.isEmpty,
-		   let password = (dictionary[Self.passwordKey] as? String) ?? password, !password.isEmpty {
+		   let password = (dictionary[Self.passwordKey] as? String).flatMap({ $0.isEmpty ? nil : $0 }) ?? password, !password.isEmpty {
 			signIn = SignIn(
 				appleID: appleID,
 				password: password,
