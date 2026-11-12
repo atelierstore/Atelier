@@ -174,13 +174,17 @@ struct LibraryView: View {
 		// Apps whose certificate died are in Re-sign rather than Updates or
 		// Installed; with an update, re-signing keeps their version. One
 		// stays there while it's re-signed, also once it's deleted to be
-		// installed again (12 Nov 2026).
-		let needsResign = { (item: LibraryItem) in item.needsResign || installer.isResigning(item.install.bundleID) }
+		// installed again, and while Atelier renews it once New Certificate
+		// got its Apple ID a new one (12 Nov 2026).
+		let renewals = ProfileRenewals.shared
+		let needsResign = { (item: LibraryItem) in
+			item.needsResign || installer.isResigning(item.install.bundleID)
+				|| (renewals.isRenewing(item.install.bundleID) && item.signedWithOldCertificate)
+		}
 		let toResign = items.filter { needsResign($0) && !resignGroupedIDs.contains($0.install.bundleID) }
 		let inResign = { (item: LibraryItem) in needsResign(item) || resignGroupedIDs.contains(item.install.bundleID) }
 		// Apps due to renew that Atelier couldn't renew by itself, or whose
 		// profile ended, are in Renew rather than Updates or Installed (#49).
-		let renewals = ProfileRenewals.shared
 		let dueToRenew = items.filter { renewals.inRenewSection($0) && !inResign($0) }
 		// Atelier itself first (#152): once its own profile has ended, it
 		// can't open to renew the others.
@@ -560,19 +564,23 @@ extension LibraryView {
 		} else if !items.isEmpty {
 			// Not one that's being re-signed (12 Nov 2026).
 			let resignable = items.filter { (notes[$0.install.bundleID]?.canResign ?? false) && !installer.isResigning($0.install.bundleID) }
+			// Apps installed with an Apple ID get it a new certificate, one
+			// Apple ID at a time, rather than going with Re-sign All.
+			let resignAll = resignable.filter { !$0.resignsWithNewCertificate }
 			Section {
 				ForEach(items) { item in
 					row(item, showsUpdate: false, resign: notes[item.install.bundleID], actions: actions)
 				}
-				if target == nil {
+				// Not for apps whose Apple ID gets a new certificate.
+				if target == nil, items.contains(where: { !$0.resignsWithNewCertificate }) {
 					Button("Import Certificate", systemImage: "person.badge.key") { certificates.beginImport() }
 				}
 			} header: {
 				HStack {
 					Text("Re-sign · \(items.count)")
 					Spacer()
-					if resignable.count > 1, let target, !searching {
-						Button("Re-sign All") { requestResignAll(resignable, with: target) }
+					if resignAll.count > 1, let target, !searching {
+						Button("Re-sign All") { requestResignAll(resignAll, with: target) }
 							.font(.subheadline.weight(.semibold))
 							.textCase(nil)
 					}
@@ -629,6 +637,12 @@ extension LibraryView {
 	/// Re-signs one app, asking first when it has to be deleted first, or
 	/// its data couldn't be copied last time (#96).
 	private func requestResign(_ item: LibraryItem) {
+		// An app installed with an Apple ID whose certificate Apple revoked
+		// or that ended: New Certificate gets that Apple ID a new one, then
+		// signs its apps again with it, keeping their App IDs (12 Nov 2026).
+		if item.resignsWithNewCertificate, let account = item.appleID {
+			return certificates.beginNewCertificate(for: account)
+		}
 		guard let target = certificates.resignTarget else { return }
 		if actions.needsReinstall(item, resigningWith: target) {
 			confirmingResign = ResignConfirmation(losing: [item], keeping: [], target: target, dataFailure: dataFailure(of: item))
@@ -655,7 +669,7 @@ extension LibraryView {
 		let actions = actions
 		let items = installs.map { LibraryItem($0, catalog: catalog.catalog, certificates: certificates, installer: installer) }
 		let resignable = items.filter { item in
-			item.needsResign && !(resignGroup?.contains(item.install.bundleID) ?? false) && !installer.isResigning(item.install.bundleID)
+			item.needsResign && !item.resignsWithNewCertificate && !(resignGroup?.contains(item.install.bundleID) ?? false) && !installer.isResigning(item.install.bundleID)
 				&& actions.resignNote(for: item, target: target, failure: nil).canResign
 		}
 		guard !resignable.isEmpty else { return }

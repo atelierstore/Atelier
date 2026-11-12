@@ -120,11 +120,20 @@ private struct SignInForm: View {
 	var body: some View {
 		Form {
 			Section {
-				SheetHeading(
-					title: "Sign In with Apple ID",
-					text: "Atelier makes a certificate for this \(ThisDevice.name) with it, then the profiles your apps need.",
-					tile: AnyView(AppleIDTile(size: 60))
-				)
+				if signIn.renewing != nil {
+					// New Certificate (12 Nov 2026).
+					SheetHeading(
+						title: "New Certificate",
+						text: "Atelier signs in with the password in your Keychain, has Apple make a new certificate, then signs your apps again with it. They keep their data.",
+						tile: AnyView(AppleIDTile(size: 60))
+					)
+				} else {
+					SheetHeading(
+						title: "Sign In with Apple ID",
+						text: "Atelier makes a certificate for this \(ThisDevice.name) with it, then the profiles your apps need.",
+						tile: AnyView(AppleIDTile(size: 60))
+					)
+				}
 			}
 
 			if isSetUp {
@@ -146,7 +155,7 @@ private struct SignInForm: View {
 				}
 			}
 		}
-		.navigationTitle("Sign In")
+		.navigationTitle(signIn.renewing == nil ? "Sign In" : "New Certificate")
 		.toolbar {
 			ToolbarItem(placement: .cancellationAction) {
 				Button("Cancel", systemImage: "xmark") { certificates.endSignIn() }
@@ -174,6 +183,8 @@ private struct SignInForm: View {
 					.submitLabel(.next)
 					.focused($focus, equals: .email)
 					.onSubmit { focus = .password }
+					// New Certificate is for its Apple ID (12 Nov 2026).
+					.disabled(signIn.renewing != nil)
 			}
 			HStack {
 				Text("Password")
