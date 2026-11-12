@@ -327,7 +327,7 @@ private struct AppDetailContent: View {
 			// What its source listed last, as it needs a GitHub sign-in
 			// (#134).
 			if let source = signInSource {
-				GitHubSignInNotice(sourceURL: source.url, sourceName: source.name, page: .app)
+				GitHubSignInNotice(sourceName: source.name, page: .app)
 					.padding([.horizontal, .top], 12)
 					.padding(.bottom, 4)
 					.frame(maxWidth: .infinity, alignment: .leading)
@@ -660,13 +660,15 @@ private struct AppDetailContent: View {
 		guard ProfileRenewals.shared.canRenew(item), let account = item.appleID else { return nil }
 		let name = item.install.name
 		if let problem = ProfileRenewals.shared.problems[item.install.bundleID], !problem.isUnreachable {
-			return problem.message
+			return problem.message(isOwn: item.isOwn)
 		}
 		if AppProfileRenewal.needsSignIn(account) {
 			return ProfileRenewals.Problem.signInAgain.message
 		}
 		let profile = account.isFree ? "a new 7-day profile" : "a new profile"
-		return "Renew Now gets \(name) \(profile) from Apple and puts it on. Nothing downloads, and \(name) keeps its data."
+		// Atelier itself isn't reinstalled either, so it stays open (#152).
+		let keeps = item.isOwn ? "stays open" : "keeps its data"
+		return "Renew Now gets \(name) \(profile) from Apple and puts it on. Nothing downloads, and \(name) \(keeps)."
 	}
 
 	/// Under the actions of an app installed from an IPA (#113): where
@@ -1033,7 +1035,7 @@ struct VersionHistoryView: View {
 			// (#134).
 			if sources.needsGitHubSignIn(source.url) {
 				Section {
-					GitHubSignInNotice(sourceURL: source.url, sourceName: source.name, page: .versions)
+					GitHubSignInNotice(sourceName: source.name, page: .versions)
 						.listRowInsets(EdgeInsets(top: 12, leading: 16, bottom: 4, trailing: 16))
 						.listRowBackground(ZStack {
 							Color(.secondarySystemGroupedBackground)

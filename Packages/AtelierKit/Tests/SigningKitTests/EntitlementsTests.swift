@@ -1,3 +1,4 @@
+import CertKit
 import Foundation
 import XCTest
 @testable import SigningKit
@@ -257,6 +258,51 @@ final class EntitlementsTests: XCTestCase {
 		let url = folder.appendingPathComponent("cms")
 		try Fixture.signedMachO(cmsBytes: 64, entitlements: entitlements).write(to: url)
 		XCTAssertTrue(try MachO.hasCMSSignature(url))
+	}
+
+	/// Atelier reads what it was signed with from its own binary (#152).
+	func testReadsTheSignerAndAppGroupsOfAnApp() throws {
+		let folder = try Fixture.temporaryFolder()
+		defer { try? FileManager.default.removeItem(at: folder) }
+		let profile = try ProvisioningProfile(data: Data(contentsOf: Fixture.url("development.mobileprovision")))
+		let signer = try SigningCertificate(der: XCTUnwrap(profile.developerCertificates.first))
+		// A signature's CMS with nothing but its certificates, as far as
+		// reading the signer goes: the one the profile lists.
+		func der(_ tag: UInt8, _ content: Data) -> Data {
+			var length = [UInt8(content.count & 0xFF)]
+			if content.count > 0x7F {
+				var rest = content.count >> 8
+				while rest > 0 { length.insert(UInt8(rest & 0xFF), at: 0); rest >>= 8 }
+				length.insert(0x80 | UInt8(length.count), at: 0)
+			}
+			return Data([tag] + length) + content
+		}
+		let signedDataType = Data([0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x02])
+		let dataType = Data([0x06, 0x09, 0x2A, 0x86, 0x48, 0x86, 0xF7, 0x0D, 0x01, 0x07, 0x01])
+		let signedData = der(0x30, Data([0x02, 0x01, 0x01]) + der(0x31, Data()) + der(0x30, dataType) + der(0xA0, signer.der) + der(0x31, Data()))
+		let cms = der(0x30, signedDataType + der(0xA0, signedData))
+		let entitlements: [String: Any] = [
+			"application-identifier": "\(developer).com.atelier.app.\(developer)",
+			AppGroups.entitlement: ["group.com.SideStore.SideStore.\(developer)"],
+		]
+		func app(_ binary: Data) throws -> URL {
+			let app = folder.appendingPathComponent("\(UUID().uuidString).app")
+			try FileManager.default.createDirectory(at: app, withIntermediateDirectories: true)
+			let info: [String: Any] = ["CFBundleIdentifier": "com.atelier.app.\(developer)", "CFBundleExecutable": "Atelier"]
+			try PropertyListSerialization.data(fromPropertyList: info, format: .xml, options: 0).write(to: app.appendingPathComponent("Info.plist"))
+			try binary.write(to: app.appendingPathComponent("Atelier"))
+			return app
+		}
+
+		let signed = AppSignature.read(app: try app(Fixture.signedMachO(cmsBytes: 0, entitlements: entitlements, cms: cms)), profile: profile)
+		XCTAssertEqual(signed.certificate?.serialNumber, signer.serialNumber)
+		XCTAssertEqual(signed.appGroups, ["group.com.SideStore.SideStore.\(developer)"])
+
+		// A signature without certificates, as zsign's can be, and no
+		// entitlements: nothing to tell.
+		XCTAssertEqual(AppSignature.read(app: try app(Fixture.signedMachO(cmsBytes: 64)), profile: profile), AppSignature(certificate: nil, appGroups: []))
+		XCTAssertEqual(AppSignature.read(app: try app(Fixture.machO()), profile: profile), AppSignature(certificate: nil, appGroups: []))
+		XCTAssertEqual(AppSignature.read(app: folder.appendingPathComponent("Missing.app"), profile: profile), AppSignature(certificate: nil, appGroups: []))
 	}
 }
 

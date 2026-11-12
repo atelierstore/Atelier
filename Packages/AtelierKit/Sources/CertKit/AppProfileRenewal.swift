@@ -14,14 +14,20 @@ public enum AppProfileRenewal {
 	static let freeLength: TimeInterval = 7 * 86_400
 	static let paidLength: TimeInterval = 365 * 86_400
 
-	/// When Atelier renews `profile` of an Apple ID that's free or not.
-	public static func date(toRenew profile: AppProfile, isFree: Bool) -> Date {
-		profile.expires.addingTimeInterval(-(isFree ? freeLead : paidLead))
+	/// The same for Atelier's own profile from a free Apple ID (#152): four
+	/// days, as once it has ended Atelier doesn't open, and nothing on the
+	/// iPhone renews it then (decided 11 Nov 2026).
+	public static let ownFreeLead: TimeInterval = 4 * 86_400
+
+	/// When Atelier renews `profile` of an Apple ID that's free or not;
+	/// `isOwn` for Atelier's own.
+	public static func date(toRenew profile: AppProfile, isFree: Bool, isOwn: Bool = false) -> Date {
+		profile.expires.addingTimeInterval(-(isFree ? (isOwn ? ownFreeLead : freeLead) : paidLead))
 	}
 
 	/// Whether it's time to renew it, unless it waits for its App ID to end.
-	public static func isDue(_ profile: AppProfile, isFree: Bool, now: Date = .now) -> Bool {
-		now >= date(toRenew: profile, isFree: isFree) && profile.waitsUntil.map { now >= $0 } ?? true
+	public static func isDue(_ profile: AppProfile, isFree: Bool, isOwn: Bool = false, now: Date = .now) -> Bool {
+		now >= date(toRenew: profile, isFree: isFree, isOwn: isOwn) && profile.waitsUntil.map { now >= $0 } ?? true
 	}
 
 	/// Whether a new profile ending at `expires` gives the app more time
@@ -105,11 +111,13 @@ extension StoredAppleID {
 	/// that ends soonest first: those ending within the lead, and those
 	/// signed with a certificate it no longer has, as after it signed in
 	/// again once Apple revoked the one before, unless they were renewed
-	/// since.
-	public func profilesToRenew(now: Date = .now) -> [AppProfile] {
+	/// since. `own` is the bundle ID Atelier itself runs as, when it's one of
+	/// these apps (#152): it's due further ahead, and comes first, as it
+	/// renews the others.
+	public func profilesToRenew(own: String? = nil, now: Date = .now) -> [AppProfile] {
 		(profiles ?? [])
-			.filter { AppProfileRenewal.isDue($0, isFree: isFree, now: now) || isSignedWithAnother($0) }
-			.sorted { $0.expires < $1.expires }
+			.filter { AppProfileRenewal.isDue($0, isFree: isFree, isOwn: $0.bundleID == own, now: now) || isSignedWithAnother($0) }
+			.sorted { ($0.bundleID == own ? 0 : 1, $0.expires) < ($1.bundleID == own ? 0 : 1, $1.expires) }
 	}
 
 	/// Whether the app with `profile` was signed with another certificate

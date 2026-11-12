@@ -236,7 +236,9 @@ extension Checkup {
 		guard let certificate = facts.certificate else {
 			if let account = facts.appleID { return appleID(account, facts) }
 			let hint = facts.ownProfile.map { profile in
-				profile.teamName.map { "Atelier itself was installed with one from \($0). Import that one, and Atelier can update itself too." }
+				// A free Apple ID's certificate can't be imported (#152).
+				if FreeAppleID.isFree(profile) { return "A free Apple ID installed Atelier itself. Sign in with it, and Atelier renews and updates itself too." }
+				return profile.teamName.map { "Atelier itself was installed with one from \($0). Import that one, and Atelier can update itself too." }
 					?? "Import the certificate Atelier itself was installed with, and it can update itself too."
 			}
 			return Item(
@@ -339,6 +341,15 @@ extension Checkup {
 
 	private static func ownUpdates(_ facts: CheckupFacts) -> Item? {
 		guard facts.certificate != nil || facts.appleID != nil, facts.canUpdateAtelier == false else { return nil }
+		// A free Apple ID installed it, which only signing in with it
+		// fixes (#152).
+		if let own = facts.ownProfile, FreeAppleID.isFree(own) {
+			return Item(
+				kind: .ownUpdates, state: .warning, title: "Atelier can't update itself",
+				text: "A free Apple ID installed Atelier, and it isn't signed in here. Sign in with it, and Atelier renews and updates itself.",
+				actions: [.signInWithAppleID], summary: "Can't update Atelier"
+			)
+		}
 		let which = facts.ownProfile?.teamName.map { "Import the one from \($0) that Atelier was installed with." }
 			?? "Import the one Atelier was installed with."
 		return Item(
@@ -415,13 +426,11 @@ extension Checkup {
 	private static func gitHubSignIn(_ facts: CheckupFacts) -> Item? {
 		let locked = facts.sources.filter(\.needsGitHubSignIn)
 		guard let first = locked.first else { return nil }
-		// Atelier knows its own repo is private; of another's, GitHub only
-		// says it can't find it without an account (#134).
-		let text = switch (locked.count, first.isBuiltIn) {
-		case (1, true): "Its source is in a private GitHub repo, so Atelier can't see its own updates until you sign in."
-		case (1, false): "GitHub can't find it without an account. If it's in a private repo, sign in with an account that can see it."
-		default: "GitHub can't find them without an account. If they're in private repos, sign in with an account that can see them."
-		}
+		// GitHub only says it can't find a source without an account (#134).
+		// Atelier's own repo is public, so its source is never one of them.
+		let text = locked.count == 1
+			? "GitHub can't find it without an account. If it's in a private repo, sign in with an account that can see it."
+			: "GitHub can't find them without an account. If they're in private repos, sign in with an account that can see them."
 		return Item(
 			kind: .gitHubSignIn, state: .warning,
 			title: locked.count == 1 ? "\(first.name) needs a GitHub sign-in" : "\(locked.count) sources need a GitHub sign-in",

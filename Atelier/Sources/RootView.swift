@@ -30,6 +30,15 @@ struct RootView: View {
 		installs.map { LibraryItem($0, catalog: catalog.catalog, certificates: certificates, installer: installer) }
 	}
 
+	/// The certificates and the Apple IDs there are, which Atelier's own
+	/// Library entry follows (#24, #152). Apart from the body, which is as
+	/// long as the compiler type-checks.
+	private var signerIDs: [UUID] {
+		let imported = certificates.certificates.map(\.id)
+		let signedIn = certificates.appleIDs.map(\.id)
+		return imported + signedIn
+	}
+
 	/// What Atelier shows while it's in front, which then counts as told
 	/// (#19).
 	private struct Shown: Hashable {
@@ -165,7 +174,10 @@ struct RootView: View {
 		}
 		// The certificate Atelier was installed with, once it's imported
 		// (#24), and the apps of a deleted certificate imported again (#126).
-		.onChange(of: certificates.certificates.map(\.id)) {
+		// Atelier becomes one of the apps of the Apple ID that installed it
+		// once that one signs in too, and stops being one once it signs out
+		// (#152).
+		.onChange(of: signerIDs) {
 			SelfUpdate.shared.syncRecord(in: context, certificates: certificates)
 			certificates.relinkInstalls(in: context)
 		}

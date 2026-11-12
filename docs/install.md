@@ -1,6 +1,6 @@
 # Installing Atelier
 
-Issue #23. Atelier signs and installs other apps, but it has to be signed and installed itself first. It can't be on the App Store or be an EU alternative marketplace, so the first install always happens outside Atelier, with a certificate of your own. After that, Atelier can update itself from its own source (#24).
+Issue #23. Atelier signs and installs other apps, but it has to be signed and installed itself first. It can't be on the App Store or be an EU alternative marketplace, so the first install always happens outside Atelier, with a certificate of your own. After that, Atelier can update itself from its own source (#24), and with a free Apple ID it renews itself too once that Apple ID is signed in to it (#152).
 
 ## What you need
 
@@ -49,6 +49,7 @@ Add it in any AltStore-compatible app to see new releases. Atelier lists itself 
 
 - iOS may ask you to trust the developer (Settings › General › VPN & Device Management) or to turn on Developer Mode (Settings › Privacy & Security › Developer Mode), depending on the certificate.
 - Then set up Atelier with your certificate in Settings, so it can sign other apps.
+- Installed with a free Apple ID, Atelier's own profile ends after 7 days like any app's. Sign in with that Apple ID in Atelier, and Atelier renews itself every week and signs its own updates with it. Until then, its row is in the Library's Renew section with Sign In.
 
 ## Publishing a release (maintainers)
 

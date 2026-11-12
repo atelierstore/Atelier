@@ -48,8 +48,22 @@ struct LibraryItem: Identifiable {
 	/// Atelier itself (#24): it updates from its built-in source only, and
 	/// can't be deleted, opened or installed as an older version from here.
 	let isOwn: Bool
+	/// Atelier itself, installed with a free Apple ID that isn't signed in
+	/// here (#152): until it is, nothing renews Atelier's own profile, so
+	/// its row is in Renew with Sign In.
+	let needsAppleID: OwnSignIn?
 	/// Atelier's icon as it runs: a copy's tint or picture too (#113).
 	private let ownIconURL: URL?
+
+	/// What Atelier's own row says while the free Apple ID that installed
+	/// it isn't signed in (#152).
+	struct OwnSignIn {
+		/// When its profile ends, as its build says; nil once that has
+		/// passed with Atelier still opening, as another tool renewed it.
+		let expires: Date?
+		/// Atelier has Apple IDs, but not that one.
+		let hasOthers: Bool
+	}
 
 	struct OtherSourceUpdate {
 		let offer: Catalog.Offer
@@ -82,6 +96,7 @@ struct LibraryItem: Identifiable {
 	init(_ install: InstallRecord, catalog: Catalog, certificates: CertificatesModel, installer: InstallModel, showing shown: Catalog.Offer? = nil) {
 		self.install = install
 		isOwn = SelfUpdate.shared.isOwn(install)
+		needsAppleID = isOwn ? SelfUpdate.shared.needsAppleID(in: certificates).map { OwnSignIn(expires: $0.expires, hasOthers: $0.hasOthers) } : nil
 		ownIconURL = isOwn ? SelfUpdate.shared.iconURL : nil
 		presence = InstallModel.presence(of: install)
 		let installedFrom = InstallModel.listing(of: install, in: catalog)
@@ -198,8 +213,11 @@ struct LibraryItem: Identifiable {
 	var certificateIsDead: Bool { attention == .revoked || attention == .expired }
 
 	/// The certificate it was signed with, by name, also once deleted; the
-	/// Apple ID (#49).
-	var certificateName: String? { certificate?.displayName ?? appleID?.displayName ?? retired?.name }
+	/// Apple ID (#49), or "Apple ID" for Atelier while the one that
+	/// installed it isn't signed in (#152).
+	var certificateName: String? {
+		certificate?.displayName ?? appleID?.displayName ?? retired?.name ?? (needsAppleID == nil ? nil : "Apple ID")
+	}
 
 	/// The profile Apple gave it for the Apple ID it was installed with
 	/// (#49), which ends long before the Apple ID's certificate: 7 days for
@@ -279,9 +297,10 @@ struct LibraryItem: Identifiable {
 
 	/// The button on the right, as in Browse; Re-sign in the Re-sign
 	/// section (#20), Put Back when its data wasn't put back (#96), and
-	/// Renew in the Renew section (#49).
+	/// Renew in the Renew section (#49), or Sign In there for Atelier
+	/// itself, with the free Apple ID that installed it (#152).
 	enum Action {
-		case open, update, install, resign, putBack, enable, renew
+		case open, update, install, resign, putBack, enable, renew, signIn
 
 		var title: String {
 			switch self {
@@ -292,6 +311,7 @@ struct LibraryItem: Identifiable {
 			case .putBack: "Put Back"
 			case .enable: "Reinstall"
 			case .renew: "Renew"
+			case .signIn: "Sign In"
 			}
 		}
 	}
@@ -365,6 +385,7 @@ struct LibraryActions {
 		case .putBack: putBack(item)
 		case .enable: enable(item)
 		case .renew: renew(item)
+		case .signIn: certificates.beginSignIn()
 		}
 	}
 
@@ -415,9 +436,10 @@ struct LibraryActions {
 		var group = UpdateGroup()
 		for item in items {
 			guard let listing = item.listing, let version = item.update else { continue }
-			// Atelier's own update downloads only once a certificate signs for
-			// its App ID; Update says why not first (#24).
-			if item.isOwn, SelfUpdate.shared.signing(picked: nil, resigning: false, certificates: certificates, context: context) == nil { continue }
+			// Atelier's own update downloads only once a certificate, or its
+			// Apple ID, signs for its App ID; Update says why not first (#24,
+			// #152).
+			if item.isOwn, !SelfUpdate.shared.canSignItself(certificates: certificates, context: context) { continue }
 			let download = downloads.download(listing.app, version: version, sourceURL: listing.source.url)
 			group.add(item.install.bundleID, version: version, download: download.id)
 		}
@@ -640,8 +662,10 @@ struct LibraryRow: View {
 						}
 						.font(.caption.weight(.medium))
 						.foregroundStyle(.secondary)
+					} else if renews, let need = item.needsAppleID {
+						OwnSignInLabel(need: need, name: item.install.name)
 					} else if renews, let profile = item.appProfile {
-						RenewDueLabel(profile: profile, problem: renewals.problems[item.install.bundleID])
+						RenewDueLabel(profile: profile, problem: renewals.problems[item.install.bundleID], isOwn: item.isOwn)
 					} else if dataWaits {
 						Label("Data not put back", systemImage: "exclamationmark.triangle.fill")
 							.font(.caption.weight(.medium))
@@ -695,6 +719,7 @@ struct LibraryRow: View {
 	/// the Renew section, none while it renews; Put Back when its data
 	/// wasn't put back; else as in Browse.
 	private var action: LibraryItem.Action? {
+		if renews, item.needsAppleID != nil { return .signIn }
 		if renews { return renewals.isRenewing(item.install.bundleID) ? nil : .renew }
 		guard let resign else { return dataWaits ? LibraryItem.Action.putBack : item.primary }
 		return resign.canResign ? .resign : nil
@@ -1001,6 +1026,8 @@ struct LibraryStatusLabel: View {
 struct RenewDueLabel: View {
 	let profile: AppProfile
 	let problem: ProfileRenewals.Problem?
+	/// Atelier itself, which signing again installs over itself (#152).
+	var isOwn = false
 
 	var body: some View {
 		if profile.expires <= .now {
@@ -1012,11 +1039,41 @@ struct RenewDueLabel: View {
 				.lineLimit(1)
 		}
 		if let problem, !problem.isUnreachable {
-			Text(problem.message)
+			Text(problem.message(isOwn: isOwn))
 				.font(.caption)
 				.foregroundStyle(.red)
 				.fixedSize(horizontal: false, vertical: true)
 		}
+	}
+}
+
+/// What Atelier's own row in the Library's Renew section says while the
+/// free Apple ID that installed it isn't signed in (#152): when its
+/// profile ends, orange, and that another Apple ID's can't renew it.
+struct OwnSignInLabel: View {
+	let need: LibraryItem.OwnSignIn
+	let name: String
+
+	var body: some View {
+		Label(Self.ends(need.expires), systemImage: "exclamationmark.circle.fill")
+			.font(.caption.weight(.medium))
+			.foregroundStyle(.orange)
+			.lineLimit(1)
+		if need.hasOthers {
+			Text("Another Apple ID installed \(name), so yours can’t renew it. Sign in with that one too.")
+				.font(.caption)
+				.foregroundStyle(.secondary)
+				.fixedSize(horizontal: false, vertical: true)
+		}
+	}
+
+	/// "Ends in 7 days", "Ends tomorrow at 10:42", "Ends today at 10:42";
+	/// without a date, as another tool renewed it since: "Not renewed by
+	/// Atelier".
+	static func ends(_ expires: Date?, now: Date = .now) -> String {
+		guard let expires else { return "Not renewed by Atelier" }
+		let days = AppProfileDays.days(until: expires, now: now)
+		return days > 2 ? "Ends in \(days) days" : "Ends \(AppProfileDays.relative(expires, now: now))"
 	}
 }
 
@@ -1308,6 +1365,12 @@ struct ReplaceConfirmation: ViewModifier {
 /// downloads, when none of the certificates signs for the App ID it was
 /// installed with, or when the build is older than the one running. An IPA
 /// of Atelier can install as a copy instead, in any case (#113).
+///
+/// When Atelier is one of an Apple ID's apps (#152), the question names the
+/// Apple ID that signs it and what that takes of its App IDs, in place of
+/// the sheet other apps get for a new one (decided 11 Nov 2026). When a free
+/// Apple ID installed it and isn't signed in, it offers to sign in rather
+/// than ask for a certificate nobody can export.
 struct SelfInstallConfirmation: ViewModifier {
 	let installer: InstallModel
 	let certificates: CertificatesModel
@@ -1336,7 +1399,14 @@ struct SelfInstallConfirmation: ViewModifier {
 					}
 					copyButton(request)
 					Button("OK", role: .cancel) { installer.dismissSelf(request) }
-				case .older:
+				case .needsAppleID:
+					Button("Sign In with Apple ID") {
+						installer.dismissSelf(request)
+						certificates.beginSignIn()
+					}
+					copyButton(request)
+					Button("OK", role: .cancel) { installer.dismissSelf(request) }
+				case .older, .noAppIDLeft:
 					copyButton(request)
 					Button("OK", role: .cancel) { installer.dismissSelf(request) }
 				}
@@ -1360,7 +1430,7 @@ struct SelfInstallConfirmation: ViewModifier {
 	private func title(_ request: InstallModel.SelfRequest) -> String {
 		let job = request.job
 		let version = job.selfVersion?.display ?? ""
-		let certificate = request.certificateName ?? "another certificate"
+		let certificate = request.certificateName ?? request.appleID ?? "another certificate"
 		switch request.kind {
 		case .confirm:
 			switch job.selfKind {
@@ -1369,12 +1439,13 @@ struct SelfInstallConfirmation: ViewModifier {
 			case .signAgain: return "Sign \(name) again with \(certificate)?"
 			case .resign: return "Re-sign \(name) with \(certificate)?"
 			}
-		case .noCertificate:
+		case .noCertificate, .needsAppleID, .noAppIDLeft:
+			let yet = if case .noAppIDLeft = request.kind { " yet" } else { "" }
 			switch job.selfKind {
-			case .update: return "Can't update \(name)"
-			case .install: return "Can't install \(name) again"
-			case .signAgain: return "Can't sign \(name) again"
-			case .resign: return "Can't re-sign \(name)"
+			case .update: return "Can't update \(name)\(yet)"
+			case .install: return "Can't install \(name) again\(yet)"
+			case .signAgain: return "Can't sign \(name) again\(yet)"
+			case .resign: return "Can't re-sign \(name)\(yet)"
 			}
 		case .older:
 			return "Can't install \(name) \(version)"
@@ -1394,12 +1465,22 @@ struct SelfInstallConfirmation: ViewModifier {
 		let own = SelfUpdate.shared
 		switch request.kind {
 		case .confirm:
-			let text = "Once it's ready, \(name) asks you to go to the Home Screen, as iOS only installs it after you leave. Your sources, certificates and Library stay as they are."
+			var text = "Once it's ready, \(name) asks you to go to the Home Screen, as iOS only installs it after you leave. Your sources, certificates and Library stay as they are."
 			switch installer.installsAhead {
-			case 0: return text
-			case 1: return "\(text) It starts once the install in progress has finished."
-			case let count: return "\(text) It starts once the \(count) installs in progress have finished."
+			case 0: break
+			case 1: text += " It starts once the install in progress has finished."
+			case let count: text += " It starts once the \(count) installs in progress have finished."
 			}
+			// What signs it, first, when that's its Apple ID (#152).
+			return appleIDLine(request).map { "\($0)\n\n\(text)" } ?? text
+		case .needsAppleID:
+			let verb = request.job.selfKind == .update ? "update itself" : "sign itself again"
+			let text = "A free Apple ID installed \(name). Sign in with it, and \(name) can \(verb)."
+			return request.copyJob == nil ? text : "\(text) Or install it as a copy, a second app next to this one."
+		case .noAppIDLeft(let until):
+			let left = until.map { "until \(AppProfileDays.describe($0))" } ?? "this week"
+			let text = "\(name) signs itself with \(request.appleID ?? "its Apple ID"). Its App ID ended, and that Apple ID has no new ones left \(left)."
+			return request.copyJob == nil ? text : "\(text) You can install it as a copy, a second app next to this one, instead."
 		case .noCertificate:
 			let verb = request.job.selfKind == .update ? "update itself" : "install over itself"
 			let other = request.job.selfKind == .update ? "install the update" : "install it again"
@@ -1409,6 +1490,24 @@ struct SelfInstallConfirmation: ViewModifier {
 			let running = own.build.map { "\(own.version) (\($0))" } ?? own.version
 			let text = "It's older than the \(running) running now, and an older build may not read the data this one saved."
 			return request.copyJob == nil ? text : "\(text) You can install it as a copy, a second app next to this one, instead."
+		}
+	}
+
+	/// "Atelier signs it with name@example.com, using its App ID again.":
+	/// the Apple ID that signs Atelier's own install (#152), and whether
+	/// that takes one of the week's new App IDs, as it last said. Sign Again
+	/// and Re-sign name the Apple ID in their title already.
+	private func appleIDLine(_ request: InstallModel.SelfRequest) -> String? {
+		guard let appleID = request.appleID else { return nil }
+		let named = request.job.selfKind == .signAgain || request.job.selfKind == .resign
+		switch request.appIDUse {
+		case .again?:
+			return named ? "It uses its App ID again." : "\(name) signs it with \(appleID), using its App ID again."
+		case .new(let left)?:
+			let takes = "Its App ID ended, so this takes \(left == 1 ? "the last new app" : "one of the \(left) new apps") left this week."
+			return named ? takes : "\(name) signs it with \(appleID). \(takes)"
+		case .noneLeft?, .unknown?, nil:
+			return named ? nil : "\(name) signs it with \(appleID)."
 		}
 	}
 }
@@ -1559,7 +1658,7 @@ struct InstalledWithCard: View {
 					AppleIDInstalledRow(account: account, profile: profile, disabled: disabled)
 				}
 				if !disabled, let profile {
-					Text(Self.profileNote(profile, of: account, name: install.name))
+					Text(Self.profileNote(profile, of: account, name: install.name, isOwn: SelfUpdate.shared.isOwn(install)))
 						.font(.footnote)
 						.foregroundStyle(.secondary)
 						// Its whole height once it grows longer, as when the
@@ -1567,11 +1666,23 @@ struct InstalledWithCard: View {
 						.fixedSize(horizontal: false, vertical: true)
 				}
 			} else if SelfUpdate.shared.isOwn(install), let profile = SelfUpdate.shared.installedProfile {
-				InstalledProfileRow(profile: profile)
+				// A free Apple ID that isn't signed in here (#152): nothing
+				// renews Atelier until it is.
+				let need = SelfUpdate.shared.needsAppleID(in: certificates)
+				InstalledProfileRow(profile: profile, isFreeAppleID: need != nil)
 					.padding(.horizontal, 12)
 					.padding(.vertical, 8)
 					.frame(maxWidth: .infinity, alignment: .leading)
 					.background(Color(.tertiarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+				if let need {
+					Text(Self.signInNote(need.expires, hasOthers: need.hasOthers, name: install.name))
+						.font(.footnote)
+						.foregroundStyle(.secondary)
+						.fixedSize(horizontal: false, vertical: true)
+					Button("Sign In with Apple ID") { certificates.beginSignIn() }
+						.font(.subheadline.weight(.semibold))
+						.buttonStyle(.borderless)
+				}
 			} else if install.ipaBundleID != install.appBundleID {
 				// Its Apple ID was signed out of (#49).
 				Text("An Apple ID you signed out of")
@@ -1585,7 +1696,9 @@ struct InstalledWithCard: View {
 
 	/// "Its profile ends on Sun 15 Nov at 18:05. Atelier renews it on Fri
 	/// 13 Nov, without reinstalling. Last renewed on Sun 8 Nov." (#49)
-	static func profileNote(_ profile: AppProfile, of account: StoredAppleID, name: String, now: Date = .now) -> String {
+	///
+	/// `isOwn` for Atelier itself (#152), which renews four days ahead.
+	static func profileNote(_ profile: AppProfile, of account: StoredAppleID, name: String, isOwn: Bool = false, now: Date = .now) -> String {
 		let signIn = AppProfileRenewal.needsSignIn(account, now: now)
 		var lines: [String] = []
 		if profile.expires <= now {
@@ -1593,7 +1706,7 @@ struct InstalledWithCard: View {
 			lines.append("Its profile ended on \(AppProfileDays.describe(profile.expires)), so \(name) doesn’t open until \(until).")
 		} else {
 			lines.append("Its profile ends on \(AppProfileDays.describe(profile.expires)).")
-			let renews = ProfileRenewals.date(toRenew: profile, of: account)
+			let renews = ProfileRenewals.date(toRenew: profile, of: account, isOwn: isOwn)
 			if signIn {
 				lines.append("It renews once you sign in with its Apple ID again.")
 			} else if renews > now {
@@ -1606,6 +1719,17 @@ struct InstalledWithCard: View {
 			lines.append("Last renewed \(AppProfileDays.day(renewed, now: now)).")
 		}
 		return lines.joined(separator: " ")
+	}
+
+	/// Atelier's own page, while the free Apple ID that installed it isn't
+	/// signed in (#152): "A free Apple ID installed Atelier, so its profile
+	/// ends on Wed 18 Nov at 10:42 and Atelier stops opening then. Sign in
+	/// with that Apple ID, and Atelier renews itself every week."
+	static func signInNote(_ expires: Date?, hasOthers: Bool, name: String) -> String {
+		let ends = expires.map { "so its profile ends on \(AppProfileDays.describe($0)) and \(name) stops opening then" }
+			?? "so its profile lasts 7 days and \(name) stops opening once it has ended"
+		let which = hasOthers ? "Another Apple ID than yours installed \(name)" : "A free Apple ID installed \(name)"
+		return "\(which), \(ends). Sign in with that Apple ID\(hasOthers ? " too" : ""), and \(name) renews itself every week."
 	}
 
 	/// A card that opens the certificate's or Apple ID's page.
@@ -1633,6 +1757,9 @@ struct InstalledWithCard: View {
 /// that one, else its team's, and how long it has left.
 private struct InstalledProfileRow: View {
 	let profile: ProvisioningProfile
+	/// A free Apple ID's profile (#152), whose certificate can't be
+	/// imported: signing in with it is what's left.
+	var isFreeAppleID = false
 
 	/// The certificate the profile lists, when it lists only one.
 	private var listed: SigningCertificate? {
@@ -1657,7 +1784,7 @@ private struct InstalledProfileRow: View {
 				Text(single.map { Self.name(of: $0) } ?? profile.teamName ?? profile.name)
 					.font(.headline)
 					.lineLimit(1)
-				Text("Not imported here · \(Self.remaining(expiry))")
+				Text("\(isFreeAppleID ? "A free Apple ID" : "Not imported here") · \(Self.remaining(expiry))")
 					.font(.subheadline)
 					.foregroundStyle(.secondary)
 					.lineLimit(1)

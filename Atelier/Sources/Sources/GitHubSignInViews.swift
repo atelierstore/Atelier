@@ -27,7 +27,6 @@ struct GitHubSignInNotice: View {
 		case versions
 	}
 
-	let sourceURL: URL
 	let sourceName: String
 	let page: Page
 
@@ -50,16 +49,12 @@ struct GitHubSignInNotice: View {
 		}
 	}
 
-	/// Atelier's own source is in a private repo, which it can say; GitHub
-	/// says no more about another's without an account than that it can't
-	/// find it.
+	/// GitHub says no more about a source without an account than that it
+	/// can't find it. Atelier's own is in a public repo, so it never asks.
 	private var message: String {
 		let outOfDate = switch page {
 		case .app: "this page may be out of date"
 		case .versions: "newer versions may be missing"
-		}
-		if sourceURL == SelfUpdate.sourceURL {
-			return "\(sourceName)'s source is in a private GitHub repo, so \(outOfDate) until you sign in."
 		}
 		return "GitHub can't find \(sourceName) without an account, so \(outOfDate). If it's in a private repo, sign in."
 	}
