@@ -603,7 +603,16 @@ struct LibraryRow: View {
 	@Environment(SourcesModel.self) private var sources
 
 	var body: some View {
-		let deleted = item.presence == .deleted
+		// An install over it, such as Re-sign's, shows here rather than in
+		// Downloads too, and an app deleted for it to be installed again
+		// keeps its icon meanwhile (12 Nov 2026).
+		let installing = installer.status(ofLibraryApp: item.install.bundleID, key: item.appKey)
+		let installLine = LibraryInstallLine(
+			status: installing,
+			download: installer.downloadID(ofLibraryApp: item.install.bundleID, key: item.appKey).flatMap { downloads.download(id: $0) },
+			downloads: downloads
+		)
+		let deleted = item.presence == .deleted && installing == nil
 		HStack(spacing: 12) {
 			if item.disabled != nil {
 				DisabledAppIcon(url: item.iconURL, tint: item.tint, size: 48)
@@ -629,6 +638,8 @@ struct LibraryRow: View {
 						.lineLimit(1)
 					if let line = selfInstallLine {
 						line
+					} else if case .running? = installing, let installLine {
+						installLine
 					} else if let download = item.updateDownload(downloads), let label = UpdateDownloadLabel(download: download, downloads: downloads) {
 						label
 						// New permissions still say so.
@@ -643,6 +654,8 @@ struct LibraryRow: View {
 						.lineLimit(1)
 					if let line = selfInstallLine {
 						line
+					} else if let installLine {
+						installLine
 					} else if let disabled = item.disabled {
 						// Off this iPhone, its data kept (#49). The cloud on its
 						// icon says so already (4 Nov 2026).
@@ -678,26 +691,31 @@ struct LibraryRow: View {
 							.font(.caption.weight(.medium))
 							.foregroundStyle(.orange)
 					} else if justUpdated, case .daysLeft = item.status {
-						Label("Updated just now", systemImage: "checkmark")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.green)
+						JustDoneLabel("Updated just now", short: "Updated", systemImage: "checkmark")
 					} else if justResigned, case .daysLeft = item.status {
-						Label("Re-signed just now", systemImage: "checkmark")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.green)
+						JustDoneLabel("Re-signed just now", short: "Re-signed", systemImage: "checkmark")
 					} else if renewals.recentlyRenewed.contains(item.install.bundleID), case .daysLeft(let text) = item.status {
 						// Until the Library is left (#49).
-						Label("Renewed · \(text)", systemImage: "checkmark.seal.fill")
-							.font(.caption.weight(.medium))
-							.foregroundStyle(.green)
+						JustDoneLabel("Renewed · \(text)", short: "Renewed", systemImage: "checkmark.seal.fill")
 					} else {
 						LibraryStatusLabel(status: item.status)
 					}
 				}
 			}
+			// Icons close to their text, as Browse's, rather than in a
+			// column of their own, so a status fits next to Open (12 Nov 2026).
+			.labelStyle(InlineLabelStyle())
 			Spacer(minLength: 8)
-			if let action {
-				LibraryButton(action: action, status: installer.status(of: item.appKey)) { perform(action) }
+			if installing == nil, let fetching = installer.fetchingIPA(of: item.install.bundleID), downloads.download(id: fetching) != nil {
+				// Its IPA downloads, for Re-sign or Custom Install… to install
+				// over it: no install to stop yet, but the download (12 Nov 2026).
+				Button { installer.cancelIPADownload(of: item.install.bundleID, downloads: downloads) } label: {
+					GroupRing(fraction: downloads.progress[fetching]?.fraction)
+				}
+				.buttonStyle(.plain)
+				.accessibilityLabel("Cancel download")
+			} else if let action {
+				LibraryButton(action: action, status: installing) { perform(action) }
 					// Put Back waits for no install (#96).
 					.disabled(action == .putBack && !installer.canPutBack)
 			}
@@ -753,6 +771,74 @@ struct LibraryRow: View {
 		case .daysLeft, .nothing: return true
 		default: return false
 		}
+	}
+}
+
+/// What an app's row says while an install over it waits or runs, or its
+/// IPA downloads for one, in place of its status, in blue as Update All's
+/// rows say it: Re-sign's, Reinstall's, Custom Install's or an update's,
+/// rather than a row in Downloads too (12 Nov 2026). Nil when there's
+/// none.
+struct LibraryInstallLine: View {
+	private let text: String
+	/// Under way, rather than waiting or paused.
+	private let active: Bool
+
+	init?(status: InstallModel.AppStatus?, download: Download?, downloads: DownloadManager) {
+		switch status {
+		case .running(let stage)?:
+			text = UpdateGroupRow.describe(stage)
+			active = true
+		case .waiting?, nil:
+			switch download?.status {
+			case .downloading?:
+				let fraction = download.flatMap { downloads.progress[$0.id]?.fraction }
+				text = fraction.map { "Downloading… \(Int($0 * 100))%" } ?? "Downloading…"
+				active = true
+			case .paused?:
+				text = "Download paused"
+				active = false
+			case .finished? where status != nil:
+				text = "Downloaded, waiting"
+				active = false
+			default:
+				guard status != nil else { return nil }
+				text = "Waiting"
+				active = false
+			}
+		}
+	}
+
+	var body: some View {
+		Text(text)
+			.font(.caption.weight(.medium))
+			.foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+			.lineLimit(1)
+	}
+}
+
+/// "Re-signed just now", in green on one line, or "Re-signed" alone in a
+/// row too narrow for it, rather than on two lines (12 Nov 2026).
+struct JustDoneLabel: View {
+	let text: String
+	let short: String
+	let systemImage: String
+
+	init(_ text: String, short: String, systemImage: String) {
+		self.text = text
+		self.short = short
+		self.systemImage = systemImage
+	}
+
+	var body: some View {
+		ViewThatFits(in: .horizontal) {
+			Label(text, systemImage: systemImage)
+				.lineLimit(1)
+			Label(short, systemImage: systemImage)
+				.lineLimit(1)
+		}
+		.font(.caption.weight(.medium))
+		.foregroundStyle(.green)
 	}
 }
 

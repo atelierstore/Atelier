@@ -172,9 +172,12 @@ struct LibraryView: View {
 		let resignGrouped = resignMembers.filter { !resignedIDs.contains($0.install.bundleID) }
 		let resignGroupedIDs = Set(resignGrouped.map(\.install.bundleID))
 		// Apps whose certificate died are in Re-sign rather than Updates or
-		// Installed; with an update, re-signing keeps their version.
-		let toResign = items.filter { $0.needsResign && !resignGroupedIDs.contains($0.install.bundleID) }
-		let inResign = { (item: LibraryItem) in item.needsResign || resignGroupedIDs.contains(item.install.bundleID) }
+		// Installed; with an update, re-signing keeps their version. One
+		// stays there while it's re-signed, also once it's deleted to be
+		// installed again (12 Nov 2026).
+		let needsResign = { (item: LibraryItem) in item.needsResign || installer.isResigning(item.install.bundleID) }
+		let toResign = items.filter { needsResign($0) && !resignGroupedIDs.contains($0.install.bundleID) }
+		let inResign = { (item: LibraryItem) in needsResign(item) || resignGroupedIDs.contains(item.install.bundleID) }
 		// Apps due to renew that Atelier couldn't renew by itself, or whose
 		// profile ended, are in Renew rather than Updates or Installed (#49).
 		let renewals = ProfileRenewals.shared
@@ -194,9 +197,11 @@ struct LibraryView: View {
 		let disabled = items.filter { $0.disabled != nil }
 		let resignIsDone = resigning?.isDone(installer: installer) ?? false
 		// Downloads shown in Update All's and Re-sign All's rows instead,
-		// and every update's, in its row (#19).
+		// and every update's, in its row (#19), as is that of any install
+		// over an app here, such as Re-sign's (12 Nov 2026).
 		let updateDownloads = Set(items.compactMap { $0.updateDownload(downloads)?.id })
-		let groupDownloads = (group?.downloadIDs ?? []).union(resigning?.downloadIDs ?? []).union(updateDownloads)
+		let rowDownloads = Set(items.compactMap { installer.downloadID(ofLibraryApp: $0.install.bundleID, key: $0.appKey) })
+		let groupDownloads = (group?.downloadIDs ?? []).union(resigning?.downloadIDs ?? []).union(updateDownloads).union(rowDownloads)
 		// While searching, only the apps it finds show, each in its section,
 		// and no button that acts on a whole section, so none acts on apps
 		// that aren't shown (#124). The groups and sections above still go
@@ -553,7 +558,8 @@ extension LibraryView {
 				}
 			}
 		} else if !items.isEmpty {
-			let resignable = items.filter { notes[$0.install.bundleID]?.canResign ?? false }
+			// Not one that's being re-signed (12 Nov 2026).
+			let resignable = items.filter { (notes[$0.install.bundleID]?.canResign ?? false) && !installer.isResigning($0.install.bundleID) }
 			Section {
 				ForEach(items) { item in
 					row(item, showsUpdate: false, resign: notes[item.install.bundleID], actions: actions)
@@ -649,7 +655,7 @@ extension LibraryView {
 		let actions = actions
 		let items = installs.map { LibraryItem($0, catalog: catalog.catalog, certificates: certificates, installer: installer) }
 		let resignable = items.filter { item in
-			item.needsResign && !(resignGroup?.contains(item.install.bundleID) ?? false)
+			item.needsResign && !(resignGroup?.contains(item.install.bundleID) ?? false) && !installer.isResigning(item.install.bundleID)
 				&& actions.resignNote(for: item, target: target, failure: nil).canResign
 		}
 		guard !resignable.isEmpty else { return }
