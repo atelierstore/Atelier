@@ -10,3 +10,4 @@ Payload/
 .zsign_cache/
 __pycache__/
 Atelier/LiveActivity/Info.plist
+Atelier/StandIn/Info.plist

@@ -922,6 +922,10 @@ private struct TestActionsSection: View {
 				NavigationLink("End an App’s Profile") {
 					RenewalTestView()
 				}
+				// Markers in offloaded apps' spots (9 Nov 2026).
+				NavigationLink("Offload Markers Test") {
+					OffloadMarkersTestView()
+				}
 				// The first launch's welcome and Get Ready, again (#21).
 				Button("Show Welcome") { Welcome.shared.show() }
 			} header: {

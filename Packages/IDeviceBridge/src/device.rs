@@ -2,9 +2,10 @@
 //! plist handles (#9): this iPhone's UDID, Developer Mode, the installed
 //! version of an app, and installd's records of who signed installed apps
 //! (#99). And the Home Screen's layout, which SpringBoard reads and writes,
-//! to keep an app's spot when Atelier deletes it and installs it again.
-//! Each answer comes back as plain text, or as a serialized plist, for
-//! Swift, so the app needs none of idevice's plist functions.
+//! to keep an app's spot when Atelier deletes it and installs it again, and
+//! iOS's profile service, for the markers in offloaded apps' spots. Each
+//! answer comes back as plain text, or as a serialized plist, for Swift, so
+//! the app needs none of idevice's plist functions.
 //!
 //! Only builds inside idevice-ffi, which `build-rust.sh` adds it to, because it
 //! takes idevice-ffi's handles. The crate around `pairing.rs` doesn't build it.
@@ -478,6 +479,107 @@ pub unsafe extern "C" fn atelier_home_screen_apps(
     });
     match result {
         Ok(apps) => unsafe { write_plist(&apps, out_plist, out_length) },
+        Err(e) => ffi_err!(e),
+    }
+}
+
+/// MCInstall, iOS's configuration profile service, as Apple Configurator
+/// talks to it, over the tunnel: Atelier's markers for offloaded apps'
+/// spots are web clips, which only a profile makes (9 Nov 2026). idevice
+/// has no client for it, so this one checks in and sends plists.
+struct ProfileService {
+    idevice: Idevice,
+}
+
+impl RsdService for ProfileService {
+    fn rsd_service_name() -> std::borrow::Cow<'static, str> {
+        "com.apple.mobile.MCInstall.shim.remote".into()
+    }
+
+    async fn from_stream(stream: Box<dyn idevice::ReadWrite>) -> Result<Self, IdeviceError> {
+        let mut idevice = Idevice::new(stream, "atelier");
+        idevice.rsd_checkin().await?;
+        Ok(Self { idevice })
+    }
+}
+
+/// How long iOS's profile service may take to answer one request.
+const PROFILE_WAIT: Duration = Duration::from_secs(60);
+
+/// Sends `requests`, a binary plist array of MCInstall requests
+/// (`RequestType` and their values: `HelloHostIdentifier`,
+/// `GetProfileList`, `InstallProfile` with `Payload`, `RemoveProfile` with
+/// `ProfileIdentifier`), one after the other on one connection, and answers
+/// a binary plist array of what iOS said to each, in order. Swift reads the
+/// `Status` of each; this stops only when the connection does. Free the
+/// bytes with [`atelier_device_data_free`].
+///
+/// # Safety
+/// `adapter` and `handshake` must be live handles from the same tunnel,
+/// `requests` `length` readable bytes, and `out_plist` and `out_length`
+/// writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn atelier_profile_requests(
+    adapter: *mut AdapterHandle,
+    handshake: *mut RsdHandshakeHandle,
+    requests: *const u8,
+    length: libc::size_t,
+    out_plist: *mut *mut u8,
+    out_length: *mut libc::size_t,
+) -> *mut IdeviceFfiError {
+    if adapter.is_null()
+        || handshake.is_null()
+        || requests.is_null()
+        || out_plist.is_null()
+        || out_length.is_null()
+    {
+        return ffi_err!(IdeviceError::FfiInvalidArg);
+    }
+    let bytes = unsafe { std::slice::from_raw_parts(requests, length) };
+    let requests = match plist::from_bytes::<plist::Value>(bytes) {
+        Ok(plist::Value::Array(requests)) => requests,
+        Ok(_) => {
+            return ffi_err!(IdeviceError::UnexpectedResponse(
+                "the profile requests aren't a list".into()
+            ));
+        }
+        Err(e) => {
+            return ffi_err!(IdeviceError::UnexpectedResponse(format!(
+                "couldn't read the profile requests: {e}"
+            )));
+        }
+    };
+    let result = run_sync_local(async move {
+        let adapter = unsafe { &mut (*adapter).0 };
+        let handshake = unsafe { &mut (*handshake).0 };
+        let mut service = ProfileService::connect_rsd(adapter, handshake).await?;
+        let mut answers = Vec::with_capacity(requests.len());
+        for request in requests {
+            let mut message = Vec::new();
+            request.to_writer_xml(&mut message).map_err(|e| {
+                IdeviceError::UnexpectedResponse(format!("couldn't write a profile request: {e}"))
+            })?;
+            let mut framed = (message.len() as u32).to_be_bytes().to_vec();
+            framed.extend_from_slice(&message);
+            service.idevice.send_raw(&framed).await?;
+            let answer = tokio::time::timeout(PROFILE_WAIT, read_message(&mut service.idevice))
+                .await
+                .map_err(|_| {
+                    IdeviceError::UnexpectedResponse(
+                        "iOS's profile service didn't answer within a minute".into(),
+                    )
+                })??;
+            let answer = plist::from_bytes::<plist::Value>(&answer).map_err(|e| {
+                IdeviceError::UnexpectedResponse(format!(
+                    "couldn't read iOS's profile service's answer: {e}"
+                ))
+            })?;
+            answers.push(answer);
+        }
+        Ok::<_, IdeviceError>(plist::Value::Array(answers))
+    });
+    match result {
+        Ok(answers) => unsafe { write_plist(&answers, out_plist, out_length) },
         Err(e) => ffi_err!(e),
     }
 }

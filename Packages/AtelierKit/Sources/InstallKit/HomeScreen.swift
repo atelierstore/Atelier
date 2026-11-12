@@ -320,7 +320,7 @@ public struct HomeScreenLayout: Equatable, Sendable {
 	}
 
 	/// The first icon for `id`, as the layout has it.
-	private func item(_ id: String) -> Item? {
+	func item(_ id: String) -> Item? {
 		for item in dock + pages.flatMap({ $0 }) {
 			if item.id == id { return item }
 			if case .folder(_, let folderPages, _) = item, let inner = folderPages.flatMap({ $0 }).first(where: { $0.id == id }) {
@@ -394,7 +394,7 @@ public struct HomeScreenLayout: Equatable, Sendable {
 		}
 	}
 
-	private static func places(_ items: [Item]) -> Int {
+	static func places(_ items: [Item]) -> Int {
 		items.reduce(0) { $0 + $1.places }
 	}
 
