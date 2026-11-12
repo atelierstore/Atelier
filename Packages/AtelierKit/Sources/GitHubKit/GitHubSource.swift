@@ -541,18 +541,18 @@ public actor GitHubSource {
 extension GitHubSource {
 	/// An AltStore source kept in a GitHub repo, read through a GitHub
 	/// account that can see the repo: while the repo is private,
-	/// raw.githubusercontent.com answers 404, as it does for Atelier's own
-	/// source until its repo is public. Its downloads from the repo's
+	/// raw.githubusercontent.com answers 404. Its downloads from the repo's
 	/// releases move to GitHub's API, as a private repo's own releases
 	/// download (#74); the app loads the images kept in the repo through an
 	/// account too. `etag` is the last read's.
+	///
+	/// Without an account, GitHub's API is asked without a token. It can't
+	/// see a private repo either, but it reads a public one's file, and
+	/// for both it says when the repo is there and the branch or file
+	/// isn't, so that's what Atelier says rather than asking to sign in.
 	public func fetch(_ file: GitHubFile, etag: String? = nil) async throws -> SourceFetcher.Outcome {
 		let repo = file.repo
-		// Without an account, GitHub's API can't see a private repo either.
-		guard credentials.candidates(for: repo).contains(where: { $0.account != nil }) else {
-			throw GitHubAPI.Problem.notFound(repo, accounts: 0)
-		}
-		let (result, api) = try await credentials.first(for: repo) { try await $0.file(file, etag: etag) }
+		let (result, api) = try await credentials.first(for: repo) { try await $0.source(file, etag: etag) }
 		guard case .fetched(let data, let newETag) = result else { return .notModified }
 		guard data.count <= SourceFetcher.maximumSize else { throw SourceFetcher.Problem.tooLarge }
 		let json: Any
@@ -563,7 +563,9 @@ extension GitHubSource {
 			throw SourceFetcher.Problem.notASource(String(describing: error))
 		}
 		var moves: [String: String] = [:]
-		if case .fetched(let releases, _) = try await api.releases(repo) {
+		// Read without an account, the repo is public, so its downloads
+		// stay on github.com.
+		if api.hasToken, case .fetched(let releases, _) = try await api.releases(repo) {
 			moves = GitHubAPI.apiURLs(of: releases).mapValues(\.absoluteString)
 		}
 		let moved = try JSONSerialization.data(withJSONObject: Self.moving(moves, in: json))

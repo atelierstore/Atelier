@@ -55,6 +55,9 @@ final class FakeGitHub: @unchecked Sendable {
 	var files: [String: Data] = [:]
 	/// Files in the repo, as `<path>@<ref>`.
 	var contents: [String: Data] = [:]
+	/// The repo's branches, when set: GitHub answers a file asked for at
+	/// another as it does, with 404 and why.
+	var branches: Set<String>?
 	var requests: [URLRequest] = []
 	var etag = "\"abc\""
 	var remaining = "59"
@@ -103,6 +106,9 @@ final class FakeGitHub: @unchecked Sendable {
 			}
 			if let range = url.path.range(of: "/contents/") {
 				let ref = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "ref" }?.value ?? ""
+				if let branches, !branches.contains(ref) {
+					return respond(404, try JSONSerialization.data(withJSONObject: ["message": "No commit found for the ref \(ref)", "status": "404"]))
+				}
 				guard request.value(forHTTPHeaderField: "Accept") == "application/vnd.github.raw+json",
 				      let data = contents["\(url.path[range.upperBound...])@\(ref)"]
 				else { return respond(404) }
@@ -848,10 +854,14 @@ final class GitHubAccountsTests: XCTestCase {
 		XCTAssertEqual(app.versions[0].marketingVersion, "0.2.0-alpha", "the rest stays")
 		// Images stay as they are: the app loads them through an account.
 		XCTAssertEqual(app.iconURL?.absoluteString, "https://raw.githubusercontent.com/owner/repo/source/icon.png")
-		// The first account can't see the repo, the second reads the source
-		// and its releases, and nothing else.
-		XCTAssertEqual(fake.requests.compactMap { $0.url?.path }, ["/repos/owner/repo/contents/source.json", "/repos/owner/repo/contents/source.json", "/repos/owner/repo/releases"])
-		XCTAssertEqual(fake.apiTokens, ["personal", "work", "work"])
+		// The first account can't see the source, nor the repo, so it isn't
+		// what's missing; the second reads the source and its releases, and
+		// nothing else.
+		XCTAssertEqual(fake.requests.compactMap { $0.url?.path }, [
+			"/repos/owner/repo/contents/source.json", "/repos/owner/repo",
+			"/repos/owner/repo/contents/source.json", "/repos/owner/repo/releases",
+		])
+		XCTAssertEqual(fake.apiTokens, ["personal", "personal", "work", "work"])
 		XCTAssertEqual(fake.requests.first?.url?.absoluteString, "https://api.github.com/repos/owner/repo/contents/source.json?ref=source")
 		XCTAssertEqual(accounts.account(for: file.repo), work)
 
@@ -860,18 +870,82 @@ final class GitHubAccountsTests: XCTestCase {
 		guard case .notModified = try await source.fetch(file, etag: fetched.etag) else { return XCTFail("read again") }
 		XCTAssertEqual(fake.apiTokens, ["work"])
 
-		// Without an account, GitHub's API isn't asked: it can't see a private repo.
+		// Without an account, GitHub's API can't see a private repo, so
+		// signing in may be all it takes.
 		fake.clearRequests()
 		do {
-			let none = GitHubAccounts(defaults: UserDefaults(suiteName: "GitHubAccountsTests.\(UUID().uuidString)")!, tokens: MemoryTokens()) { token in
-				GitHubAPI(token: token, load: fake.load, loadWithoutRedirects: fake.load)
-			}
-			_ = try await GitHubSource(credentials: none, ipa: RemoteIPA(load: fake.load)).fetch(file)
+			_ = try await GitHubSource(credentials: noAccounts(fake), ipa: RemoteIPA(load: fake.load)).fetch(file)
 			XCTFail("read without an account")
 		} catch {
 			XCTAssertEqual(error as? GitHubAPI.Problem, .notFound(file.repo, accounts: 0))
 		}
-		XCTAssertTrue(fake.requests.isEmpty)
+		XCTAssertEqual(fake.requests.compactMap { $0.url?.path }, ["/repos/owner/repo/contents/source.json", "/repos/owner/repo"])
+		XCTAssertEqual(fake.apiTokens, ["", ""])
+
+		// No account can see it: said as for the repo itself.
+		fake.canSee = []
+		do {
+			_ = try await source.fetch(file)
+			XCTFail("read a repo no account can see")
+		} catch {
+			XCTAssertEqual(error as? GitHubAPI.Problem, .notFound(file.repo, accounts: 2))
+		}
+	}
+
+	private func noAccounts(_ fake: FakeGitHub) -> GitHubAccounts {
+		GitHubAccounts(defaults: UserDefaults(suiteName: "GitHubAccountsTests.\(UUID().uuidString)")!, tokens: MemoryTokens()) { token in
+			GitHubAPI(token: token, load: fake.load, loadWithoutRedirects: fake.load)
+		}
+	}
+
+	/// A source kept in a repo GitHub shows, whose branch or file isn't
+	/// there, as Atelier's own before its first release made its branch:
+	/// said so, with or without an account, and the repo as GitHub spells
+	/// it, rather than that the account can't see it or should sign in.
+	func testASourceGitHubShowsTheRepoOf() async throws {
+		let fake = FakeGitHub()
+		fake.branches = ["main"]
+		let file = try XCTUnwrap(GitHubFile(rawURL: URL(string: "https://raw.githubusercontent.com/owner/repo/source/source.json")!))
+		let signedOut = GitHubSource(credentials: noAccounts(fake), ipa: RemoteIPA(load: fake.load))
+		let signedIn = GitHubSource(credentials: try twoAccounts(fake).0, ipa: RemoteIPA(load: fake.load))
+
+		for source in [signedOut, signedIn] {
+			do {
+				_ = try await source.fetch(file)
+				XCTFail("read a branch the repo doesn't have")
+			} catch {
+				XCTAssertEqual(error as? GitHubAPI.Problem, .noBranch(file, repo: "Owner/Repo"))
+			}
+		}
+		XCTAssertEqual(GitHubAPI.Problem.noBranch(file, repo: "Owner/Repo").description, "There's no source branch in Owner/Repo.")
+		// The first account asked, and nothing else.
+		XCTAssertEqual(Array(fake.apiTokens.suffix(2)), ["personal", "personal"])
+
+		// The branch, but not the file.
+		fake.branches = ["main", "source"]
+		for source in [signedOut, signedIn] {
+			do {
+				_ = try await source.fetch(file)
+				XCTFail("read a file the repo doesn't have")
+			} catch {
+				XCTAssertEqual(error as? GitHubAPI.Problem, .noFile(file, repo: "Owner/Repo"))
+			}
+		}
+		XCTAssertEqual(GitHubAPI.Problem.noFile(file, repo: "Owner/Repo").description, "There's no source.json on Owner/Repo's source branch.")
+
+		// Once it's there, it's read without an account too, as
+		// raw.githubusercontent.com may not have it yet; the repo is
+		// public, so its downloads stay on github.com.
+		fake.contents["source.json@source"] = Data("""
+		{"name": "Atelier", "identifier": "com.atelier.source", "apps": [{"name": "Atelier", "bundleIdentifier": "com.atelier.app", "versions": [
+			{"version": "0.6.0", "downloadURL": "https://github.com/owner/repo/releases/download/v0.6.0-alpha/Atelier-0.6.0-alpha.ipa"}
+		]}]}
+		""".utf8)
+		fake.clearRequests()
+		guard case .fetched(let fetched) = try await signedOut.fetch(file) else { return XCTFail("not read") }
+		XCTAssertEqual(fetched.parsed.source.apps[0].versions.map(\.downloadURL.absoluteString), ["https://github.com/owner/repo/releases/download/v0.6.0-alpha/Atelier-0.6.0-alpha.ipa"])
+		XCTAssertEqual(fake.requests.compactMap { $0.url?.path }, ["/repos/owner/repo/contents/source.json"])
+		XCTAssertEqual(fake.apiTokens, [""])
 	}
 
 	/// A link to a file in a private repo's release, pasted in the Library

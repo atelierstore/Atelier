@@ -189,7 +189,7 @@ struct SourceAppsView: View {
 				if !model.isLoaded {
 					ProgressView()
 				} else if source.needsGitHubSignIn {
-					GitHubSignInNeeded(source: source)
+					GitHubSignInNeeded()
 				} else if let error = source.refreshError {
 					ContentUnavailableView("Couldn't load the source", systemImage: "exclamationmark.triangle", description: Text(error))
 				} else {
@@ -209,34 +209,18 @@ struct SourceAppsView: View {
 }
 
 /// A source's page while it's in a GitHub repo that only an account can
-/// read, and there's none (#134): Atelier's own says why, as its repo is
-/// private; another can only be missing or private, as GitHub doesn't say
-/// which without an account. Both sign in with a tap, and load once that's
-/// done.
+/// read, and there's none (#134): it can only be missing or private, as
+/// GitHub doesn't say which without an account. It signs in with a tap,
+/// and loads once that's done. Atelier's own repo is public, so its
+/// source never asks.
 private struct GitHubSignInNeeded: View {
-	let source: SourceRecord
-
 	var body: some View {
-		if source.isBuiltIn {
-			ContentUnavailableView {
-				Label {
-					Text("Sign in to get \(source.name)'s updates")
-				} icon: {
-					GitHubMark(size: 56)
-				}
-			} description: {
-				Text("\(source.name)'s releases are in a private GitHub repo, so this source only loads with a GitHub account that can see it.")
-			} actions: {
-				GitHubSignInButton(isProminent: true)
-			}
-		} else {
-			ContentUnavailableView {
-				Label("Couldn't load the source", systemImage: "exclamationmark.triangle")
-			} description: {
-				Text("GitHub can't find this source without an account. If it's in a private repo, sign in with one that can see it.")
-			} actions: {
-				GitHubSignInButton(isProminent: true)
-			}
+		ContentUnavailableView {
+			Label("Couldn't load the source", systemImage: "exclamationmark.triangle")
+		} description: {
+			Text("GitHub can't find this source without an account. If it's in a private repo, sign in with one that can see it.")
+		} actions: {
+			GitHubSignInButton(isProminent: true)
 		}
 	}
 }
