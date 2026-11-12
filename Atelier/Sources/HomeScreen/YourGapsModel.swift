@@ -39,6 +39,7 @@ final class YourGapsModel {
 	/// The page shown, from 0.
 	var page = 0 {
 		didSet {
+			guard page != oldValue else { return }
 			notice = nil
 			Task { await loadIcons() }
 		}
@@ -102,11 +103,21 @@ final class YourGapsModel {
 	// MARK: The page shown
 
 	var slots: [HomeScreenSlot] {
+		slots(of: page)
+	}
+
+	/// Whether the page shown can keep gaps.
+	var canMark: Bool {
+		canMark(page: page)
+	}
+
+	/// A page's places, as you mark them.
+	func slots(of page: Int) -> [HomeScreenSlot] {
 		pages.indices.contains(page) ? pages[page] : []
 	}
 
-	/// Whether the page shown can keep gaps: icons and folders only.
-	var canMark: Bool {
+	/// Whether a page can keep gaps: icons and folders only.
+	func canMark(page: Int) -> Bool {
 		guard let screen, screen.layout.pages.indices.contains(page) else { return false }
 		return Self.canMark(screen.layout.pages[page])
 	}
@@ -138,14 +149,10 @@ final class YourGapsModel {
 		findings.values.contains(.looking)
 	}
 
-	/// The page's places on the grid, and how many rows they take.
-	var cells: (cells: [Cell], rows: Int) {
-		Self.cells(slots)
-	}
-
-	/// Puts a gap before the place at `index`, or takes the gap there out.
-	func tap(_ index: Int) {
-		guard canMark, pages.indices.contains(page), pages[page].indices.contains(index) else { return }
+	/// Puts a gap before the place at `index` on `page`, or takes the gap
+	/// there out.
+	func tap(_ index: Int, on page: Int) {
+		guard canMark(page: page), pages.indices.contains(page), pages[page].indices.contains(index) else { return }
 		var slots = pages[page]
 		if slots[index] == .gap {
 			slots.remove(at: index)
@@ -250,23 +257,27 @@ final class YourGapsModel {
 		GapsQuestion.isAnswered = true
 	}
 
-	/// Asks SpringBoard for the icons of the page shown not asked for yet:
-	/// its apps' and the first nine of each folder's.
+	/// Asks SpringBoard for the icons not asked for yet, of the page shown
+	/// and then of the pages beside it, which a swipe brings in: their apps'
+	/// and the first nine of each folder's.
 	private func loadIcons() async {
-		var ids: [String] = []
-		for slot in slots {
-			switch slot {
-			case .item(.icon(let id, _)): ids.append(id)
-			case .item(.folder(_, let folderPages, _)): ids += (folderPages.first ?? []).prefix(9).compactMap(\.id)
-			default: break
+		let shown = page
+		for page in [shown, shown + 1, shown - 1] where pages.indices.contains(page) {
+			var ids: [String] = []
+			for slot in pages[page] {
+				switch slot {
+				case .item(.icon(let id, _)): ids.append(id)
+				case .item(.folder(_, let folderPages, _)): ids += (folderPages.first ?? []).prefix(9).compactMap(\.id)
+				default: break
+				}
 			}
-		}
-		let wanted = ids.filter { !asked.contains($0) }
-		guard !wanted.isEmpty else { return }
-		asked.formUnion(wanted)
-		guard let pngs = try? await installer.homeScreenIcons(wanted) else { return }
-		for (id, png) in pngs {
-			icons[id] = UIImage(data: png)
+			let wanted = ids.filter { !asked.contains($0) }
+			guard !wanted.isEmpty else { continue }
+			asked.formUnion(wanted)
+			guard let pngs = try? await installer.homeScreenIcons(wanted) else { continue }
+			for (id, png) in pngs {
+				icons[id] = UIImage(data: png)
+			}
 		}
 	}
 

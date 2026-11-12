@@ -9,7 +9,8 @@ import SwiftUI
 /// them. Tap an app to put a gap before it, so the page looks as it does
 /// on the iPhone, and every write keeps it. On a page that might have open
 /// spaces, Find Open Spaces Automatically marks those a screenshot of it
-/// shows (11 Nov 2026).
+/// shows (11 Nov 2026). Swipe from page to page, as on the Home Screen
+/// (12 Nov 2026).
 struct YourGapsView: View {
 	/// As a sheet: the action its button, top right, carries on with.
 	var carryOn: MarkGapsFirst?
@@ -47,7 +48,7 @@ struct YourGapsView: View {
 					.padding(.top, 100)
 				case .ready:
 					pager
-					grid
+					pageGrids
 					dots
 					findButton
 					hint
@@ -131,7 +132,7 @@ struct YourGapsView: View {
 
 	private func pageButton(_ symbol: String, label: String, to page: Int) -> some View {
 		Button {
-			model.page = page
+			withAnimation { model.page = page }
 		} label: {
 			Image(systemName: symbol)
 				.font(.body.weight(.semibold))
@@ -142,14 +143,39 @@ struct YourGapsView: View {
 		.accessibilityLabel(label)
 	}
 
-	private var grid: some View {
-		let layout = model.cells
-		let slots = model.slots
+	/// The pages side by side, to swipe through as on the Home Screen: edge
+	/// to edge, so a page slides off the screen rather than into the margin.
+	private var pageGrids: some View {
+		ScrollViewReader { proxy in
+			ScrollView(.horizontal) {
+				HStack(alignment: .top, spacing: 0) {
+					ForEach(model.pages.indices, id: \.self) { page in
+						grid(page)
+							.padding(.horizontal, 16)
+							.containerRelativeFrame(.horizontal)
+					}
+				}
+				.scrollTargetLayout()
+			}
+			.scrollTargetBehavior(.paging)
+			.scrollPosition(id: Binding<Int?>($model.page), anchor: .center)
+			.scrollIndicators(.hidden)
+			// Starts on the page shown, which isn't the first when it comes
+			// back from another tab and reads the Home Screen again.
+			.onAppear { proxy.scrollTo(model.page) }
+		}
+		.padding(.horizontal, -16)
+	}
+
+	private func grid(_ page: Int) -> some View {
+		let slots = model.slots(of: page)
+		let layout = YourGapsModel.cells(slots)
+		let canMark = model.canMark(page: page)
 		return GeometryReader { geometry in
 			let width = geometry.size.width / 4
 			ZStack(alignment: .topLeading) {
 				ForEach(layout.cells) { cell in
-					place(slots[cell.index], at: cell.index)
+					place(slots[cell.index], at: cell.index, on: page)
 						.frame(width: width * CGFloat(cell.columns), height: Self.rowHeight * CGFloat(cell.rows))
 						.position(
 							x: width * (CGFloat(cell.column) + CGFloat(cell.columns) / 2),
@@ -162,12 +188,12 @@ struct YourGapsView: View {
 		.padding(.vertical, 16)
 		.padding(.horizontal, 8)
 		.background(RoundedRectangle(cornerRadius: 26, style: .continuous).fill(Color(.secondarySystemGroupedBackground)))
-		.opacity(model.canMark ? 1 : 0.45)
-		.saturation(model.canMark ? 1 : 0.6)
+		.opacity(canMark ? 1 : 0.45)
+		.saturation(canMark ? 1 : 0.6)
 	}
 
 	@ViewBuilder
-	private func place(_ slot: HomeScreenSlot, at index: Int) -> some View {
+	private func place(_ slot: HomeScreenSlot, at index: Int, on page: Int) -> some View {
 		switch slot {
 		case .item(.widget):
 			RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -181,7 +207,7 @@ struct YourGapsView: View {
 				.accessibilityLabel("\(model.name(slot)) widget")
 		default:
 			Button {
-				model.tap(index)
+				model.tap(index, on: page)
 			} label: {
 				VStack(spacing: 5) {
 					icon(slot)
@@ -196,7 +222,7 @@ struct YourGapsView: View {
 				.padding(.top, 2)
 			}
 			.buttonStyle(.plain)
-			.disabled(!model.canMark)
+			.disabled(!model.canMark(page: page))
 			.accessibilityHint(slot == .gap ? "Takes the open space out" : "Puts an open space before it")
 		}
 	}
