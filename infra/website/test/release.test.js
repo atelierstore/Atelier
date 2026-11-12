@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { formatDate, newestRelease, shortHash } from "../public/release.js";
+import { formatDate, installLine, newestRelease, shortHash } from "../public/release.js";
 
 const SHA256 = "0fa41806dc1998446826a9229eb73309f8cc360b4976728b6e8520ed5a09ae5b";
 
@@ -80,4 +80,30 @@ test("shows the date as day, month and year", () => {
 
 test("shortens a SHA-256 to its first and last 8 digits", () => {
   assert.equal(shortHash(SHA256), "0fa41806…5a09ae5b");
+});
+
+test("gives the line that installs the newest release in rootshell, with its SHA-256", () => {
+  assert.equal(
+    installLine(newestRelease(source())),
+    `./atelier-install.wasm --ipa https://github.com/atelierstore/Atelier/releases/download/v0.4.0-alpha/Atelier-0.4.0-alpha.ipa --sha256 ${SHA256}`,
+  );
+  assert.equal(
+    installLine(newestRelease(source({ sha256: undefined }))),
+    "./atelier-install.wasm --ipa https://github.com/atelierstore/Atelier/releases/download/v0.4.0-alpha/Atelier-0.4.0-alpha.ipa",
+  );
+});
+
+test("gives no line for an IPA address a shell could read as something else", () => {
+  for (const downloadURL of [
+    "https://example.com/Atelier.ipa?token=a&b=c",
+    "https://example.com/Atelier.ipa;reboot",
+    "https://example.com/$(id).ipa",
+    "https://example.com/Atelier.ipa#x",
+    "https://example.com/it's.ipa",
+  ]) {
+    const release = newestRelease(source({ downloadURL }));
+    assert.equal(installLine(release), null, downloadURL);
+  }
+  // URL() encodes a space, which the line then carries as %20.
+  assert.match(installLine(newestRelease(source({ downloadURL: "https://example.com/A b.ipa" }))), /A%20b\.ipa/);
 });

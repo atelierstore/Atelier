@@ -181,8 +181,9 @@
         <p class="aside-link">Run a signing service? <a class="text-link" href="/signing-services">Offer Atelier preconfigured for your customers</a></p>
       </div>
       <!-- The ways to install Atelier (#152): the certificate page signs
-           Atelier in Safari and installs it, the Apple ID one is still to
-           build, and the sideload page has the IPA and the source. AltStore
+           Atelier in Safari and installs it, the Apple ID page has the
+           steps for atelier-install in rootshell, and the sideload page has
+           the IPA and the source. AltStore
            PAL is planned too. It comes first, recommended, for visitors
            where Apple allows it: the Worker shows the two items marked
            data-pal-here and drops the one between the not-pal comments, by
@@ -208,12 +209,15 @@
             <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
           </a>
         </li>
-        <li class="route">
-          <span class="r-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.8"/><path d="M4.8 20c1.1-3.7 3.8-5.6 7.2-5.6s6.1 1.9 7.2 5.6"/></svg></span>
-          <span class="r-text">
-            <span class="r-head"><strong>With your Apple ID</strong><span class="soon">Coming soon</span></span>
-            <span>Sign in with your Apple ID. This page makes a certificate with it, signs Atelier and installs it, and Atelier opens with the certificate ready.</span>
-          </span>
+        <li>
+          <a class="route" href="/apple-id">
+            <span class="r-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="8.2" r="3.8"/><path d="M4.8 20c1.1-3.7 3.8-5.6 7.2-5.6s6.1 1.9 7.2 5.6"/></svg></span>
+            <span class="r-text">
+              <span class="r-head"><strong>With your Apple ID</strong><span class="soon">iOS 27</span></span>
+              <span>Free or paid. Your iPhone signs Atelier with your Apple ID and installs it by itself, with two free apps from the App Store, and Atelier opens signed in.</span>
+            </span>
+            <svg class="chev" viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5.5l6.5 6.5L9 18.5"/></svg>
+          </a>
         </li>
         <li>
           <a class="route" href="/sideload">

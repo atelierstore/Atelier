@@ -1,7 +1,7 @@
 // Atelier's newest release, as its own source lists it (source.json on the
 // source branch, which scripts/update_source.py writes, newest version
-// first), for the sideload page (sideload.js). Nothing here touches the
-// page, so the tests read it too.
+// first), for the sideload page (sideload.js) and the Apple ID page
+// (apple-id.js). Nothing here touches the page, so the tests read it too.
 
 /** Atelier's bundle ID, as its source lists it. */
 export const ATELIER_BUNDLE_ID = "com.atelier.app";
@@ -27,6 +27,17 @@ export function newestRelease(source) {
     date: date && !Number.isNaN(date.getTime()) ? date : null,
     sha256: typeof latest.sha256 === "string" && /^[0-9a-f]{64}$/i.test(latest.sha256) ? latest.sha256.toLowerCase() : null,
   };
+}
+
+/** The line that installs `release` in rootshell with atelier-install, as
+ *  the Apple ID page gives it to copy: its IPA, checked against its SHA-256
+ *  when the source gives one. null when the IPA's address has more than
+ *  letters, digits and `._~/%+-` after https://, which a shell could read
+ *  as something else (GitHub's release addresses don't). */
+export function installLine(release) {
+  if (!/^https:\/\/[A-Za-z0-9._~\/%+-]+$/.test(release.downloadURL)) return null;
+  const line = `./atelier-install.wasm --ipa ${release.downloadURL}`;
+  return release.sha256 ? `${line} --sha256 ${release.sha256}` : line;
 }
 
 /** "1 Nov 2026", in the viewer's time zone. */
