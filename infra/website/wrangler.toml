@@ -43,6 +43,10 @@ new_sqlite_classes = ["BuildApp"]
 tag = "v3"
 new_sqlite_classes = ["SiteStats"]
 
+# The Stats page's key is the STATS_KEY secret, which isn't kept here:
+# `npx wrangler secret put STATS_KEY`, or the Worker's Settings › Variables
+# and Secrets (README.md, Stats). Without it, /stats/data answers 503.
+
 [vars]
 # Whose builds /builds keeps: only this repo's build workflow can send them,
 # with the token GitHub Actions gives it. Its ID too, which a repo made later

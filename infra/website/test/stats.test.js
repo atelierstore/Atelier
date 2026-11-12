@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync, readdirSync } from "node:fs";
 
 import worker, { SiteStats as exported } from "../src/index.js";
 import { BuildApp } from "../src/builds.js";
@@ -293,4 +294,32 @@ test("GET /stats/data needs the stats key", async () => {
   assert.equal((await statsData(new Request(`${SITE}/stats/data?days=7`, { method: "POST" }), env, ctx)).status, 405);
   // The Worker answers it too.
   assert.equal((await worker.fetch(statsRequest("?days=30", "the-key"), env, ctx)).status, 200);
+});
+
+test("every page counts, but the Stats page", () => {
+  const publicDir = new URL("../public/", import.meta.url);
+  const pages = [...readdirSync(publicDir).filter((name) => name.endsWith(".html")), "certificate/install.html"];
+  for (const page of pages) {
+    const html = readFileSync(new URL(page, publicDir), "utf8");
+    assert.equal(html.includes('<script type="module" src="/tally.js"></script>'), page !== "stats.html", page);
+  }
+});
+
+test("the Stats page has what its script fills in", () => {
+  const html = readFileSync(new URL("../public/stats.html", import.meta.url), "utf8");
+  const script = readFileSync(new URL("../public/stats.js", import.meta.url), "utf8");
+  const ids = new Set([...html.matchAll(/ id="([^"]+)"/g)].map((match) => match[1]));
+  for (const [, id] of script.matchAll(/\$\("([^"]+)"\)/g)) assert.ok(ids.has(id), id);
+});
+
+test("what pages mark to count is what the site counts", () => {
+  const publicDir = new URL("../public/", import.meta.url);
+  for (const page of ["index.html", "sideload.html"]) {
+    const html = readFileSync(new URL(page, publicDir), "utf8");
+    for (const [, event] of html.matchAll(/data-tally="([^"]+)"/g)) assert.ok(namesFor({ page: "/", events: [event] }, "US"), event);
+  }
+  const certificate = readFileSync(new URL("certificate.js", publicDir), "utf8");
+  for (const [, event] of certificate.matchAll(/tallyOnce\("([^"]+)"\)/g)) assert.ok(namesFor({ page: "/certificate", events: [event] }, "US"), event);
+  for (const reason of ["other-profile", "expired", "app-store"]) assert.ok(namesFor({ page: "/certificate", events: [`certificate-${reason}`] }, "US"), reason);
+  for (const sign of ["sign-iphone", "sign-computer"]) assert.ok(namesFor({ page: "/certificate", events: [sign] }, "US"), sign);
 });
