@@ -16,7 +16,10 @@ import UIKit
 /// To get to the page (12 Nov 2026), it slides a finger along the page
 /// dots, as you can by hand, and checks the screenshot shows that page's
 /// apps. If it doesn't, it presses Home again and swipes there one page at
-/// a time, without stopping.
+/// a time, without stopping; after two such looks in a row, it swipes
+/// straight there. It keeps the Home Screen's waits short, and comes back
+/// as soon as it has the screenshot. The log says how long into the look
+/// each step was.
 @MainActor
 enum HomeScreenLook {
 	/// The steps, as a failure names them.
@@ -53,20 +56,31 @@ enum HomeScreenLook {
 
 	/// How long the Home Screen takes to settle after a press, long enough
 	/// apart that two presses aren't a double press.
-	private static let afterHome: Duration = .milliseconds(1000)
+	private static let afterHome: Duration = .milliseconds(600)
 	/// Between swipes straight through to a page: the next page is in place.
-	private static let betweenSwipes: Duration = .milliseconds(500)
+	private static let betweenSwipes: Duration = .milliseconds(350)
 	/// Before the screenshot: the page has stopped moving.
-	private static let beforeScreenshot: Duration = .milliseconds(800)
+	private static let beforeScreenshot: Duration = .milliseconds(500)
 	/// The page dots, as iOS 26 draws them in place of the Search button
 	/// while pages change: 4 at a time, 14 points apart, their middle 150
 	/// points above the bottom of the screen, on a 6.1-inch iPhone with 11
 	/// pages (measured on a recording, 12 Nov 2026).
 	private static let dotSpacing = 14.0
 	private static let dotsAboveBottom = 150.0
+	/// The slide along the dots, once the swipe that brings them out is
+	/// done: a rest on the second page's dot, so iOS takes the touch, a dot
+	/// a page in `slidePerPage` milliseconds, and a rest on the page's dot
+	/// before letting go.
+	private static let beforeSlide: Duration = .milliseconds(250)
+	private static let slideHold: Duration = .milliseconds(100)
+	private static let slidePerPage = 60
+	private static let slideSettle: Duration = .milliseconds(150)
+	/// When the look started, for the log's times.
+	private static var started = ContinuousClock.now
 
 	/// Takes a screenshot of the Home Screen's page and reads it.
 	static func look(at target: Target) async throws -> Look {
+		started = .now
 		say("page \(target.page + 1): looking")
 		if case .unavailable(let why) = await RouteASetup.shared.makeInstaller().check(startingVPN: true) {
 			say("connect: \(why)")
@@ -179,8 +193,10 @@ enum HomeScreenLook {
 		} catch {
 			result = .failure(error)
 		}
-		await quietly { session.end() }
+		// Back first: iOS can take its time to stop the screen stream.
 		let cameBack = await comeBack(tunnel)
+		await quietly { session.end() }
+		say("stopped the screen stream")
 		return Look(reading: try result.get(), cameBack: cameBack)
 	}
 
@@ -200,38 +216,26 @@ enum HomeScreenLook {
 		say("on the first page")
 		guard page > 0 else { return try await readScreen(session, target: target, how: "first page") }
 
-		// Slide there: a swipe brings out the page dots, then a finger slides
-		// along them from the second page's, a dot a page.
+		// A swipe to the second page brings out the page dots. A finger then
+		// slides along them to the page, unless that landed on another page
+		// the last two times.
 		try await swipe(session)
-		var reading: OpenSpacesFinder.Reading?
-		if page > 1 {
-			try await Task.sleep(for: .milliseconds(350))
-			let screen = screenSize
-			let dot = dotSpacing / screen.width
-			let from = 0.5 - 0.5 * dot, to = from + Double(page - 1) * dot
-			let y = 1 - dotsAboveBottom / screen.height
-			let move = Duration.milliseconds(120 * (page - 1))
-			do {
-				try await call {
-					try session.slide(fromX: from, toX: to, y: y, hold: .milliseconds(150), move: move, settle: .milliseconds(300))
-				}
-				say("slid along the page dots from page 2 to where page \(page + 1)’s dot would be (\(rounded(from, 3)) to \(rounded(to, 3)) across, \(rounded(y, 3)) down)")
-			} catch {
-				say("slide: \(error)")
-			}
-		}
-		reading = try await readScreen(session, target: target, how: page > 1 ? "slide" : "swipe")
-		if isPage(reading, target: target) != false { return reading }
-
-		// Swipe there instead, from the first page.
-		say("swiping to page \(page + 1) instead")
-		try await pressHome(session, times: 2)
-		for _ in 0..<page {
-			try await swipe(session)
+		if page > 1, slideMisses < 2 {
+			try await slide(session, to: page)
+			let slid = try await readScreen(session, target: target, how: "slide")
+			let landed = isPage(slid, target: target)
+			if let landed { slideMisses = landed ? 0 : slideMisses + 1 }
+			if landed != false { return slid }
+			say("swiping to page \(page + 1) instead, from the first page")
+			try await pressHome(session, times: 2)
+			try await swipe(session, pages: page)
+		} else if page > 1 {
+			say("the slide along the page dots landed elsewhere the last two times: swiping to page \(page + 1)")
 			try await Task.sleep(for: betweenSwipes)
+			try await swipe(session, pages: page - 1)
 		}
-		reading = try await readScreen(session, target: target, how: "swipes")
-		guard isPage(reading, target: target) == false, let reading else { return reading }
+		let swiped = try await readScreen(session, target: target, how: page > 1 ? "swipes" : "swipe")
+		guard isPage(swiped, target: target) == false, let reading = swiped else { return swiped }
 		// A swipe too few or too many: once more, either way, when the
 		// number of outlines says which.
 		let shown = OpenSpacesFinder.page(showing: reading.outlines, near: page, counts: target.counts)
@@ -246,6 +250,35 @@ enum HomeScreenLook {
 		}
 		return try await readScreen(session, target: target, how: "one more swipe")
 	}
+
+	/// Slides a finger along the page dots, which the swipe to the second
+	/// page brought out, from its dot to where the page's would be, a dot a
+	/// page.
+	private static func slide(_ session: ScreenSession, to page: Int) async throws {
+		try await Task.sleep(for: beforeSlide)
+		let screen = screenSize
+		let dot = dotSpacing / screen.width
+		let from = 0.5 - 0.5 * dot, to = from + Double(page - 1) * dot
+		let y = 1 - dotsAboveBottom / screen.height
+		let hold = slideHold, move = Duration.milliseconds(slidePerPage * (page - 1)), settle = slideSettle
+		do {
+			try await call {
+				try session.slide(fromX: from, toX: to, y: y, hold: hold, move: move, settle: settle)
+			}
+			say("slid along the page dots from page 2 to where page \(page + 1)’s dot would be (\(rounded(from, 3)) to \(rounded(to, 3)) across, \(rounded(y, 3)) down)")
+		} catch {
+			say("slide: \(error)")
+		}
+	}
+
+	/// How many looks in a row the slide along the page dots landed on
+	/// another page. After two, Atelier swipes straight to the page.
+	private static var slideMisses: Int {
+		get { UserDefaults.standard.integer(forKey: slideMissesKey) }
+		set { UserDefaults.standard.set(newValue, forKey: slideMissesKey) }
+	}
+
+	private static let slideMissesKey = "openSpacesSlideMisses"
 
 	/// Presses Home `times` times, far enough apart not to be a double
 	/// press, and waits for the Home Screen to settle.
@@ -264,10 +297,19 @@ enum HomeScreenLook {
 		}
 	}
 
+	/// Swipes `pages` pages on, one at a time, without stopping.
+	private static func swipe(_ session: ScreenSession, pages: Int) async throws {
+		for done in 0..<pages {
+			if done > 0 { try await Task.sleep(for: betweenSwipes) }
+			try await swipe(session)
+		}
+	}
+
 	/// Takes a screenshot once the page has stopped moving, and reads it.
 	private static func readScreen(_ session: ScreenSession, target: Target, how: String) async throws -> OpenSpacesFinder.Reading? {
 		try await Task.sleep(for: beforeScreenshot)
 		let png = try await step(.screenshot, "this iPhone didn’t give Atelier a screenshot") { try session.screenshot() }
+		say("took a screenshot, \(png.count / 1024) KB")
 		let reading = await read(png, target: target)
 		if let reading {
 			let pages = target.counts.indices.filter { target.counts[$0] == reading.outlines }.map { String($0 + 1) }
@@ -424,8 +466,11 @@ enum HomeScreenLook {
 		return true
 	}
 
+	/// Notes `line` in the setup's log, with how long into the look it was.
 	private static func say(_ line: String) {
-		PhonePairing.shared.note("open spaces: \(line)")
+		let elapsed = (ContinuousClock.now - started).components
+		let seconds = Double(elapsed.seconds) + Double(elapsed.attoseconds) / 1e18
+		PhonePairing.shared.note("open spaces, \(rounded(seconds, 1)) s: \(line)")
 	}
 }
 

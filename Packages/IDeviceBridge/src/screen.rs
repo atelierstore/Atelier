@@ -56,6 +56,9 @@ const MOUNT_WAIT: Duration = Duration::from_secs(120);
 const START_WAIT: Duration = Duration::from_secs(20);
 /// The longest a press, a swipe, a screenshot or a launch may take.
 const STEP_WAIT: Duration = Duration::from_secs(15);
+/// The longest Atelier waits for iOS to stop the screen stream once it's
+/// done: Atelier is back in front by then, and the tunnel closes right after.
+const STOP_WAIT: Duration = Duration::from_secs(2);
 /// How long iOS gets to match its HID services to the new stream before
 /// events count, as idevice's `hid` tool waits.
 const STREAM_SETTLE: Duration = Duration::from_millis(400);
@@ -71,9 +74,10 @@ const CONSUMER_PAGE: u64 = 0x0C;
 const HOME_USAGE: u64 = 0x40;
 const HOME_HOLD: Duration = Duration::from_millis(80);
 
-/// A swipe's touch samples and the time between them: about a third of a
-/// second, which the Home Screen takes as a swipe rather than a tap.
-const SWIPE_STEPS: u32 = 20;
+/// A swipe's touch samples and the time between them: about a fifth of a
+/// second, a quick flick, which the Home Screen takes as a swipe to the
+/// next page rather than a tap.
+const SWIPE_STEPS: u32 = 12;
 const SWIPE_STEP_MS: u64 = 16;
 /// A slide's touch samples come this far apart, a screen refresh, also while
 /// the finger rests, so iOS sees a touch held rather than one let go.
@@ -378,7 +382,7 @@ async fn stop(
     display: &mut DisplayServiceClient<Box<dyn ReadWrite>>,
     drains: &[tokio::task::JoinHandle<()>],
 ) {
-    let _ = tokio::time::timeout(STEP_WAIT, display.stop_media_stream()).await;
+    let _ = tokio::time::timeout(STOP_WAIT, display.stop_media_stream()).await;
     for drain in drains {
         drain.abort();
     }
