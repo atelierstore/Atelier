@@ -4,7 +4,7 @@
 - The website's Get Atelier lists AltStore PAL as planned, and recommends it first to visitors in the EU, Japan and Brazil, where Apple allows it (#7).
 - Apps signed with a certificate that comes with App Groups, as signing services' often do, keep theirs too: Atelier keeps each app's App Groups in a folder of its own in one of the certificate's, so its widgets and extensions see the app's data. Other apps signed with that certificate could read the folder. Custom Install › Advanced › Share App Groups turns it off for an app (#2).
 - Atelier installed with a free Apple ID renews itself every week, and signs its own updates and Custom Install… with that Apple ID, once you sign in with it in Atelier. Until then, it's in the Library's Renew section with Sign In (#3).
-- Signing in with the Apple ID that the iPhone-only installer used reuses the installer's certificate instead of making a second one, since a free Apple ID only gets two. After you revoke a certificate at Apple's limit, Atelier waits up to about 90 seconds for Apple to stop counting it instead of stopping (#17).
+- Signing in with the Apple ID that the iPhone-only installer used reuses the installer's certificate instead of making a second one, since a free Apple ID only gets two. When Apple still counts a certificate you just revoked, Atelier offers the remaining ones again instead of stopping, as revoking another frees a place where waiting doesn't (#17).
 
 ## Fixes
 

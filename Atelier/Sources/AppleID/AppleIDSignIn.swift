@@ -284,7 +284,7 @@ final class AppleIDSignIn {
 			}
 			try checkCancelled()
 		}
-		return (try await makeCertificate(with: session, teamID: teamID, keys: keys, p12Password: p12Password), .made)
+		return (try await makeCertificate(with: session, keys: keys, p12Password: p12Password), .made)
 	}
 
 	/// The team's certificate made with `key`, or the key kept in `keys`
@@ -299,86 +299,47 @@ final class AppleIDSignIn {
 		}
 	}
 
-	/// A revoke the user made, by team, while Apple may still count the
-	/// certificate: it drops it from its list first, and said 7460 again 34
-	/// seconds later (Alex's Apple ID Log, 12 Nov 2026). `listed` is how many
-	/// Apple listed when it said 7460 before the revoke.
-	private struct Revoke {
-		var listed: Int
-		var at: Date
-
-		/// How long Apple may count a revoked certificate, as far as
-		/// Atelier waits for it.
-		static let lasting: TimeInterval = 15 * 60
-	}
-
-	private static var revokes: [String: Revoke] = [:]
-
-	/// The waits between tries after a revoke while Apple still counts it:
-	/// about 90 seconds in all.
-	static let revokeWaits: [Duration] = [.seconds(5), .seconds(10), .seconds(15), .seconds(25), .seconds(35)]
+	/// The most certificates one sign-in revokes, each the user's pick.
+	static let maxRevokes = 3
 
 	/// A new development certificate for this iPhone. At Apple's limit, the
 	/// team's certificates are listed and the one the user picks is revoked
-	/// first. Apple keeps counting a revoked certificate for a while, so
-	/// after a revoke it tries again for about 90 seconds, and with fewer
-	/// listed than before a revoke a moment ago, it waits for Apple rather
-	/// than asking for another.
-	private func makeCertificate(with session: AppleIDSession, teamID: String, keys: URL, p12Password: String) async throws -> AppleIDSession.MadeCertificate {
-		do {
-			return try await session.certificate(machineName: Self.machineName, p12Password: p12Password, keys: keys)
-		} catch let error as AppleIDError where error.isTooManyCertificates {
-			let listed: [AppleIDSession.Certificate]
-			do {
-				listed = try await session.certificates()
-			} catch {
-				throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
-			}
-			try checkCancelled()
-			note("certificate: at Apple's limit, \(listed.count) listed")
-			if let revoke = Self.revokes[teamID], Date.now.timeIntervalSince(revoke.at) < Revoke.lasting, listed.count < revoke.listed {
-				note("certificate: \(revoke.listed) were listed before the revoke \(Int(Date.now.timeIntervalSince(revoke.at))) seconds ago, so waiting for Apple")
-				return try await makeAfterRevoke(with: session, keys: keys, p12Password: p12Password)
-			}
-			stage = .revoke(listed)
-			guard let picked = await chooseRevocation(), let serialNumber = picked.serialNumber else { throw Stop.cancelled }
-			stage = .working("Revoking the certificate…")
-			do {
-				try await session.revokeCertificate(serialNumber: serialNumber)
-				note("certificate: revoked \(serialNumber)\(picked.machineName.map { ", made for \($0)" } ?? "")")
-			} catch {
-				note("certificate: revoking failed: \(error)")
-				throw Stop.failed(Self.explain(error, "Apple didn't revoke the certificate"))
-			}
-			Self.revokes[teamID] = Revoke(listed: listed.count, at: .now)
-			try checkCancelled()
-			stage = .working("Making a certificate…")
-			return try await makeAfterRevoke(with: session, keys: keys, p12Password: p12Password)
-		} catch {
-			note("certificate: failed: \(error)")
-			throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
-		}
-	}
-
-	/// Tries again while Apple says 7460 after a revoke, waiting longer each
-	/// time (`revokeWaits`).
-	private func makeAfterRevoke(with session: AppleIDSession, keys: URL, p12Password: String) async throws -> AppleIDSession.MadeCertificate {
-		var waits = Self.revokeWaits[...]
+	/// first. Apple goes on counting a revoked certificate after it leaves
+	/// the list, still 27 minutes later, and waiting never freed its place
+	/// while revoking another listed one did, at once (Alex's iPhone, 12 Nov
+	/// 2026). So while Apple still says 7460 after a revoke, the list comes
+	/// again, for up to `maxRevokes` revokes.
+	private func makeCertificate(with session: AppleIDSession, keys: URL, p12Password: String) async throws -> AppleIDSession.MadeCertificate {
+		var revoked = 0
 		while true {
 			do {
 				return try await session.certificate(machineName: Self.machineName, p12Password: p12Password, keys: keys)
 			} catch let error as AppleIDError where error.isTooManyCertificates {
-				guard let wait = waits.popFirst() else {
-					note("certificate: Apple still counts the revoked certificate after about 90 seconds")
-					throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
-				}
-				note("certificate: Apple still counts the revoked certificate, trying again in \(wait.components.seconds) seconds")
+				let listed: [AppleIDSession.Certificate]
 				do {
-					try await Task.sleep(for: wait)
+					listed = try await session.certificates()
 				} catch {
-					throw Stop.cancelled
+					throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
 				}
 				try checkCancelled()
+				note("certificate: at Apple's limit, \(listed.count) listed\(revoked > 0 ? ", \(revoked) revoked so far" : "")")
+				guard revoked < Self.maxRevokes, listed.contains(where: { $0.serialNumber != nil }) else {
+					note("certificate: nothing more to revoke")
+					throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
+				}
+				stage = .revoke(listed)
+				guard let picked = await chooseRevocation(), let serialNumber = picked.serialNumber else { throw Stop.cancelled }
+				stage = .working("Revoking the certificate…")
+				do {
+					try await session.revokeCertificate(serialNumber: serialNumber)
+					note("certificate: revoked \(serialNumber)\(picked.machineName.map { ", made for \($0)" } ?? "")")
+				} catch {
+					note("certificate: revoking failed: \(error)")
+					throw Stop.failed(Self.explain(error, "Apple didn't revoke the certificate"))
+				}
+				revoked += 1
+				try checkCancelled()
+				stage = .working("Making a certificate…")
 			} catch {
 				note("certificate: failed: \(error)")
 				throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
