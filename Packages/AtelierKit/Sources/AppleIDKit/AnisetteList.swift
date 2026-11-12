@@ -27,6 +27,23 @@ public struct AnisetteList: Equatable, Sendable {
 
 		/// Its host, which also names the folder its state is kept in.
 		public var host: String { url.host ?? url.absoluteString }
+
+		/// The file isideload keeps the server's anisette state in, the
+		/// machine Apple sees, under the sign-in's `storage`: as the
+		/// bridge's `anisette_folder` names its folder (appleid.rs), its
+		/// address without the scheme, anything but letters, digits, dots
+		/// and hyphens made "_".
+		public func stateFile(in storage: URL) -> URL {
+			var address = url.absoluteString
+			for scheme in ["https://", "http://"] where address.hasPrefix(scheme) {
+				address.removeFirst(scheme.count)
+			}
+			let folder = String(address.map { $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "." || $0 == "-") ? $0 : "_" })
+			return storage
+				.appendingPathComponent("anisette", isDirectory: true)
+				.appendingPathComponent(folder, isDirectory: true)
+				.appendingPathComponent("anisette_state")
+		}
 	}
 
 	/// What Atelier sends Apple in place of a server's own client info, while
@@ -131,7 +148,7 @@ extension AnisetteList {
 
 	/// An https:// address with a host and nothing else: isideload adds its
 	/// paths to it, and the bridge keeps each host's state apart.
-	static func serverURL(_ string: String) -> URL? {
+	public static func serverURL(_ string: String) -> URL? {
 		guard let components = URLComponents(string: string.trimmingCharacters(in: .whitespacesAndNewlines)),
 		      components.scheme?.lowercased() == "https",
 		      let host = components.host, !host.isEmpty,
