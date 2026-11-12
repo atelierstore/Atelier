@@ -77,14 +77,23 @@ struct YourGapsView: View {
 			}
 		}
 		.task { await model.load() }
-		.alert("Find open spaces on page \(model.page + 1)?", isPresented: $asking) {
-			Button("Find Open Spaces") {
-				Task { await model.findOpenSpaces() }
+		.fullScreenCover(isPresented: $asking) {
+			FindOpenSpacesAlert(page: model.page + 1) { finding in
+				ask(false)
+				if finding {
+					Task { await model.findOpenSpaces() }
+				}
 			}
-			Button("Cancel", role: .cancel) {}
-		} message: {
-			Text("Atelier goes to your Home Screen, swipes to page \(model.page + 1), takes a screenshot and comes back. Don’t touch your iPhone until it’s back, in a few seconds.")
+			.presentationBackground(.clear)
 		}
+	}
+
+	/// Shows or hides Find Open Spaces Automatically's alert at once, as it
+	/// fades itself in and out rather than sliding up.
+	private func ask(_ showing: Bool) {
+		var transaction = Transaction()
+		transaction.disablesAnimations = true
+		withTransaction(transaction) { asking = showing }
 	}
 
 	// MARK: Parts
@@ -278,7 +287,7 @@ struct YourGapsView: View {
 	private var findButton: some View {
 		if model.mightHaveOpenSpaces {
 			Button {
-				asking = true
+				ask(true)
 			} label: {
 				HStack(spacing: 7) {
 					if model.finding == .looking {
@@ -387,6 +396,109 @@ struct YourGapsView: View {
 	/// As a sheet: what its button then does, after a space.
 	private var thenNote: String {
 		carryOn.map { " \($0.then)" } ?? ""
+	}
+}
+
+/// Find Open Spaces Automatically's alert (12 Nov 2026), in the style of
+/// iOS's own, which draws its text in grey: iOS's notice comes first, in
+/// red, since once Atelier has pressed Home, iOS might say “Atelier” can
+/// view and control this iPhone. It dims the whole screen, as iOS's alerts
+/// do, and fades in and out like them.
+private struct FindOpenSpacesAlert: View {
+	/// The page, counted from 1.
+	let page: Int
+	/// Once it has faded out: whether to find them.
+	let close: (Bool) -> Void
+	@State private var isShown = false
+	@Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+	var body: some View {
+		ZStack {
+			Color.black
+				.opacity(isShown ? 0.3 : 0)
+				.ignoresSafeArea()
+				.accessibilityHidden(true)
+			// With the largest text, it scrolls rather than leave the screen.
+			ViewThatFits(in: .vertical) {
+				card
+				ScrollView {
+					card.padding(.vertical, 24)
+				}
+				.scrollBounceBehavior(.basedOnSize)
+			}
+			.scaleEffect(isShown || reduceMotion ? 1 : 1.1)
+			.opacity(isShown ? 1 : 0)
+		}
+		.onAppear {
+			withAnimation(.spring(duration: 0.3, bounce: 0.2)) { isShown = true }
+		}
+	}
+
+	private var card: some View {
+		VStack(alignment: .leading, spacing: 0) {
+			Text("Find open spaces on page \(page)?")
+				.font(.headline)
+				.accessibilityAddTraits(.isHeader)
+			Text("Afterwards, iOS might say “Atelier” can view and control this iPhone. That’s normal: it’s how Atelier presses Home and takes the screenshot. Keep it paired.")
+				.font(.subheadline.weight(.semibold))
+				.foregroundStyle(.red)
+				.padding(.top, 8)
+			Text("Don’t touch your iPhone until Atelier is back, in a few seconds.")
+				.font(.subheadline)
+				.foregroundStyle(.secondary)
+				.padding(.top, 14)
+			VStack(spacing: 8) {
+				Button {
+					leave(finding: true)
+				} label: {
+					Text("Find Open Spaces")
+						.fontWeight(.semibold)
+						.foregroundStyle(Color.accentColor)
+				}
+				.keyboardShortcut(.defaultAction)
+				Button(role: .cancel) {
+					leave(finding: false)
+				} label: {
+					Text("Cancel")
+						.foregroundStyle(.primary)
+				}
+				.keyboardShortcut(.cancelAction)
+			}
+			.buttonStyle(AlertButtonStyle())
+			.padding(.top, 18)
+		}
+		.fixedSize(horizontal: false, vertical: true)
+		.frame(maxWidth: .infinity, alignment: .leading)
+		.padding(EdgeInsets(top: 22, leading: 20, bottom: 18, trailing: 20))
+		.background(Color(.secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 34, style: .continuous))
+		.shadow(color: .black.opacity(0.18), radius: 24, y: 10)
+		.frame(maxWidth: 360)
+		.padding(.horizontal, 22)
+		.accessibilityAction(.escape) { leave(finding: false) }
+	}
+
+	private func leave(finding: Bool) {
+		guard isShown else { return }
+		withAnimation(.easeOut(duration: 0.2)) {
+			isShown = false
+		} completion: {
+			close(finding)
+		}
+	}
+}
+
+/// A button of Find Open Spaces Automatically's alert: a grey capsule, as
+/// iOS's alerts have them, darker while pressed.
+private struct AlertButtonStyle: ButtonStyle {
+	func makeBody(configuration: Configuration) -> some View {
+		configuration.label
+			.font(.body)
+			.multilineTextAlignment(.center)
+			.padding(.horizontal, 16)
+			.padding(.vertical, 12)
+			.frame(maxWidth: .infinity, minHeight: 48)
+			.background(Capsule().fill(Color(uiColor: configuration.isPressed ? .systemFill : .secondarySystemFill)))
+			.contentShape(Capsule())
 	}
 }
 
