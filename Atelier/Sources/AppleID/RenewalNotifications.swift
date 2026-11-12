@@ -8,8 +8,8 @@ import UserNotifications
 /// needs the user: none when it works. "Atlas stops opening tomorrow" is
 /// scheduled a day before each app's profile ends, so it comes even when
 /// Atelier doesn't run, and moves on each time the app renews. What a
-/// renewal ran into tells at once: Apple's code, no App IDs left, or the
-/// Apple ID's certificate gone. Each says it once a day at most. A tap opens
+/// renewal ran into tells at once: Apple's code, no App IDs left, the
+/// Apple ID's certificate gone, or its sign-in expired (#182). Each says it once a day at most. A tap opens
 /// the Library.
 ///
 /// Atelier itself has two (#152, decided 11 Nov 2026), three days ahead and
@@ -95,6 +95,16 @@ enum RenewalNotifications {
 					"\(prefix)code.\(account.id.uuidString)",
 					title: "\(ProfileRenewals.joined(code)) \(code.count == 1 ? "needs" : "need") renewing",
 					body: "Apple wants a code to sign in. Open Atelier to enter it.",
+					now: now
+				)
+			}
+			// Its token alone signed in, and it has expired (#182).
+			let expired = mine.filter { problems[$0.profile.bundleID] == .signInExpired }.map(\.name)
+			if !expired.isEmpty {
+				await tell(
+					"\(prefix)expired.\(account.id.uuidString)",
+					title: "\(ProfileRenewals.joined(expired)) \(expired.count == 1 ? "needs" : "need") renewing",
+					body: "Your Apple ID’s sign-in has expired. Open Atelier to sign in again.",
 					now: now
 				)
 			}

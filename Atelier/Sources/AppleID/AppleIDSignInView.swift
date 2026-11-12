@@ -120,11 +120,19 @@ private struct SignInForm: View {
 	var body: some View {
 		Form {
 			Section {
-				if signIn.renewing != nil {
-					// New Certificate (12 Nov 2026).
+				if signIn.signsInAgain {
+					// Sign In Again, once Apple's token has expired (#182).
+					SheetHeading(
+						title: "Sign In Again",
+						text: "Atelier’s sign-in with this Apple ID has expired. Atelier signs in with its password, then renews your apps. They keep their data.",
+						tile: AnyView(AppleIDTile(size: 60))
+					)
+				} else if signIn.renewing != nil {
+					// New Certificate (12 Nov 2026), with Apple's token or the
+					// password (#182).
 					SheetHeading(
 						title: "New Certificate",
-						text: "Atelier signs in with the password in your Keychain, has Apple make a new certificate, then signs your apps again with it. They keep their data.",
+						text: "Atelier signs in again, has Apple make a new certificate, then signs your apps again with it. They keep their data.",
 						tile: AnyView(AppleIDTile(size: 60))
 					)
 				} else {
@@ -155,7 +163,7 @@ private struct SignInForm: View {
 				}
 			}
 		}
-		.navigationTitle(signIn.renewing == nil ? "Sign In" : "New Certificate")
+		.navigationTitle(signIn.signsInAgain ? "Sign In Again" : signIn.renewing == nil ? "Sign In" : "New Certificate")
 		.toolbar {
 			ToolbarItem(placement: .cancellationAction) {
 				Button("Cancel", systemImage: "xmark") { certificates.endSignIn() }
@@ -166,7 +174,9 @@ private struct SignInForm: View {
 			}
 		}
 		.onAppear {
-			if isSetUp, signIn.email.isEmpty { focus = .email }
+			guard isSetUp else { return }
+			// Sign In Again only needs the password (#182).
+			if signIn.email.isEmpty { focus = .email } else if signIn.signsInAgain { focus = .password }
 		}
 	}
 
@@ -183,7 +193,8 @@ private struct SignInForm: View {
 					.submitLabel(.next)
 					.focused($focus, equals: .email)
 					.onSubmit { focus = .password }
-					// New Certificate is for its Apple ID (12 Nov 2026).
+					// New Certificate and Sign In Again are for its Apple ID (12
+					// Nov 2026, #182).
 					.disabled(signIn.renewing != nil)
 			}
 			HStack {

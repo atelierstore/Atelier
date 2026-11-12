@@ -11,7 +11,9 @@ import Observation
 /// through the anisette server that sign-in went through (#182). When
 /// there's none, or Apple refuses it, with the password kept in the
 /// Keychain, through the anisette servers Sign In with Apple ID goes
-/// through, keeping that sign-in's token for the next time. Either way in
+/// through, keeping that sign-in's token for the next time. An Apple ID
+/// the installer signed in with its token alone has no password, so once
+/// that has expired, it stops with `signInExpired`. Either way in
 /// the team it was signed in with. A sign-in serves the installs after it
 /// for a few minutes, so a round of installs signs in once. When Apple
 /// asks for its code, an alert over everything asks, unless nobody is
@@ -28,6 +30,13 @@ final class AppleIDAccess {
 		case failed(String)
 		/// Apple asked for its code with nobody there to answer.
 		case codeNeeded
+		/// Apple's token alone signed in as the Apple ID, and it has expired
+		/// or Apple refused it (#182): only the password signs in again,
+		/// which this iPhone never had.
+		case signInExpired
+
+		/// What an install or Renew says for `signInExpired`.
+		static let signInExpiredMessage = "Atelier’s sign-in with this Apple ID has expired. Sign in with it again on its page, in Settings › Installs › Certificates."
 	}
 
 	/// Apple's request for a code, while the alert shows it.
@@ -64,10 +73,11 @@ final class AppleIDAccess {
 		if hasSession(for: account), let kept = sessions[account.id] { return kept.session }
 		sessions[account.id] = nil
 		let signedIn: AppleIDSession.SignedIn
-		if let resumed = await resume(account) {
+		switch await resume(account) {
+		case .signedIn(let resumed):
 			signedIn = resumed
-		} else {
-			signedIn = try await signIn(account, purpose: purpose)
+		case .notSignedIn(let why):
+			signedIn = try await signIn(account, purpose: purpose, tokenFailure: why)
 		}
 		if Task.isCancelled { throw Failure.cancelled }
 		// Its team, which a sign-in may not list first.
@@ -97,42 +107,51 @@ final class AppleIDAccess {
 		return token.isUsable()
 	}
 
+	/// How signing in again with Apple's token went (#182).
+	private enum Resumed {
+		case signedIn(AppleIDSession.SignedIn)
+		/// Not signed in with it: there's none worth trying, or Apple
+		/// refused it, with `why` nil; or it couldn't be read, or Apple
+		/// wasn't reached with it, which `why` says.
+		case notSignedIn(why: String?)
+	}
+
 	/// A session from Apple's token kept for `account` (#182), without the
 	/// password or Apple's code, through the anisette server its sign-in
-	/// went through, as the same machine. Nil when there's no token worth
+	/// went through, as the same machine. None when there's no token worth
 	/// trying, or Apple refused it, which deletes it, or Apple wasn't
 	/// reached, which keeps it for the next time: the password then signs
-	/// in.
-	private func resume(_ account: StoredAppleID) async -> AppleIDSession.SignedIn? {
+	/// in. One that expired is kept too, so its page says when.
+	private func resume(_ account: StoredAppleID) async -> Resumed {
 		let token: AppleIDToken
 		do {
-			guard let kept = try CertificatesModel.shared.appleIDToken(for: account.id) else { return nil }
+			guard let kept = try CertificatesModel.shared.appleIDToken(for: account.id) else { return .notSignedIn(why: nil) }
 			token = kept
 		} catch {
 			AppleIDLog.note("token: couldn't be read: \(error)")
-			return nil
+			return .notSignedIn(why: "Atelier couldn't read the Apple ID’s sign-in, which iOS only gives once this \(ThisDevice.name) was unlocked: \(error.localizedDescription)")
 		}
 		guard token.isUsable() else {
-			AppleIDLog.note("token: Apple says it ended, so it's deleted")
-			CertificatesModel.shared.setAppleIDToken(nil, for: account.id)
-			return nil
+			AppleIDLog.note("token: Apple says it ended\(token.endsAt.map { " on \($0.formatted(date: .abbreviated, time: .shortened))" } ?? "")")
+			return .notSignedIn(why: nil)
 		}
 		if let why = Self.unusableMachine(for: token) {
 			AppleIDLog.note("token: not tried, as \(why)")
-			return nil
+			return .notSignedIn(why: nil)
 		}
 		AppleIDLog.note("Signing in again with Apple's token, \(AppleIDLog.describe(token))")
 		do {
 			let resumed = try await AppleIDSession.resume(email: account.email, token: token, storage: AppleIDSignIn.storage())
 			AppleIDLog.note("sign-in with the token: \(AppleIDLog.describe(resumed))")
-			return resumed
+			return .signedIn(resumed)
 		} catch let error as AppleIDError where error.kind == .tokenRefused {
 			AppleIDLog.note("token: Apple refused it\(error.appleCode == 0 ? "" : " (\(error.appleCode))"), so it's deleted: \(error.message)")
 			CertificatesModel.shared.setAppleIDToken(nil, for: account.id)
+			return .notSignedIn(why: nil)
 		} catch {
 			AppleIDLog.note("token: Apple wasn't reached with it, so it's kept: \(error)")
+			return .notSignedIn(why: AppleIDRoute.explain(error, "Atelier couldn't reach Apple"))
 		}
-		return nil
 	}
 
 	/// Why the machine Apple knows `token` by can't be used, if it can't:
@@ -154,11 +173,16 @@ final class AppleIDAccess {
 
 	/// Signs in with the password kept for `account`, through the anisette
 	/// servers, and keeps the sign-in's token for the next time (#182).
-	private func signIn(_ account: StoredAppleID, purpose: String?) async throws -> AppleIDSession.SignedIn {
+	/// Without one, as for an Apple ID the installer signed in with its
+	/// token alone, Apple's token has expired, unless `tokenFailure` says
+	/// why it couldn't be used.
+	private func signIn(_ account: StoredAppleID, purpose: String?, tokenFailure: String?) async throws -> AppleIDSession.SignedIn {
 		let password: String
 		do {
 			guard let kept = try CertificatesModel.shared.appleIDPassword(for: account.id) else {
-				throw Failure.failed("Atelier no longer has the Apple ID's password. Sign in with it again in Settings › Installs › Certificates.")
+				if let tokenFailure { throw Failure.failed(tokenFailure) }
+				AppleIDLog.note("sign-in: Apple's token has expired, and there's no password")
+				throw Failure.signInExpired
 			}
 			password = kept
 		} catch let failure as Failure {
@@ -272,6 +296,8 @@ final class AppleIDAccess {
 			AppleIDLog.note("Check Now: \(list.appIDs.count) App IDs, \(list.available.map { "\($0)" } ?? "no count") left")
 		} catch Failure.cancelled {
 			AppleIDLog.note("Check Now: cancelled")
+		} catch Failure.signInExpired {
+			failures.append(Failure.signInExpiredMessage)
 		} catch Failure.failed(let message) {
 			failures.append(message)
 		} catch {

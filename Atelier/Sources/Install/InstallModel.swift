@@ -4094,6 +4094,11 @@ final class InstallModel {
 		} catch AppleIDAccess.Failure.codeNeeded {
 			log.append("Apple ID: Apple asked for a code, with nobody there to enter it")
 			throw InstallProblem("Apple wants a verification code to sign in with your Apple ID. Open Atelier and \(job.isUpdate ? "update" : "install") \(name) there.")
+		} catch AppleIDAccess.Failure.signInExpired {
+			// Only the password signs in again, which the installer kept from
+			// this iPhone (#182).
+			log.append("Apple ID: Apple's token has expired, and there's no password")
+			throw InstallProblem(AppleIDAccess.Failure.signInExpiredMessage)
 		} catch AppleIDAccess.Failure.failed(let message) {
 			log.append("Apple ID: the sign-in stopped: \(message)")
 			throw InstallProblem(message, fix: .tryAgain)

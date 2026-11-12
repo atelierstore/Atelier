@@ -665,6 +665,11 @@ private struct AppDetailContent: View {
 		if AppProfileRenewal.needsSignIn(account) {
 			return ProfileRenewals.Problem.signInAgain.message
 		}
+		// Apple's token alone signed in as its Apple ID, and it has expired
+		// (#182).
+		if CertificatesModel.shared.signInKind(for: account).isExpired {
+			return ProfileRenewals.Problem.signInExpired.message
+		}
 		let profile = account.isFree ? "a new 7-day profile" : "a new profile"
 		// Atelier itself isn't reinstalled either, so it stays open (#152).
 		let keeps = item.isOwn ? "stays open" : "keeps its data"
