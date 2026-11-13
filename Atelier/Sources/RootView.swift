@@ -102,8 +102,9 @@ struct RootView: View {
 				.installBar(front: tab == .settings)
 				.tabItem { Label("Settings", systemImage: "gearshape") }
 				.tag(Page.settings)
-				// Revoked, expired or soon expiring certificates (#5).
-				.badge(certificates.needingAttention)
+				// Revoked, expired or soon expiring certificates (#5), which
+				// Settings › Installs › Certificates names.
+				.badge(certificates.needingAttention.count)
 		}
 		.environment(certificates)
 		.environment(catalog)
