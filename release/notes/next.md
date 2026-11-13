@@ -9,6 +9,7 @@
 
 ## Fixes
 
+- Settings says where its badge comes from: under Certificates, a line names the certificate or Apple ID that's revoked, expired or about to expire, and how many others there are, as in "side@alxp.gr is revoked, and 2 other issues". Before, Settings only named the certificate in use, so one revoked that wasn't in use showed nowhere (#26).
 - When a source's GitHub repo doesn't have the branch or file the source points to, Atelier says which is missing, instead of saying your GitHub account can't see the repo. For a public repo, it no longer asks you to sign in (#13).
 - An offloaded app stays in Offloaded while another app installs. Before, an install could take the install check the offloaded app still held, so the offloaded app briefly showed in Installed with "Data not put back" (#18).
 - An app being re-signed shows once, in its own row in Re-sign, with its progress and the ring that stops it, rather than in Downloads too. It stays in Re-sign while it's deleted to be installed again. Reinstall and Custom Install… show in the app's row the same way. "Re-signed just now", "Updated just now" and "Renewed" stay on one line (#20).
