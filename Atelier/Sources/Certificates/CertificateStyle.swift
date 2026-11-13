@@ -78,6 +78,49 @@ enum CertificateHealth: Equatable {
 	}
 }
 
+/// Under Settings › Installs › Certificates, once the Settings tab has a
+/// badge: the worst of what it counts by name, then how many others, on
+/// one line, such as "side@alxp.gr is revoked, and 2 other issues"
+/// (13 Nov 2026). Only the name is shortened, so the count always shows.
+struct CertificatesAttentionLine: View {
+	/// Worst first, as `CertificatesModel.needingAttention` gives them.
+	let attention: [CertificatesModel.Attention]
+
+	var body: some View {
+		if let first = attention.first {
+			HStack(spacing: 4) {
+				Image(systemName: first.health.symbol)
+				HStack(spacing: 0) {
+					Text(first.name)
+					Text(" " + Self.rest(of: attention))
+						.fixedSize()
+				}
+			}
+			.font(.footnote.weight(.medium))
+			.foregroundStyle(first.health.color)
+			.lineLimit(1)
+			.accessibilityElement(children: .combine)
+		}
+	}
+
+	/// What follows the first one's name: what's wrong with it, and how
+	/// many others there are.
+	static func rest(of attention: [CertificatesModel.Attention]) -> String {
+		let what = switch attention.first?.health {
+		case .revoked?: "is revoked"
+		case .expired?: "has expired"
+		case .expiring(let days)?: days == 1 ? "expires within a day" : "expires in \(days) days"
+		case .valid?, nil: ""
+		}
+		let others = attention.count - 1
+		switch others {
+		case 0: return what
+		case 1: return "\(what), and 1 other issue"
+		default: return "\(what), and \(others) other issues"
+		}
+	}
+}
+
 extension StoredCertificate {
 	/// How much of its validity is left, from 1 just after it was issued (or
 	/// the profile was made, if later) to 0 when it runs out.

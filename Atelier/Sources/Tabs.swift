@@ -748,7 +748,23 @@ struct SettingsView: View {
 					NavigationLink {
 						CertificatesView()
 					} label: {
-						LabeledContent("Certificates", value: certificates.inUseName ?? "None")
+						// Under the one in use, what the Settings tab's badge
+						// counts, so it shows where the badge comes from
+						// (13 Nov 2026).
+						let attention = certificates.needingAttention
+						VStack(alignment: .leading, spacing: 3) {
+							HStack {
+								Text("Certificates")
+									.layoutPriority(1)
+								Spacer()
+								Text(certificates.inUseName ?? "None")
+									.foregroundStyle(.secondary)
+									.lineLimit(1)
+							}
+							if !attention.isEmpty {
+								CertificatesAttentionLine(attention: attention)
+							}
+						}
 					}
 					if routeA.isSetUp {
 						// Finished once its check has passed, whatever the
