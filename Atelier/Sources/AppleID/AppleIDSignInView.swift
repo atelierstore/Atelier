@@ -120,11 +120,19 @@ private struct SignInForm: View {
 	var body: some View {
 		Form {
 			Section {
-				if signIn.renewing != nil {
-					// New Certificate (12 Nov 2026).
+				if signIn.signsInAgain {
+					// Sign In Again, once Apple's token has expired (#182).
+					SheetHeading(
+						title: "Sign In Again",
+						text: "Atelier’s sign-in with this Apple ID has expired. Atelier signs in with its password, then renews your apps. They keep their data.",
+						tile: AnyView(AppleIDTile(size: 60))
+					)
+				} else if signIn.renewing != nil {
+					// New Certificate (12 Nov 2026), with Apple's token or the
+					// password (#182).
 					SheetHeading(
 						title: "New Certificate",
-						text: "Atelier signs in with the password in your Keychain, has Apple make a new certificate, then signs your apps again with it. They keep their data.",
+						text: "Atelier signs in again, has Apple make a new certificate, then signs your apps again with it. They keep their data.",
 						tile: AnyView(AppleIDTile(size: 60))
 					)
 				} else {
@@ -144,7 +152,8 @@ private struct SignInForm: View {
 
 			Section {
 				Point(symbol: "key") {
-					Text("\(Text("Your password stays on this \(ThisDevice.name),").bold()) in its Keychain and never synced, so Atelier can renew your apps every week. It only goes to Apple.")
+					// Token only, as approved on 13 Nov 2026 (#182).
+					Text("\(Text("Your password only goes to Apple.").bold()) Atelier keeps Apple’s sign-in token instead, in this \(ThisDevice.name)’s Keychain and never synced, and renews your apps with it every week.")
 				}
 				Point(symbol: "checkmark.shield") {
 					if let host = (try? CustomAnisetteServer.resolve(customServer).get())?.host {
@@ -155,7 +164,7 @@ private struct SignInForm: View {
 				}
 			}
 		}
-		.navigationTitle(signIn.renewing == nil ? "Sign In" : "New Certificate")
+		.navigationTitle(signIn.signsInAgain ? "Sign In Again" : signIn.renewing == nil ? "Sign In" : "New Certificate")
 		.toolbar {
 			ToolbarItem(placement: .cancellationAction) {
 				Button("Cancel", systemImage: "xmark") { certificates.endSignIn() }
@@ -166,7 +175,9 @@ private struct SignInForm: View {
 			}
 		}
 		.onAppear {
-			if isSetUp, signIn.email.isEmpty { focus = .email }
+			guard isSetUp else { return }
+			// Sign In Again only needs the password (#182).
+			if signIn.email.isEmpty { focus = .email } else if signIn.signsInAgain { focus = .password }
 		}
 	}
 
@@ -183,7 +194,8 @@ private struct SignInForm: View {
 					.submitLabel(.next)
 					.focused($focus, equals: .email)
 					.onSubmit { focus = .password }
-					// New Certificate is for its Apple ID (12 Nov 2026).
+					// New Certificate and Sign In Again are for its Apple ID (12
+					// Nov 2026, #182).
 					.disabled(signIn.renewing != nil)
 			}
 			HStack {
@@ -299,8 +311,10 @@ struct AppleIDCodeAlert: ViewModifier {
 	private static func message(for prompt: AppleIDCodePrompt) -> String {
 		let request = prompt.request
 		var text = ""
+		// Apple's note on the last code, in plain words (#182): Apple ID
+		// Log keeps it as Apple gave it.
 		if let lastError = request.lastError, !lastError.isEmpty {
-			text += "\(lastError)\n\n"
+			text += "\(AppleIDError.plainCodeNote(lastError))\n\n"
 		}
 		if let purpose = prompt.purpose {
 			text += "\(purpose) "

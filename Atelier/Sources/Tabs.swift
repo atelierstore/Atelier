@@ -910,6 +910,8 @@ private struct TestActionsSection: View {
 	@State private var startsAt: Date?
 	/// What the last background check did.
 	@State private var report: String?
+	/// What Expire Apple's Tokens did (#182).
+	@State private var tokensExpired: String?
 
 	var body: some View {
 		if shown {
@@ -958,12 +960,27 @@ private struct TestActionsSection: View {
 				NavigationLink("End an App’s Profile") {
 					RenewalTestView()
 				}
+				// Sign In Again without waiting for Apple's token to expire
+				// (#182).
+				Button {
+					let count = CertificatesModel.shared.expireAppleIDTokensForTest()
+					tokensExpired = count == 1 ? "1 token expired." : "\(count) tokens expired."
+				} label: {
+					VStack(alignment: .leading, spacing: 2) {
+						Text("Expire Apple’s Tokens")
+						if let tokensExpired {
+							Text(tokensExpired)
+								.font(.footnote)
+								.foregroundStyle(.secondary)
+						}
+					}
+				}
 				// The first launch's welcome and Get Ready, again (#21).
 				Button("Show Welcome") { Welcome.shared.show() }
 			} header: {
 				Text("Test Actions")
 			} footer: {
-				Text("For Setup's Local Network fix, pick Refused and turn Local Network off for Atelier. Run Background Check does what iOS's background refresh does: refreshes your sources, downloads updates ahead on Wi-Fi, and notifies. With Install updates automatically on, it runs automatic updates instead, which install what they can by themselves. It forgets which updates and news it already told you about first, so they're told again. Show Welcome opens the welcome and Get Ready as on the first launch. Tapping Version seven times again hides this section and turns everything in it off.")
+				Text("For Setup's Local Network fix, pick Refused and turn Local Network off for Atelier. Run Background Check does what iOS's background refresh does: refreshes your sources, downloads updates ahead on Wi-Fi, and notifies. With Install updates automatically on, it runs automatic updates instead, which install what they can by themselves. It forgets which updates and news it already told you about first, so they're told again. Expire Apple’s Tokens makes each Apple ID’s sign-in token expire now, so its page asks you to Sign In Again. Show Welcome opens the welcome and Get Ready as on the first launch. Tapping Version seven times again hides this section and turns everything in it off.")
 			}
 		}
 	}

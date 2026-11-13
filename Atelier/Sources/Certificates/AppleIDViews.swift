@@ -48,9 +48,32 @@ extension StoredAppleID.Team {
 }
 
 extension StoredAppleID {
-	/// What Sign Out says it does.
-	var signOutNote: String {
-		"Atelier deletes your password and the certificate’s key from this \(ThisDevice.name). Apps signed with it open until their profiles run out\(team.profileLimit)."
+	/// What Sign Out says it does: for an Apple ID without a password,
+	/// that Atelier signs in with Apple's token alone (#182), it deletes
+	/// that.
+	func signOutNote(_ kind: AppleIDSignInKind) -> String {
+		let secret = kind == .password ? "your password" : "Apple’s token"
+		return "Atelier deletes \(secret) and the certificate’s key from this \(ThisDevice.name). Apps signed with it open until their profiles run out\(team.profileLimit)."
+	}
+}
+
+extension AppleIDSignInKind {
+	/// "Fri 12 Nov 2027", when Apple's token ends.
+	static func day(_ date: Date) -> String {
+		date.formatted(.dateTime.weekday(.abbreviated).day().month(.abbreviated).year())
+	}
+
+	/// Under the Apple ID's team on its page (#182).
+	var footer: String {
+		switch self {
+		case .password:
+			return "Your password is in this \(ThisDevice.name)’s Keychain, for renewing your apps every week."
+		case .token(let ends):
+			return "Apple’s token for this Apple ID is in this \(ThisDevice.name)’s Keychain, not your password. With it, Atelier renews your apps every week until the sign-in expires\(ends.map { ", on \(Self.day($0))" } ?? ""). Atelier then asks you to sign in again."
+		case .expired(let on):
+			let expired = on.map { "expired on \(Self.day($0))" } ?? "has expired"
+			return "Atelier’s sign-in with this Apple ID \(expired). Atelier doesn’t keep your password."
+		}
 	}
 }
 
@@ -152,6 +175,7 @@ struct AppleIDDetailView: View {
 	private func form(_ account: StoredAppleID) -> some View {
 		let dates = Date.FormatStyle.dateTime.day().month().year()
 		let health = CertificateHealth(account)
+		let kind = model.signInKind(for: account)
 		return Form {
 			Section {
 				AppleIDHeader(account: account, isDefault: account.id == model.defaultID) {
@@ -170,7 +194,19 @@ struct AppleIDDetailView: View {
 							.frame(maxWidth: .infinity)
 					}
 				} footer: {
-					Text("\(health == .revoked ? "Apple revoked its certificate" : "Its certificate has ended"), so its apps don’t open. New Certificate signs in with the password in your Keychain, has Apple make a new one, then signs its apps again with it, keeping their data.")
+					Text("\(health == .revoked ? "Apple revoked its certificate" : "Its certificate has ended"), so its apps don’t open. New Certificate signs in again, has Apple make a new one, then signs its apps again with it, keeping their data.")
+				}
+			} else if kind.isExpired {
+				// Once Apple's token alone has expired (#182).
+				Section {
+					Button {
+						model.beginSignInAgain(for: account)
+					} label: {
+						Text("Sign In Again")
+							.frame(maxWidth: .infinity)
+					}
+				} footer: {
+					Text("Atelier’s sign-in with this Apple ID has expired, so Atelier can’t renew its apps. Sign In Again asks for its password, then renews them.")
 				}
 			}
 
@@ -193,7 +229,9 @@ struct AppleIDDetailView: View {
 			} header: {
 				Text("Apple ID")
 			} footer: {
-				Text("Your password is in this \(ThisDevice.name)’s Keychain, for renewing your apps every week.")
+				// Apple's token instead, for an Apple ID the installer signed in
+				// with it alone (#182).
+				Text(kind.footer)
 			}
 
 			Section("Certificate") {
@@ -213,7 +251,7 @@ struct AppleIDDetailView: View {
 				}
 				.signOutConfirmation(for: $pendingSignOut, model: model) { dismiss() }
 			} footer: {
-				Text(account.signOutNote)
+				Text(account.signOutNote(kind))
 			}
 		}
 	}
@@ -278,7 +316,7 @@ private struct AppleIDHeader: View {
 
 extension View {
 	/// Asks before signing out of an Apple ID.
-	func signOutConfirmation(for item: Binding<StoredAppleID?>, model: CertificatesModel, onSignOut: @escaping () -> Void = {}) -> some View {
+	@MainActor func signOutConfirmation(for item: Binding<StoredAppleID?>, model: CertificatesModel, onSignOut: @escaping () -> Void = {}) -> some View {
 		confirmationDialog(
 			"Sign Out of \(item.wrappedValue?.displayName ?? "the Apple ID")?",
 			isPresented: Binding(get: { item.wrappedValue != nil }, set: { if !$0 { item.wrappedValue = nil } }),
@@ -290,7 +328,7 @@ extension View {
 				onSignOut()
 			}
 		} message: { account in
-			Text(account.signOutNote)
+			Text(account.signOutNote(model.signInKind(for: account)))
 		}
 	}
 }

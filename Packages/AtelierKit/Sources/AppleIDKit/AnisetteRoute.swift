@@ -130,26 +130,33 @@ public struct AnisetteRoute: Sendable {
 	}
 
 	/// What to tell the user when the sign-in stopped on `error`: nil when
-	/// they cancelled it.
-	public func explanation(of error: AppleIDError) -> String? {
+	/// they cancelled it. Plain words, without Apple's code, as approved on
+	/// 13 Nov 2026 (#182): Apple ID Log keeps the code. `appleIDIsSet` when
+	/// the user only typed the password, as in Sign In Again.
+	public func explanation(of error: AppleIDError, appleIDIsSet: Bool = false) -> String? {
 		if error.kind == .cancelled { return nil }
-		if error.isWrongPassword { return "Apple says the Apple ID or password is wrong." }
+		if error.isWrongPassword {
+			return appleIDIsSet
+				? "That isn’t the password for this Apple ID. Type it again."
+				: "The Apple ID or password isn’t right. Check both, then sign in again."
+		}
 		if error.isLocked { return "Apple says this Apple ID is locked. Unlock it at iforgot.apple.com, then sign in again." }
 		if error.kind == .noTeam {
 			return "This Apple ID isn't in a developer team yet. Sign in to developer.apple.com with it once, then try again."
 		}
-		if error.kind == .developer { return "Apple's developer services refused it (\(error.appleCode)): \(error.message)" }
+		let says = error.applesWords.map { " Apple says: “\($0)”" } ?? ""
+		if error.kind == .developer { return "Apple’s developer services didn’t accept this Apple ID.\(says)" }
 		// Anisette servers only mean something to people who run their own
 		// (5 Nov 2026); the others hear of "servers it signs in through".
 		if error.isTryLater {
-			return "Apple isn't letting apps like Atelier sign in right now, which has happened on and off since October. Try again later."
+			return "Apple isn’t letting apps like Atelier sign in right now. Try again later."
 		}
 		if isCustom, let server = servers.first {
-			let what = error.kind == .signIn ? "Apple refused the sign-in through your own sign-in server, \(server.host) (\(error.appleCode))." : "Your own sign-in server, \(server.host), didn't answer."
+			let what = error.kind == .signIn ? "Apple refused the sign-in through your own sign-in server, \(server.host).\(says)" : "Your own sign-in server, \(server.host), didn't answer."
 			return "\(what) Check that it's running, or turn it off in Settings › Installs › Advanced."
 		}
 		if error.kind == .signIn {
-			return "Apple refused the sign-in (\(error.appleCode)): \(error.message)"
+			return "Apple didn’t let Atelier sign in.\(says)"
 		}
 		return tried.count > 1
 			? "Atelier couldn't reach the servers it signs in through. Check your connection, then try again."
