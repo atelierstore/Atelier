@@ -122,6 +122,7 @@ final class AnisetteRouteTests: XCTestCase {
 
 	func testExplainsWhyItStopped() {
 		XCTAssertEqual(explain(AppleIDError(kind: .signIn, appleCode: -20101, message: ""), after: [.final]), "Apple says the Apple ID or password is wrong.")
+		XCTAssertEqual(explain(AppleIDError(kind: .signIn, appleCode: -22406, message: "Failed to log in to Apple ID: GrandSlam error during proof login request: Auth error -22406: Enter the correct password for this Apple Account."), after: [.final]), "Apple says the Apple ID or password is wrong.")
 		XCTAssertNil(explain(AppleIDError(kind: .cancelled, message: ""), after: [.final]))
 		XCTAssertEqual(
 			explain(AppleIDError(kind: .signIn, appleCode: -80045, message: ""), after: [.refused, .refused, .refused]),
@@ -140,6 +141,7 @@ final class AnisetteRouteTests: XCTestCase {
 
 	func testWhatEachErrorMeansForTheServers() {
 		XCTAssertEqual(AppleIDError(kind: .signIn, appleCode: -20101, message: "").routeFailure, .final)
+		XCTAssertEqual(AppleIDError(kind: .signIn, appleCode: -22406, message: "").routeFailure, .final, "a wrong password isn't tried through another server")
 		XCTAssertEqual(AppleIDError(kind: .signIn, appleCode: -20209, message: "").routeFailure, .final)
 		XCTAssertEqual(AppleIDError(kind: .cancelled, message: "").routeFailure, .final)
 		XCTAssertEqual(AppleIDError(kind: .developer, appleCode: 1100, message: "").routeFailure, .final)

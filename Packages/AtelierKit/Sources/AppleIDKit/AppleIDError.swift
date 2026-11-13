@@ -21,7 +21,7 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 	}
 
 	public var kind: Kind
-	/// Apple's code, such as -20101 for a wrong password; 0 when there's none.
+	/// Apple's code, such as -22406 for a wrong password; 0 when there's none.
 	public var appleCode: Int32
 	public var message: String
 
@@ -35,7 +35,10 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		AppleIDError(kind: .other, message: "Atelier couldn't read \(what)")
 	}
 
-	public var isWrongPassword: Bool { kind == .signIn && appleCode == -20101 }
+	/// A wrong Apple ID or password: -20101, or -22406, "Enter the correct
+	/// password for this Apple Account.", as Apple answered on 13 Nov 2026.
+	/// Final, so it isn't tried again through another server.
+	public var isWrongPassword: Bool { kind == .signIn && (appleCode == -20101 || appleCode == -22406) }
 	public var isLocked: Bool { kind == .signIn && appleCode == -20209 }
 	/// "This action cannot be completed at this time": what Apple answered
 	/// iloader's servers in October 2026 until each was fixed.
