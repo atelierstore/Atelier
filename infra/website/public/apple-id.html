@@ -64,9 +64,10 @@
       </div>
       <!-- The installer is atelier-install, a WebAssembly program for
            rootshell (github.com/atelierstore/atelier-install), and these
-           steps are its README's "Using it". apple-id.js fills in step 4's
-           line from Atelier's source, and on a computer shows a code that
-           opens this page on the iPhone. -->
+           steps are its README's "Using it". apple-id.js fills in step 3's
+           line from Atelier's source, shows the button that copies it and
+           opens rootshell on an iPhone or iPad, and on a computer shows a
+           code that opens this page on the iPhone. -->
       <ol class="steps">
         <li>
           <span class="n" aria-hidden="true">1</span>
@@ -77,7 +78,7 @@
                 <strong>Do these steps on your iPhone</strong>
                 <ol class="scan-steps">
                   <li>Open the Camera on your iPhone and point it at the code.</li>
-                  <li>Tap the link that shows up. This page opens there, where you'll copy each line into rootshell.</li>
+                  <li>Tap the link that shows up. This page opens there, where you'll copy the line into rootshell.</li>
                 </ol>
               </div>
             </div>
@@ -99,37 +100,30 @@
         <li>
           <span class="n" aria-hidden="true">3</span>
           <div>
-            <h3>Download the installer</h3>
-            <p>First, in rootshell's Settings › General, turn on Location Diary Mode with its Mode set to Session Only, so it keeps running while you're in Settings, and turn on Terminal Notifications. Session Only turns itself off whenever rootshell closes, such as when your iPhone restarts.</p>
-            <p>Then copy each line into rootshell, one at a time. The second gives the installer your iPhone's Wi&#8209;Fi address, which pairing needs.</p>
-            <div class="url-box cmd" data-command>
-              <code>curl -fsSLO https://github.com/atelierstore/atelier-install/releases/latest/download/atelier-install.wasm</code>
-              <button class="btn btn-primary btn-small" type="button" aria-label="Copy the download line">Copy</button>
-            </div>
-            <div class="url-box cmd" data-command>
-              <code>ifconfig en0 &gt; ifconfig.txt</code>
-              <button class="btn btn-primary btn-small" type="button" aria-label="Copy the Wi-Fi address line">Copy</button>
-            </div>
-          </div>
-        </li>
-        <li>
-          <span class="n" aria-hidden="true">4</span>
-          <div>
             <h3>Install Atelier</h3>
-            <p>Copy this line into rootshell. It installs Atelier's newest release, checked against its SHA&#8209;256.</p>
+            <p>First, in rootshell's Settings › General, turn on Location Diary Mode with its Mode set to Session Only, so it keeps running while you're in Settings, and turn on Terminal Notifications. Session Only turns itself off whenever rootshell closes, such as when your iPhone restarts.</p>
+            <p>Then copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>
             <div class="release" data-release data-source="https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json">
               <img src="/img/icon.png" alt="" width="52" height="52">
               <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Newest release</span></span>
             </div>
             <p class="small" data-release-wait aria-live="polite">Reading Atelier's newest release…</p>
-            <div class="url-box cmd" data-command data-after-release hidden>
+            <div class="url-box" data-command data-after-release hidden>
               <code data-install-line></code>
-              <button class="btn btn-primary btn-small" type="button" aria-label="Copy the install line">Copy</button>
+              <button class="btn btn-primary btn-small" type="button" aria-label="Copy the line">Copy</button>
             </div>
-            <p class="small">Then do what rootshell asks:</p>
+            <!-- On an iPhone or iPad, once the line is there: LocalDevVPN's
+                 own link connects it, then opens the app whose links start
+                 with the scheme it's given, here rootshell. apple-id.js
+                 copies the line first. -->
+            <div class="actions go-row" data-on-ios hidden>
+              <a class="btn btn-primary" href="localdevvpn://enable?scheme=rootshell" data-open-rootshell>Copy and open rootshell</a>
+            </div>
+            <p class="small" data-on-ios hidden>Safari asks to open LocalDevVPN first. It connects, then switches to rootshell by itself. The first time, allow it to add its VPN.</p>
+            <p class="small">Paste the line in rootshell and press Return. Then do what rootshell asks:</p>
             <ol class="points walk">
               <li><strong>Pair.</strong> In Settings › Privacy &amp; Security › Developer Mode, tap Pair with Atelier and type the code rootshell shows. It also comes as a notification.</li>
-              <li><strong>Connect LocalDevVPN,</strong> then go back to rootshell.</li>
+              <li><strong>Go back to rootshell</strong> and press Return. LocalDevVPN is connected already.</li>
               <li><strong>Sign in</strong> with your Apple ID, its password, and the code Apple sends if it asks. rootshell doesn't show the password as you type it.</li>
               <li><strong>Stay in rootshell</strong> while it signs and installs Atelier.</li>
             </ol>
@@ -143,14 +137,14 @@
             <div class="callout">
               <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
               <div>
-                <strong>If it waits after LocalDevVPN</strong>
-                <p>If nothing shows for a minute after you connect LocalDevVPN, your iPhone's pairing service has moved to another port, which can happen after a restart. Press Control-C. A Bonjour browser such as Discovery – DNS-SD Browser, free on the App Store, shows the port under <code class="key">_remotepairing._tcp</code>. Copy the install line again, and add <code class="key">--port</code> and that number at the end.</p>
+                <strong>If it waits after pairing</strong>
+                <p>If nothing shows for a minute after you press Return, your iPhone's pairing service has moved to another port, which can happen after a restart. Press Control-C. A Bonjour browser such as Discovery – DNS-SD Browser, free on the App Store, shows the port under <code class="key">_remotepairing._tcp</code>. Copy the line again, and add <code class="key">--port</code> and that number at the end.</p>
               </div>
             </div>
           </div>
         </li>
         <li>
-          <span class="n" aria-hidden="true">5</span>
+          <span class="n" aria-hidden="true">4</span>
           <div>
             <h3>Open Atelier</h3>
             <p>Trust your Apple ID in Settings › General › VPN &amp; Device Management, then open Atelier. It opens signed in and already paired, so it installs your apps without iOS's alert, and renews itself every week on Wi&#8209;Fi.</p>

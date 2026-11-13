@@ -29,15 +29,27 @@ export function newestRelease(source) {
   };
 }
 
-/** The line that installs `release` in rootshell with atelier-install, as
- *  the Apple ID page gives it to copy: its IPA, checked against its SHA-256
- *  when the source gives one. null when the IPA's address has more than
- *  letters, digits and `._~/%+-` after https://, which a shell could read
- *  as something else (GitHub's release addresses don't). */
+/** Where rootshell downloads atelier-install from: its newest release. */
+const INSTALLER = "https://github.com/atelierstore/atelier-install/releases/latest/download/atelier-install.wasm";
+
+/** The line that installs `release` in rootshell, as the Apple ID page
+ *  gives it to copy. It downloads atelier-install, saves the iPhone's Wi-Fi
+ *  address, which the installer pairs with, and runs the installer on the
+ *  release's IPA, checked against its SHA-256 when the source gives one.
+ *  What's added after it, such as --port, goes to the installer.
+ *
+ *  It starts with `true` because rootshell only runs a .wasm program that
+ *  comes after && in a line its own shell reads, and it hands any line to
+ *  ios_system, which answers "wasm: command not found", unless the line
+ *  starts with one of its shell's own commands, as `true` is.
+ *
+ *  null when the IPA's address has more than letters, digits and `._~/%+-`
+ *  after https://, which a shell could read as something else (GitHub's
+ *  release addresses don't). */
 export function installLine(release) {
   if (!/^https:\/\/[A-Za-z0-9._~\/%+-]+$/.test(release.downloadURL)) return null;
-  const line = `./atelier-install.wasm --ipa ${release.downloadURL}`;
-  return release.sha256 ? `${line} --sha256 ${release.sha256}` : line;
+  const install = `./atelier-install.wasm --ipa ${release.downloadURL}` + (release.sha256 ? ` --sha256 ${release.sha256}` : "");
+  return `true && curl -fsSLO ${INSTALLER} && ifconfig en0 > ifconfig.txt && ${install}`;
 }
 
 /** "1 Nov 2026", in the viewer's time zone. */
