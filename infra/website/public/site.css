@@ -479,7 +479,7 @@ a.route.route-pick:hover { border-color: var(--pine); }
   .keys dt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 }
 .steps p.small { margin-top: 12px; font-size: 15px; }
-/* Step 3 of the Apple ID page: rootshell's settings, then the lines. */
+/* Step 3 of the Apple ID page: rootshell's settings, then the line. */
 .steps h3 + p + p { margin-top: 10px; }
 .steps .callout + p { margin-top: 12px; font-size: 15px; }
 .points { margin: 16px 0 0; padding-left: 1.2em; display: grid; gap: 8px; color: var(--ink-2); }
@@ -573,12 +573,14 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
    why it can't install here, over what it does. */
 .install-main .callout { margin-top: 20px; text-align: left; }
 .install-main .callout p { margin-top: 2px; font-size: 15px; color: var(--ink-2); }
-/* The Apple ID page (apple-id.html): the lines to copy into rootshell,
-   one under the other, step 4's newest release over its line, and what
-   rootshell then asks, each with what to do first. On a computer, the code
-   that opens the page on the iPhone sits over step 1. */
-.url-box.cmd + .url-box.cmd { margin-top: 10px; }
+/* The Apple ID page (apple-id.html): step 3's newest release over the
+   line to copy into rootshell, the button that copies it and opens
+   rootshell on an iPhone or iPad, as wide as the line's box there, and
+   what rootshell then asks, each with what to do first. On a computer, the
+   code that opens the page on the iPhone sits over step 1. */
 .steps .release + .url-box, .steps .release + p.small { margin-top: 12px; }
+.steps .go-row { margin-top: 12px; }
+.steps .go-row .btn { box-sizing: border-box; width: 100%; max-width: 420px; }
 .points.walk { margin-top: 10px; font-size: 15px; line-height: 1.5; }
 .points.walk li::marker { font-weight: 700; }
 .points.walk strong { color: var(--ink); font-weight: 600; }

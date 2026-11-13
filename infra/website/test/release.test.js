@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { formatDate, installLine, newestRelease, shortHash } from "../public/release.js";
 
@@ -82,15 +83,39 @@ test("shortens a SHA-256 to its first and last 8 digits", () => {
   assert.equal(shortHash(SHA256), "0fa41806…5a09ae5b");
 });
 
-test("gives the line that installs the newest release in rootshell, with its SHA-256", () => {
+test("gives the one line that downloads the installer and installs the newest release in rootshell, with its SHA-256", () => {
+  const before = "true && curl -fsSLO https://github.com/atelierstore/atelier-install/releases/latest/download/atelier-install.wasm && ifconfig en0 > ifconfig.txt && ";
   assert.equal(
     installLine(newestRelease(source())),
-    `./atelier-install.wasm --ipa https://github.com/atelierstore/Atelier/releases/download/v0.4.0-alpha/Atelier-0.4.0-alpha.ipa --sha256 ${SHA256}`,
+    `${before}./atelier-install.wasm --ipa https://github.com/atelierstore/Atelier/releases/download/v0.4.0-alpha/Atelier-0.4.0-alpha.ipa --sha256 ${SHA256}`,
   );
   assert.equal(
     installLine(newestRelease(source({ sha256: undefined }))),
-    "./atelier-install.wasm --ipa https://github.com/atelierstore/Atelier/releases/download/v0.4.0-alpha/Atelier-0.4.0-alpha.ipa",
+    `${before}./atelier-install.wasm --ipa https://github.com/atelierstore/Atelier/releases/download/v0.4.0-alpha/Atelier-0.4.0-alpha.ipa`,
   );
+});
+
+test("the line starts with a command of rootshell's own shell, and ends with the installer's", () => {
+  for (const fields of [{}, { sha256: undefined }]) {
+    const commands = installLine(newestRelease(source(fields))).split(" && ");
+    // Any other first word, and rootshell hands the line to ios_system,
+    // which can't run the installer: "wasm: command not found".
+    assert.equal(commands[0], "true");
+    // The page says to add --port and its number at the end of the line:
+    // that only reaches the installer when its command is the last.
+    assert.match(commands.at(-1), /^\.\/atelier-install\.wasm --ipa /);
+  }
+});
+
+test("the Apple ID page has what its script fills in, and LocalDevVPN's link to rootshell", () => {
+  const html = readFileSync(new URL("../public/apple-id.html", import.meta.url), "utf8");
+  const script = readFileSync(new URL("../public/apple-id.js", import.meta.url), "utf8");
+  const marks = [...script.matchAll(/\[(data-[a-z-]+)\]/g)].map((match) => match[1]);
+  assert.ok(marks.includes("data-install-line") && marks.includes("data-open-rootshell"));
+  for (const mark of marks) assert.match(html, new RegExp(` ${mark}[ =>]`), mark);
+  // It connects LocalDevVPN, then opens the app whose links start with
+  // rootshell://.
+  assert.match(html, /<a [^>]*href="localdevvpn:\/\/enable\?scheme=rootshell"[^>]* data-open-rootshell>/);
 });
 
 test("gives no line for an IPA address a shell could read as something else", () => {
