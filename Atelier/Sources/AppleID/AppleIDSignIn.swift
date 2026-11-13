@@ -22,7 +22,9 @@ import Observation
 /// it by itself as it first opens (`CertificatesModel.signInAsInstaller`),
 /// out of sight, as the same machine to Apple and in the same team. The
 /// sheet comes up, filled in, once it has something to show: Apple's code,
-/// a choice, why it stopped, or You're Signed In. The installer's version 2
+/// a choice, or why it stopped. Once it's signed in, it doesn't, unless
+/// another certificate is in use: Get Ready and the Apple ID's page say so
+/// (13 Nov 2026). The installer's version 2
 /// hands over Apple's token from its sign-in in place of the password
 /// (#182): Atelier signs in with that, unless Apple refuses it, when the
 /// sheet asks for the password. New Certificate signs in with the Apple
@@ -145,9 +147,17 @@ final class AppleIDSignIn {
 	}
 
 	/// Whether the sheet shows: not while Atelier signs in by itself and
-	/// has nothing to show yet.
+	/// has nothing to show yet, nor once that went through.
 	var isShown: Bool {
-		revealed || !isWorking
+		revealed || !(isWorking || isDoneByItself)
+	}
+
+	/// Signed in by itself with the installer's sign-in, out of sight, and
+	/// in use. Only You're Signed In offers Use for Installs while another
+	/// certificate is in use, so that one still shows.
+	private var isDoneByItself: Bool {
+		if case .done(let done) = stage { return done.byInstaller && done.inUse && !revealed }
+		return false
 	}
 
 	/// The sheet comes up for it, as when the user opens it while Atelier
@@ -208,6 +218,11 @@ final class AppleIDSignIn {
 			guard !cancelled else { return note("done, after the sheet closed") }
 			stage = .done(done)
 			finish(true)
+			// Out of sight, it ends there, with no You're Signed In.
+			if isDoneByItself {
+				note("signed in by itself, with no sheet")
+				certificates.endSignIn()
+			}
 		} catch Stop.cancelled {
 			note("cancelled")
 			guard !cancelled else { return }
