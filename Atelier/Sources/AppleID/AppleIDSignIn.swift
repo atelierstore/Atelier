@@ -248,7 +248,7 @@ final class AppleIDSignIn {
 				do {
 					try await signedIn.session.chooseTeam(handedOver)
 				} catch {
-					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+					throw Stop.failed(Self.explain(error, "Atelier couldn’t switch to that team"))
 				}
 				note("team: the installer's, \(handedOver.id), of \(signedIn.teams.count)")
 			}
@@ -259,7 +259,7 @@ final class AppleIDSignIn {
 				do {
 					try await signedIn.session.chooseTeam(own)
 				} catch {
-					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+					throw Stop.failed(Self.explain(error, "Atelier couldn’t switch to that team"))
 				}
 				note("team: the Apple ID's own, \(own.id), of \(signedIn.teams.count)")
 			}
@@ -272,7 +272,7 @@ final class AppleIDSignIn {
 				do {
 					try await signedIn.session.chooseTeam(picked)
 				} catch {
-					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+					throw Stop.failed(Self.explain(error, "Atelier couldn’t switch to that team"))
 				}
 			}
 			team = picked
@@ -286,7 +286,7 @@ final class AppleIDSignIn {
 			note("register: this \(ThisDevice.name) \(registered.added ? "added" : "already registered"), \(registered.devices) in the team")
 		} catch {
 			note("register: failed: \(error)")
-			throw Stop.failed(Self.explain(error, "Apple didn't register this \(ThisDevice.name)"))
+			throw Stop.failed(Self.explain(error, "Apple didn’t register this \(ThisDevice.name)"))
 		}
 		try checkCancelled()
 
@@ -378,7 +378,7 @@ final class AppleIDSignIn {
 		}
 		// Through the installer's server first, whose machine Apple trusts.
 		let server = handedOver(for: email)?.signIn?.anisetteServer.flatMap(AnisetteList.serverURL)
-		return try await AppleIDRoute.signIn(email: email, password: password, firstServer: server, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
+		return try await AppleIDRoute.signIn(email: email, password: password, firstServer: server, appleIDIsSet: renewing != nil, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
 			self?.waitForCode(request)
 		}
 	}
@@ -421,7 +421,7 @@ final class AppleIDSignIn {
 				if let renewing { certificates.setAppleIDToken(nil, for: renewing.id) }
 			} catch {
 				note("token: Apple wasn't reached with it: \(error)")
-				guard withPassword else { throw Stop.failed(Self.explain(error, "Atelier couldn't reach Apple")) }
+				guard withPassword else { throw Stop.failed(Self.explain(error, AppleIDError.couldNotReachApple)) }
 				return nil
 			}
 		}
@@ -502,7 +502,7 @@ final class AppleIDSignIn {
 			return try await session.adoptCertificate(key: key, p12Password: p12Password, keys: keys)
 		} catch {
 			note("certificate: listing failed: \(error)")
-			throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
+			throw Stop.failed(Self.explain(error, "Apple didn’t list the team’s certificates"))
 		}
 	}
 
@@ -526,7 +526,7 @@ final class AppleIDSignIn {
 				do {
 					listed = try await session.certificates()
 				} catch {
-					throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
+					throw Stop.failed(Self.explain(error, "Apple didn’t list the team’s certificates"))
 				}
 				try checkCancelled()
 				note("certificate: at Apple's limit, \(listed.count) listed\(revoked.isEmpty ? "" : ", \(revoked.count) revoked so far")")
@@ -536,7 +536,7 @@ final class AppleIDSignIn {
 				listed.removeAll { certificate in certificate.serialNumber.map { revokedSerials.contains($0) } ?? false }
 				guard revoked.count < Self.maxRevokes, listed.contains(where: { $0.serialNumber != nil }) else {
 					note("certificate: nothing more to revoke")
-					if revoked.isEmpty { throw Stop.failed(Self.explain(error, "Apple didn't make the certificate")) }
+					if revoked.isEmpty { throw Stop.failed(Self.explain(error, "Apple didn’t make the certificate")) }
 					throw Stop.failed(revoked.count == 1
 						? "Apple still counts the certificate you revoked, so Atelier can't make its own yet. Try again later."
 						: "Apple still counts the certificates you revoked, so Atelier can't make its own yet. Try again later.")
@@ -549,14 +549,14 @@ final class AppleIDSignIn {
 					note("certificate: revoked \(serialNumber)\(picked.machineName.map { ", made for \($0)" } ?? "")")
 				} catch {
 					note("certificate: revoking failed: \(error)")
-					throw Stop.failed(Self.explain(error, "Apple didn't revoke the certificate"))
+					throw Stop.failed(Self.explain(error, "Apple didn’t revoke the certificate"))
 				}
 				revoked.append(picked)
 				try checkCancelled()
 				stage = .working("Making a certificate…")
 			} catch {
 				note("certificate: failed: \(error)")
-				throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
+				throw Stop.failed(Self.explain(error, "Apple didn’t make the certificate"))
 			}
 		}
 	}
@@ -629,8 +629,8 @@ final class AppleIDSignIn {
 		AppleIDLog.note(line)
 	}
 
-	/// "Apple didn't register this iPhone (35): Your development team has
-	/// reached the maximum number of registered iPhone devices."
+	/// "Apple didn’t register this iPhone. Apple says: “Your development
+	/// team has reached the maximum number of registered iPhone devices.”"
 	private static func explain(_ error: Error, _ what: String) -> String {
 		AppleIDRoute.explain(error, what)
 	}

@@ -4066,7 +4066,7 @@ final class InstallModel {
 		} catch is CancellationError {
 			throw CancellationError()
 		} catch {
-			log.append("App ID: Apple didn't list the team's App IDs, so the install goes ahead without counting them: \(AppleIDRoute.explain(error, "Apple didn't list them"))")
+			log.append("App ID: Apple didn't list the team's App IDs, so the install goes ahead without counting them: \(AppleIDRoute.explain(error, "Apple didn’t list them"))")
 		}
 		job.certificates.updateAppleID(account.id) { $0.limits = limits }
 		appleIDPlan = (account.id, bundleID, session)
@@ -4155,7 +4155,7 @@ final class InstallModel {
 			profile = try await session.profile(bundleID: bundleID, name: name, groups: groups.asked.map { groups.names[$0] ?? $0 })
 		} catch {
 			log.append("profile: Apple didn't give one: \(error)")
-			throw InstallProblem(AppleIDRoute.explain(error, "Apple didn't give \(name) a profile"), fix: .tryAgain)
+			throw InstallProblem(AppleIDRoute.explain(error, "Apple didn’t give \(name) a profile"), fix: .tryAgain)
 		}
 		try Task.checkCancellation()
 		let parsed = try? ProvisioningProfile(data: profile.data)

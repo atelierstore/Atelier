@@ -99,7 +99,7 @@ final class AppleIDAccess {
 			do {
 				try await signedIn.session.chooseTeam(team)
 			} catch {
-				throw Failure.failed(AppleIDRoute.explain(error, "Atelier couldn't switch to the Apple ID's team"))
+				throw Failure.failed(AppleIDRoute.explain(error, "Atelier couldn’t switch to the Apple ID’s team"))
 			}
 		}
 		sessions[account.id] = Kept(session: signedIn.session, teamID: account.team.id, signedInAt: .now)
@@ -160,7 +160,7 @@ final class AppleIDAccess {
 			return .notSignedIn(why: nil)
 		} catch {
 			AppleIDLog.note("token: Apple wasn't reached with it, so it's kept: \(error)")
-			return .notSignedIn(why: AppleIDRoute.explain(error, "Atelier couldn't reach Apple"))
+			return .notSignedIn(why: AppleIDRoute.explain(error, AppleIDError.couldNotReachApple))
 		}
 	}
 
@@ -312,7 +312,7 @@ final class AppleIDAccess {
 			failures.append(message)
 		} catch {
 			AppleIDLog.note("Check Now: Apple didn't list the App IDs: \(error)")
-			failures.append(AppleIDRoute.explain(error, "Apple didn't list the App IDs"))
+			failures.append(AppleIDRoute.explain(error, "Apple didn’t list the App IDs"))
 		}
 		if limits != (account.limits ?? AppleIDLimits()) {
 			CertificatesModel.shared.updateAppleID(account.id) { $0.limits = limits }

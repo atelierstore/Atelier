@@ -48,6 +48,58 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 	/// The team has the most development certificates Apple allows.
 	public var isTooManyCertificates: Bool { kind == .developer && appleCode == 7460 }
 
+	/// Apple's own sentence, as isideload ends the bridge's message with
+	/// it: what follows "Auth error <code>: " or "Developer error <code>: ".
+	/// Nil when there's none.
+	public var applesWords: String? {
+		for marker in ["Auth error \(appleCode): ", "Developer error \(appleCode): "] {
+			guard let range = message.range(of: marker, options: .backwards) else { continue }
+			let words = message[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
+			if !words.isEmpty { return words }
+		}
+		return nil
+	}
+
+	/// Whether Apple wasn't reached: no network, or no answer in time.
+	public var isUnreached: Bool {
+		guard kind == .other else { return false }
+		let message = message.lowercased()
+		return ["error sending request", "timed out", "dns error", "connection", "offline", "network"].contains { message.contains($0) }
+	}
+
+	/// What a step with Apple says when it failed (#182, as approved on 13
+	/// Nov 2026): `what`, the step, then Apple's own sentence, that Apple
+	/// wasn't reached, or that Atelier can't tell why. No code: Apple ID
+	/// Log keeps it, with the rest of the message.
+	public func explained(_ what: String) -> String {
+		if let words = applesWords { return "\(what). Apple says: “\(words)”" }
+		switch kind {
+		case .other where isUnreached:
+			return what == Self.couldNotReachApple
+				? "\(what). Check your connection, then try again."
+				: "\(what), as Atelier couldn’t reach Apple. Check your connection, then try again."
+		case .cancelled, .noTeam:
+			return message.isEmpty ? "\(what)." : "\(what): \(message)"
+		case .signIn, .developer, .tokenRefused, .other:
+			return "\(what), and Atelier can’t tell why. Apple ID Log, on the Apple ID’s page, has what Apple answered."
+		}
+	}
+
+	/// The step that signs in again with Apple's token, which says only
+	/// what to do when Apple wasn't reached.
+	public static let couldNotReachApple = "Atelier couldn’t reach Apple"
+
+	/// Apple's note on the last verification code, in plain words, for the
+	/// code alert (#182, 13 Nov 2026): isideload words a wrong code
+	/// "-21669 - Incorrect verification code.", and Apple not texting one
+	/// "<title> - <Apple's sentence>".
+	public static func plainCodeNote(_ note: String) -> String {
+		if note.hasPrefix("-21669 ") { return "That code wasn’t right." }
+		guard let range = note.range(of: " - ", options: .backwards) else { return note }
+		let words = note[range.upperBound...].trimmingCharacters(in: .whitespaces)
+		return words.isEmpty ? note : words
+	}
+
 	/// What it means for the anisette servers a sign-in goes through: a
 	/// wrong password, a locked Apple ID, a cancelled code or a refusal of
 	/// Apple's developer services is the same through any of them.

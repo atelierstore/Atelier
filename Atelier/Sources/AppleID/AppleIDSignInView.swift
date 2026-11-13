@@ -311,8 +311,10 @@ struct AppleIDCodeAlert: ViewModifier {
 	private static func message(for prompt: AppleIDCodePrompt) -> String {
 		let request = prompt.request
 		var text = ""
+		// Apple's note on the last code, in plain words (#182): Apple ID
+		// Log keeps it as Apple gave it.
 		if let lastError = request.lastError, !lastError.isEmpty {
-			text += "\(lastError)\n\n"
+			text += "\(AppleIDError.plainCodeNote(lastError))\n\n"
 		}
 		if let purpose = prompt.purpose {
 			text += "\(purpose) "

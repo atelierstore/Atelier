@@ -14,7 +14,7 @@
 - When a source's GitHub repo doesn't have the branch or file the source points to, Atelier says which is missing, instead of saying your GitHub account can't see the repo. For a public repo, it no longer asks you to sign in (#13).
 - An offloaded app stays in Offloaded while another app installs. Before, an install could take the install check the offloaded app still held, so the offloaded app briefly showed in Installed with "Data not put back" (#18).
 - An app being re-signed shows once, in its own row in Re-sign, with its progress and the ring that stops it, rather than in Downloads too. It stays in Re-sign while it's deleted to be installed again. Reinstall and Custom Install… show in the app's row the same way. "Re-signed just now", "Updated just now" and "Renewed" stay on one line (#20).
-- A wrong Apple ID password says so in a sentence, rather than with Apple's error, and Atelier no longer tries it through its other sign-in servers. "Reinstall required" stays on one line (#25).
+- Apple's sign-in and developer errors are in plain words, without Apple's code or Atelier's steps, which Apple ID Log keeps. A wrong password says so, and Atelier no longer tries it through its other sign-in servers. A wrong verification code says "That code wasn't right." Otherwise Atelier quotes Apple's own sentence, or says Apple wasn't reached and to check your connection. "Reinstall required" stays on one line (#25).
 
 ## Behind the scenes
 

@@ -444,7 +444,7 @@ final class ProfileRenewals {
 			parsed = try ProvisioningProfile(data: profile.data)
 		} catch {
 			AppleIDLog.note("renewal: Apple didn't give \(target.name) a profile: \(error)")
-			problems[target.bundleID] = .failed(AppleIDRoute.explain(error, "Apple didn't give \(target.name) a profile"))
+			problems[target.bundleID] = .failed(AppleIDRoute.explain(error, "Apple didn’t give \(target.name) a profile"))
 			return nil
 		}
 		if profile.added {
