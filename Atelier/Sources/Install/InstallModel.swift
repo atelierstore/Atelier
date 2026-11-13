@@ -4066,7 +4066,7 @@ final class InstallModel {
 		} catch is CancellationError {
 			throw CancellationError()
 		} catch {
-			log.append("App ID: Apple didn't list the team's App IDs, so the install goes ahead without counting them: \(AppleIDRoute.explain(error, "Apple didn't list them"))")
+			log.append("App ID: Apple didn't list the team's App IDs, so the install goes ahead without counting them: \(AppleIDRoute.explain(error, "Apple didn’t list them"))")
 		}
 		job.certificates.updateAppleID(account.id) { $0.limits = limits }
 		appleIDPlan = (account.id, bundleID, session)
@@ -4094,6 +4094,11 @@ final class InstallModel {
 		} catch AppleIDAccess.Failure.codeNeeded {
 			log.append("Apple ID: Apple asked for a code, with nobody there to enter it")
 			throw InstallProblem("Apple wants a verification code to sign in with your Apple ID. Open Atelier and \(job.isUpdate ? "update" : "install") \(name) there.")
+		} catch AppleIDAccess.Failure.signInExpired {
+			// Only the password signs in again, which the installer kept from
+			// this iPhone (#182).
+			log.append("Apple ID: Apple's token has expired, and there's no password")
+			throw InstallProblem(AppleIDAccess.Failure.signInExpiredMessage)
 		} catch AppleIDAccess.Failure.failed(let message) {
 			log.append("Apple ID: the sign-in stopped: \(message)")
 			throw InstallProblem(message, fix: .tryAgain)
@@ -4150,7 +4155,7 @@ final class InstallModel {
 			profile = try await session.profile(bundleID: bundleID, name: name, groups: groups.asked.map { groups.names[$0] ?? $0 })
 		} catch {
 			log.append("profile: Apple didn't give one: \(error)")
-			throw InstallProblem(AppleIDRoute.explain(error, "Apple didn't give \(name) a profile"), fix: .tryAgain)
+			throw InstallProblem(AppleIDRoute.explain(error, "Apple didn’t give \(name) a profile"), fix: .tryAgain)
 		}
 		try Task.checkCancellation()
 		let parsed = try? ProvisioningProfile(data: profile.data)

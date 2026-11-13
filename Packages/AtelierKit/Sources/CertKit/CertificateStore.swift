@@ -50,8 +50,11 @@ public extension CertificateSecrets {
 /// folder under `directory`, the .p12 password in `secrets`, and an index
 /// listing them and which one is the default. Apple IDs signed in with
 /// (#49) are kept the same way: their certificate's .p12 and key in a
-/// folder of their own, the .p12's password in `secrets` and the Apple
-/// ID's own password in `appleIDPasswords`. The default is one of either.
+/// folder of their own, the .p12's password in `secrets`, and Apple's token
+/// for signing in again in `appleIDTokens` (#182). The Apple ID's own
+/// password is in `appleIDPasswords` only until Apple's token takes its
+/// place: Atelier keeps no passwords once it has a token Apple still takes
+/// (token only, decided 13 Nov 2026). The default is one of either.
 ///
 /// The files are written with complete file protection (readable only while
 /// the device is unlocked), or "after first unlock" while automatic updates
@@ -61,6 +64,7 @@ public final class CertificateStore {
 	public let directory: URL
 	private let secrets: CertificateSecrets
 	private let appleIDPasswords: CertificateSecrets
+	private let appleIDTokens: CertificateSecrets
 	private var index: Index
 
 	private struct Index: Codable {
@@ -95,11 +99,13 @@ public final class CertificateStore {
 	static let profileFileName = "profile.mobileprovision"
 	private var indexURL: URL { directory.appendingPathComponent("index.json") }
 
-	/// Tests may leave `appleIDPasswords` out, keeping them in memory.
-	public init(directory: URL, secrets: CertificateSecrets, appleIDPasswords: CertificateSecrets = InMemoryCertificateSecrets()) throws {
+	/// Tests may leave `appleIDPasswords` and `appleIDTokens` out, keeping
+	/// them in memory.
+	public init(directory: URL, secrets: CertificateSecrets, appleIDPasswords: CertificateSecrets = InMemoryCertificateSecrets(), appleIDTokens: CertificateSecrets = InMemoryCertificateSecrets()) throws {
 		self.directory = directory
 		self.secrets = secrets
 		self.appleIDPasswords = appleIDPasswords
+		self.appleIDTokens = appleIDTokens
 		let manager = FileManager.default
 		if !manager.fileExists(atPath: directory.path) {
 			var attributes: [FileAttributeKey: Any] = [:]
@@ -232,7 +238,7 @@ public final class CertificateStore {
 
 	/// Gives every file and password the current `SecretProtection`, after
 	/// it changed (#72). Only works while the device is unlocked. Apple IDs'
-	/// own passwords are always readable after first unlock.
+	/// own passwords and tokens are always readable after first unlock.
 	public func reprotect() throws {
 		#if os(iOS)
 		try SecretProtection.apply(to: directory)
@@ -270,17 +276,27 @@ public final class CertificateStore {
 	}
 
 	/// Saves an Apple ID once signed in: its certificate's .p12, locked with
-	/// `p12Password`, and its `password`. One saved before with the same ID
-	/// is replaced. It's put in use with `use`, or when nothing is.
+	/// `p12Password`, its `password`, and Apple's `token` from the sign-in
+	/// (#182), which takes the place of one kept before, or deletes it when
+	/// nil. Without a password, as when Atelier signed in with the token the
+	/// installer handed over, one kept before stays. One saved before with
+	/// the same ID is replaced. It's put in use with `use`, or when nothing
+	/// is.
 	@discardableResult
-	public func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String, use: Bool = false) throws -> StoredAppleID {
+	public func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String?, token: AppleIDToken? = nil, use: Bool = false, now: Date = .now) throws -> StoredAppleID {
+		// Apple's token takes the password's place (#182): with one Apple
+		// still takes, no password is kept, and one kept before goes.
+		let replacesPassword = token?.isUsable(at: now) == true
 		let folder = folder(for: account.id)
 		let existing = index.appleIDs.firstIndex { $0.id == account.id }
 		do {
 			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 			try write(p12, to: folder.appendingPathComponent(Self.p12FileName))
 			try secrets.setPassword(p12Password, for: account.id)
-			try appleIDPasswords.setPassword(password, for: account.id)
+			if !replacesPassword, let password, !password.isEmpty {
+				try appleIDPasswords.setPassword(password, for: account.id)
+			}
+			try writeToken(token, for: account.id)
 			var updated = index
 			if let existing {
 				// Its apps' profiles and its limits outlast a sign-in again.
@@ -293,6 +309,7 @@ public final class CertificateStore {
 			}
 			if use || updated.defaultID == nil || !updated.has(updated.defaultID) { updated.defaultID = account.id }
 			try save(updated)
+			if replacesPassword { try? appleIDPasswords.deletePassword(for: account.id) }
 		} catch {
 			// A new one leaves nothing behind; one saved before keeps what
 			// it had, short of what this wrote over.
@@ -300,6 +317,7 @@ public final class CertificateStore {
 				try? FileManager.default.removeItem(at: folder)
 				try? secrets.deletePassword(for: account.id)
 				try? appleIDPasswords.deletePassword(for: account.id)
+				try? appleIDTokens.deletePassword(for: account.id)
 			}
 			throw CertificateImportError.storageFailed(error.localizedDescription)
 		}
@@ -307,9 +325,10 @@ public final class CertificateStore {
 	}
 
 	/// Signs out of an Apple ID: removes it, its certificate's .p12 and key,
-	/// and both passwords. It doesn't revoke the certificate, so apps signed
-	/// with it open until their profiles run out. If it was in use, the
-	/// oldest remaining certificate takes over, an imported one first.
+	/// both passwords and Apple's token. It doesn't revoke the certificate,
+	/// so apps signed with it open until their profiles run out. If it was
+	/// in use, the oldest remaining certificate takes over, an imported one
+	/// first.
 	public func deleteAppleID(_ id: UUID) throws {
 		var updated = index
 		updated.appleIDs.removeAll { $0.id == id }
@@ -318,10 +337,53 @@ public final class CertificateStore {
 		try? FileManager.default.removeItem(at: folder(for: id))
 		try? secrets.deletePassword(for: id)
 		try? appleIDPasswords.deletePassword(for: id)
+		try? appleIDTokens.deletePassword(for: id)
 	}
 
-	/// The Apple ID's own password, for signing in again.
+	/// The Apple ID's own password, for signing in again, while Apple's
+	/// token hasn't taken its place (#182).
 	public func appleIDPassword(for id: UUID) throws -> String? { try appleIDPasswords.password(for: id) }
+
+	/// Deletes the password of each Apple ID that has a token Apple still
+	/// takes (#182, token only): those kept before Atelier kept tokens, or
+	/// before it stopped keeping passwords. Returns how many it deleted.
+	@discardableResult
+	public func forgetReplacedPasswords(now: Date = .now) -> Int {
+		var forgotten = 0
+		for account in index.appleIDs {
+			guard let token = try? appleIDToken(for: account.id), token.isUsable(at: now),
+			      (try? appleIDPasswords.password(for: account.id)) != nil,
+			      (try? appleIDPasswords.deletePassword(for: account.id)) != nil
+			else { continue }
+			forgotten += 1
+		}
+		return forgotten
+	}
+
+	/// Apple's token for signing in again as the Apple ID `id` without the
+	/// password (#182); nil when none is kept, or what's kept can't be read.
+	public func appleIDToken(for id: UUID) throws -> AppleIDToken? {
+		guard let kept = try appleIDTokens.password(for: id) else { return nil }
+		return try? JSONDecoder().decode(AppleIDToken.self, from: Data(kept.utf8))
+	}
+
+	/// Keeps `token` for the Apple ID `id`, in place of the one before, as
+	/// after a sign-in with the password, which it then deletes when Apple
+	/// still takes the token (token only); nil deletes it, as once Apple
+	/// refused it. Nothing is kept for an Apple ID signed out of meanwhile.
+	public func setAppleIDToken(_ token: AppleIDToken?, for id: UUID, now: Date = .now) throws {
+		guard token == nil || index.appleIDs.contains(where: { $0.id == id }) else { return }
+		try writeToken(token, for: id)
+		if token?.isUsable(at: now) == true { try? appleIDPasswords.deletePassword(for: id) }
+	}
+
+	private func writeToken(_ token: AppleIDToken?, for id: UUID) throws {
+		guard let token else {
+			try appleIDTokens.deletePassword(for: id)
+			return
+		}
+		try appleIDTokens.setPassword(String(decoding: try JSONEncoder().encode(token), as: UTF8.self), for: id)
+	}
 
 	// MARK: The installer's certificate (#152)
 
@@ -329,8 +391,9 @@ public final class CertificateStore {
 		directory.appendingPathComponent("Installer", isDirectory: true).appendingPathComponent(InstallerCertificate.fileName)
 	}
 
-	/// Where the installer's Apple ID password is kept, in the Keychain with
-	/// the Apple IDs' own, until Atelier has signed in with it once.
+	/// Where the installer's Apple ID password, or Apple's token from its
+	/// sign-in (#182), is kept, in the Keychain with the Apple IDs' own,
+	/// until Atelier has signed in with it once.
 	static let installerPasswordID = UUID(uuidString: "77FD900F-A271-468B-B0A6-986A29AB60B5")!
 
 	/// The certificate the iPhone-only installer left for Atelier, kept
@@ -338,12 +401,16 @@ public final class CertificateStore {
 	/// until Atelier has tried it; nil when there's none.
 	public var installerCertificate: InstallerCertificate? {
 		guard let data = try? Data(contentsOf: installerCertificateURL) else { return nil }
-		return try? InstallerCertificate(plist: data, password: try? appleIDPasswords.password(for: Self.installerPasswordID))
+		let token = (try? appleIDTokens.password(for: Self.installerPasswordID)).flatMap { $0 }.flatMap {
+			try? JSONDecoder().decode(AppleIDToken.self, from: Data($0.utf8))
+		}
+		return try? InstallerCertificate(plist: data, password: try? appleIDPasswords.password(for: Self.installerPasswordID), token: token)
 	}
 
 	/// Moves the certificate the installer left at `url` (`InstallerCertificate.handoffURL`)
 	/// into the store, written as the certificates' keys are, and its
-	/// sign-in's password into the Keychain, replacing what was kept before.
+	/// sign-in's password or Apple's token into the Keychain, replacing what
+	/// was kept before.
 	/// One that can't be read is removed too, as it's no use. Nil when
 	/// there's nothing at `url`.
 	@discardableResult
@@ -354,7 +421,7 @@ public final class CertificateStore {
 		let kept: Data
 		do {
 			certificate = try InstallerCertificate(plist: data)
-			kept = try InstallerCertificate.plist(data, leavingOut: [InstallerCertificate.passwordKey])
+			kept = try InstallerCertificate.plist(data, leavingOut: [InstallerCertificate.passwordKey] + InstallerCertificate.tokenKeys)
 		} catch {
 			Self.remove(url)
 			throw error
@@ -363,6 +430,11 @@ public final class CertificateStore {
 			try appleIDPasswords.setPassword(password, for: Self.installerPasswordID)
 		} else {
 			try? appleIDPasswords.deletePassword(for: Self.installerPasswordID)
+		}
+		if let token = certificate.signIn?.token {
+			try appleIDTokens.setPassword(String(decoding: try JSONEncoder().encode(token), as: UTF8.self), for: Self.installerPasswordID)
+		} else {
+			try? appleIDTokens.deletePassword(for: Self.installerPasswordID)
 		}
 		var attributes: [FileAttributeKey: Any] = [:]
 		#if os(iOS)
@@ -374,10 +446,12 @@ public final class CertificateStore {
 		return certificate
 	}
 
-	/// Once Atelier tried the installer's sign-in: its password leaves the
-	/// Keychain, and the certificate stays for an Apple ID of its team.
+	/// Once Atelier tried the installer's sign-in: its password or token
+	/// leaves the Keychain, and the certificate stays for an Apple ID of its
+	/// team.
 	public func forgetInstallerSignIn() {
 		try? appleIDPasswords.deletePassword(for: Self.installerPasswordID)
+		try? appleIDTokens.deletePassword(for: Self.installerPasswordID)
 		guard let data = try? Data(contentsOf: installerCertificateURL),
 		      let kept = try? InstallerCertificate.plist(data, leavingOut: InstallerCertificate.signInKeys)
 		else { return }
@@ -387,6 +461,7 @@ public final class CertificateStore {
 	/// Once an Apple ID of its team signed in, or Apple no longer lists it.
 	public func forgetInstallerCertificate() {
 		try? appleIDPasswords.deletePassword(for: Self.installerPasswordID)
+		try? appleIDTokens.deletePassword(for: Self.installerPasswordID)
 		Self.remove(installerCertificateURL)
 	}
 

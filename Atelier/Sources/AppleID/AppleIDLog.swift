@@ -1,4 +1,5 @@
 import AppleIDKit
+import CertKit
 import Foundation
 
 /// What signing in, installing and renewing with an Apple ID did, line by
@@ -125,6 +126,22 @@ enum AppleIDLog {
 		let programs = signedIn.team.memberships.isEmpty ? "" : "; \(signedIn.team.memberships.joined(separator: ", "))"
 		let code = signedIn.codeAsked ? "Apple asked for a code" : "no code asked"
 		return "done, \(teams), using \(signedIn.team.id) (\(kind(of: signedIn.team))\(programs)), \(code)"
+	}
+
+	/// How long Apple's token lasts, never the token itself (#182):
+	/// "through ani.example.com, lasting 365 days as Apple says, until Fri
+	/// 12 Nov 2027 at 21:05:00 (duration 31536000, expiry 1794500000000)".
+	/// Apple doesn't say in what unit the expiry is, so it's there as
+	/// given.
+	static func describe(_ token: AppleIDToken) -> String {
+		let server = URL(string: token.server)?.host ?? token.server
+		let given = "duration \(token.duration), expiry \(token.expiry)"
+		guard let lifetime = token.lifetime, let ends = token.endsAt else {
+			return "through \(server), Apple not saying until when (\(given))"
+		}
+		let hours = Int((lifetime / 3600).rounded())
+		let span = hours < 48 ? "\(hours) hours" : "\(Int((lifetime / 86400).rounded())) days"
+		return "through \(server), lasting \(span) as Apple says, until \(date.string(from: ends)) at \(time.string(from: ends)) (\(given))"
 	}
 
 	/// What Apple asked for, never the number in full: "Apple asked for a

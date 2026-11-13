@@ -48,6 +48,10 @@ final class AppleIDSession: @unchecked Sendable {
 		var teams: [Team]
 		/// Whether Apple asked for a verification code.
 		var codeAsked: Bool
+		/// Apple's token for its developer services, which the session goes
+		/// with, and which signs in again without the password (#182): nil
+		/// when the bridge didn't give it.
+		var token: AppleIDToken?
 	}
 
 	/// What Apple wants when it asks for a verification code.
@@ -147,23 +151,90 @@ final class AppleIDSession: @unchecked Sendable {
 			defer { atelier_appleid_string_free(info) }
 			guard let handle else { throw AppleIDError.unreadable("the sign-in") }
 			let session = AppleIDSession(handle: handle)
-			let answer = try dictionary(info)
-			let teams = (answer["teams"] as? [[String: Any]] ?? []).compactMap { team -> Team? in
-				guard let id = team["teamId"] as? String else { return nil }
-				return Team(
-					id: id,
-					name: team["name"] as? String,
-					type: team["type"] as? String,
-					status: team["status"] as? String,
-					isFree: team["free"] as? Bool,
-					memberships: team["memberships"] as? [String] ?? []
-				)
-			}
-			guard let teamID = answer["teamId"] as? String else { throw AppleIDError.unreadable("the sign-in") }
-			let team = teams.first { $0.id == teamID }
-				?? Team(id: teamID, name: answer["teamName"] as? String, type: answer["teamType"] as? String)
-			return SignedIn(session: session, team: team, teams: teams, codeAsked: answer["codeAsked"] as? Bool ?? false)
+			var signedIn = try Self.answer(of: session, info: info)
+			signedIn.token = session.token(server: server, clientInfo: clientInfo)
+			return signedIn
 		}
+	}
+
+	/// Signs in again as `email` without the password or Apple's code
+	/// (#182), with `token`, kept from an earlier sign-in, through the
+	/// anisette server that one went through, its state under `storage`.
+	/// Answers as `signIn` does, with `token` the same. Throws
+	/// `AppleIDError` `.tokenRefused` when Apple refuses it, as once it
+	/// ended; any other error says Apple wasn't reached, and the token may
+	/// still do.
+	static func resume(email: String, token: AppleIDToken, storage: URL) async throws -> SignedIn {
+		try await run {
+			var handle: OpaquePointer?
+			var info: UnsafeMutablePointer<CChar>?
+			try withOptionalCString(token.clientInfo) { clientInfo in
+				try withOptionalCString(token.userAgent) { userAgent in
+					try check(atelier_appleid_resume(
+						email,
+						token.adsid,
+						token.token,
+						token.duration,
+						token.expiry,
+						token.server,
+						clientInfo,
+						userAgent,
+						storage.path,
+						&handle,
+						&info
+					))
+				}
+			}
+			defer { atelier_appleid_string_free(info) }
+			guard let handle else { throw AppleIDError.unreadable("the sign-in") }
+			var resumed = try Self.answer(of: AppleIDSession(handle: handle), info: info)
+			resumed.token = token
+			return resumed
+		}
+	}
+
+	/// What the bridge answered about `session`, its `info`.
+	private static func answer(of session: AppleIDSession, info: UnsafeMutablePointer<CChar>?) throws -> SignedIn {
+		let answer = try dictionary(info)
+		let teams = (answer["teams"] as? [[String: Any]] ?? []).compactMap { team -> Team? in
+			guard let id = team["teamId"] as? String else { return nil }
+			return Team(
+				id: id,
+				name: team["name"] as? String,
+				type: team["type"] as? String,
+				status: team["status"] as? String,
+				isFree: team["free"] as? Bool,
+				memberships: team["memberships"] as? [String] ?? []
+			)
+		}
+		guard let teamID = answer["teamId"] as? String else { throw AppleIDError.unreadable("the sign-in") }
+		let team = teams.first { $0.id == teamID }
+			?? Team(id: teamID, name: answer["teamName"] as? String, type: answer["teamType"] as? String)
+		return SignedIn(session: session, team: team, teams: teams, codeAsked: answer["codeAsked"] as? Bool ?? false)
+	}
+
+	/// The session's token, from the bridge's call of its own, which keeps
+	/// it out of the sign-in's info and so out of any log of it: for a
+	/// sign-in through `server`, sending Apple `clientInfo`. Nil when the
+	/// bridge doesn't give it.
+	private func token(server: String, clientInfo: AnisetteList.ClientInfo?) -> AppleIDToken? {
+		var text: UnsafeMutablePointer<CChar>?
+		guard (try? Self.check(atelier_appleid_session_token(handle, &text))) != nil else { return nil }
+		defer { atelier_appleid_string_free(text) }
+		guard
+			let answer = try? Self.dictionary(text),
+			let adsid = answer["adsid"] as? String, !adsid.isEmpty,
+			let token = answer["token"] as? String, !token.isEmpty
+		else { return nil }
+		return AppleIDToken(
+			adsid: adsid,
+			token: token,
+			duration: (answer["duration"] as? NSNumber)?.uint64Value ?? 0,
+			expiry: (answer["expiry"] as? NSNumber)?.uint64Value ?? 0,
+			server: server,
+			clientInfo: clientInfo?.clientInfo,
+			userAgent: clientInfo?.userAgent
+		)
 	}
 
 	/// Carries `askCode` through the bridge's context pointer.
@@ -482,8 +553,9 @@ extension AppleIDError {
 		case ATELIER_APPLEID_DEVELOPER_ERROR: .developer
 		case ATELIER_APPLEID_CANCELLED: .cancelled
 		case ATELIER_APPLEID_NO_TEAM: .noTeam
+		case ATELIER_APPLEID_TOKEN_REFUSED: .tokenRefused
 		default: .other
 		}
-		self.init(kind: kind, appleCode: kind == .signIn || kind == .developer ? appleCode : 0, message: message)
+		self.init(kind: kind, appleCode: kind == .signIn || kind == .developer || kind == .tokenRefused ? appleCode : 0, message: message)
 	}
 }

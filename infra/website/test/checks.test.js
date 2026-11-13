@@ -318,6 +318,7 @@ test("checks the certificate as Atelier checks one it imports", async () => {
   const later = await examine(pair("development.mobileprovision"), "ownstore", opener("development.mobileprovision"), new Date(result.expiry.date.getTime() + 1000));
   assert.ok(later.blocked);
   assert.match(later.rows[1].text, /^It expired on /);
+  assert.equal(later.rows[1].reason, "expired");
   assert.equal(summary(later), "Development · Expired");
 });
 
@@ -337,12 +338,13 @@ test("says what's wrong with the files, where the page shows it", async () => {
   const mismatched = await examine(pair("mismatched.mobileprovision"), "ownstore", opener("development.mobileprovision"));
   assert.ok(mismatched.blocked);
   assert.equal(mismatched.rows[1].text, "The profile “OwnStore Test mismatched” wasn't made for the certificate “OwnStore Test (TESTTEAM01)”. Pick the profile that goes with this certificate.");
+  assert.equal(mismatched.rows[1].reason, "other-profile");
 });
 
 test("says who can install with each kind of profile", async () => {
   const row = async (name) => (await examine(pair(name), "ownstore", opener(name))).rows[2];
   assert.deepEqual(await row("enterprise.mobileprovision"), { state: "ok", lead: "Any iPhone", text: " can install it: enterprise profiles don't list devices" });
-  assert.deepEqual(await row("appstore.mobileprovision"), { state: "bad", text: "This certificate can only sign apps for the App Store and TestFlight, not for your iPhone." });
+  assert.deepEqual(await row("appstore.mobileprovision"), { state: "bad", reason: "app-store", text: "This certificate can only sign apps for the App Store and TestFlight, not for your iPhone." });
   assert.equal((await row("adhoc.mobileprovision")).state, "ok");
 });
 

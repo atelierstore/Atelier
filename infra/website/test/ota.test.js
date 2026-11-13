@@ -256,6 +256,70 @@ test("once iOS has all of the IPA, it goes a minute later", async () => {
   assert.equal(object.storage.alarm, expires);
 });
 
+test("iOS asking to install and downloading all of the IPA add to the site's counts", async () => {
+  const added = [];
+  const stats = {
+    idFromName: (name) => name,
+    get: (id) => ({
+      fetch: async (url, init) => {
+        added.push([id, url, JSON.parse(init.body).names]);
+        return new Response(null, { status: 204 });
+      },
+    }),
+  };
+  const objects = new Map();
+  const apps = {
+    objects,
+    idFromName: (name) => `id:${name}`,
+    get(id) {
+      if (!objects.has(id)) objects.set(id, new SignedApp({ storage: new Storage(), exports: { SiteStats: stats } }));
+      const object = objects.get(id);
+      return { fetch: (input, init) => object.fetch(new Request(input, init)) };
+    },
+  };
+  const { token, object } = await uploaded(apps);
+  assert.deepEqual(added, []);
+
+  await (await get(apps, `/ota/${token}/manifest.plist`)).text();
+  await object.counting;
+  await (await get(apps, `/ota/${token}/manifest.plist`)).text();
+  assert.deepEqual(added, [["site", "https://site-stats/add", ["event:install-asked"]]]);
+
+  // A range or HEAD isn't all of it.
+  await (await get(apps, `/ota/${token}/Atelier.ipa`, { headers: { Range: "bytes=0-9" } })).arrayBuffer();
+  await (await get(apps, `/ota/${token}/Atelier.ipa`, { method: "HEAD" })).arrayBuffer();
+  assert.equal(added.length, 1);
+  await (await get(apps, `/ota/${token}/Atelier.ipa`)).arrayBuffer();
+  await object.counting;
+  assert.deepEqual(added.map(([, , names]) => names), [["event:install-asked"], ["event:install-downloaded"]]);
+});
+
+test("a count that can't be added doesn't stop an install", async () => {
+  const failing = { idFromName: (name) => name, get: () => ({ fetch: async () => { throw new Error("no counts today"); } }) };
+  const objects = new Map();
+  const apps = {
+    objects,
+    idFromName: (name) => `id:${name}`,
+    get(id) {
+      if (!objects.has(id)) objects.set(id, new SignedApp({ storage: new Storage(), exports: { SiteStats: failing } }));
+      const object = objects.get(id);
+      return { fetch: (input, init) => object.fetch(new Request(input, init)) };
+    },
+  };
+  const { token, object, ipa } = await uploaded(apps);
+  const original = console.error;
+  console.error = () => {};
+  try {
+    assert.equal((await get(apps, `/ota/${token}/manifest.plist`)).status, 200);
+    await object.counting;
+    assert.deepEqual(new Uint8Array(await (await get(apps, `/ota/${token}/Atelier.ipa`)).arrayBuffer()), ipa);
+    await object.counting;
+  } finally {
+    console.error = original;
+  }
+  assert.equal((await (await get(apps, `/ota/${token}`)).json()).state, "downloaded");
+});
+
 test("Info.plist is read across parts", async () => {
   const apps = namespace();
   const filler = PART_SIZE - 60 - FILLER_PATH.length - PLIST_PATH.length - 10;

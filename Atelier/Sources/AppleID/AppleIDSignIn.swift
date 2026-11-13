@@ -13,15 +13,24 @@ import Observation
 /// certificate, the one whose key it kept or the one the iPhone-only
 /// installer handed over (#152), else has Apple make one. At Apple's limit
 /// it lists the team's certificates and asks which one to revoke, never
-/// revoking one by itself. The Apple ID, its
-/// password and the certificate are then kept with the certificates
-/// (`CertificateStore.saveAppleID`), in use if nothing else is.
+/// revoking one by itself. The Apple ID, Apple's
+/// token from the sign-in (#182) and the certificate are then kept with the
+/// certificates (`CertificateStore.saveAppleID`), in use if nothing else
+/// is.
 ///
 /// When the installer also handed over its sign-in, Atelier signs in with
 /// it by itself as it first opens (`CertificatesModel.signInAsInstaller`),
 /// out of sight, as the same machine to Apple and in the same team. The
 /// sheet comes up, filled in, once it has something to show: Apple's code,
-/// a choice, why it stopped, or You're Signed In.
+/// a choice, why it stopped, or You're Signed In. The installer's version 2
+/// hands over Apple's token from its sign-in in place of the password
+/// (#182): Atelier signs in with that, unless Apple refuses it, when the
+/// sheet asks for the password. New Certificate signs in with the Apple
+/// ID's own token first too.
+///
+/// Atelier keeps no passwords (token only, 13 Nov 2026): a sign-in with
+/// one keeps Apple's token from it instead. Once that has expired, Sign In
+/// Again on the Apple ID's page asks for the password.
 ///
 /// Installing with it comes with the install PR, and renewing its apps'
 /// profiles every week with the one after.
@@ -63,6 +72,9 @@ final class AppleIDSignIn {
 	var email = ""
 	var password = ""
 	private(set) var stage = Stage.form(error: nil)
+	/// Whether Apple refused the token this sheet signs in with first, or
+	/// it ended: the password then signs in (#182).
+	private var tokenRefused = false
 	private(set) var codePrompt: AppleIDCodePrompt?
 
 	private let certificates: CertificatesModel
@@ -72,10 +84,18 @@ final class AppleIDSignIn {
 	/// Whether the sheet shows it: always, but out of sight while Atelier
 	/// signs in by itself, until there's something to show.
 	private var revealed: Bool
-	/// New Certificate's Apple ID (12 Nov 2026): signed in with the password
-	/// in the Keychain, in its own team, to have Apple make it a new
-	/// certificate once its own was revoked or ended.
+	/// New Certificate's Apple ID (12 Nov 2026): signed in again, in its own
+	/// team, to have Apple make it a new certificate once its own was
+	/// revoked or ended. Or Sign In Again's (#182).
 	let renewing: StoredAppleID?
+	/// Sign In Again (#182), for an Apple ID whose sign-in with Apple's
+	/// token alone has expired: it asks for the password, then renews the
+	/// Apple ID's apps.
+	let signsInAgain: Bool
+	/// Whoever waits on the sheet: an install, Renew or Check Now that met
+	/// the Apple ID's expired sign-in (#182), told once whether it signed
+	/// in or the sheet closed without.
+	@ObservationIgnored var onFinish: ((Bool) -> Void)?
 	@ObservationIgnored private var task: Task<Void, Never>?
 	@ObservationIgnored private var cancelled = false
 	@ObservationIgnored private var teamChoice: CheckedContinuation<AppleIDSession.Team?, Never>?
@@ -86,6 +106,7 @@ final class AppleIDSignIn {
 		installer = nil
 		revealed = true
 		renewing = nil
+		signsInAgain = false
 	}
 
 	/// New Certificate for `account` (12 Nov 2026), filled in with its kept
@@ -95,8 +116,20 @@ final class AppleIDSignIn {
 		installer = nil
 		revealed = true
 		renewing = account
+		signsInAgain = false
 		email = account.email
 		self.password = password
+	}
+
+	/// Sign In Again for `account` (#182), filled in with the Apple ID,
+	/// waiting for its password.
+	init(certificates: CertificatesModel, signInAgainFor account: StoredAppleID) {
+		self.certificates = certificates
+		installer = nil
+		revealed = true
+		renewing = account
+		signsInAgain = true
+		email = account.email
 	}
 
 	/// Filled in with the installer's sign-in, to sign in with by itself
@@ -108,6 +141,7 @@ final class AppleIDSignIn {
 		password = installer.signIn?.password ?? ""
 		revealed = false
 		renewing = nil
+		signsInAgain = false
 	}
 
 	/// Whether the sheet shows: not while Atelier signs in by itself and
@@ -122,11 +156,12 @@ final class AppleIDSignIn {
 		revealed = true
 	}
 
-	/// Whether Sign In can be tapped: both fields filled, and nothing
-	/// running.
+	/// Whether Sign In can be tapped: both fields filled, or the Apple ID
+	/// and a token to sign in with (#182), and nothing running.
 	var canSignIn: Bool {
 		guard case .form = stage else { return false }
-		return !email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+		let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+		return !email.isEmpty && (!password.isEmpty || token(for: email) != nil)
 	}
 
 	var isWorking: Bool {
@@ -138,7 +173,7 @@ final class AppleIDSignIn {
 		guard canSignIn, task == nil else { return }
 		let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
 		let password = password
-		stage = .working(handedOver(for: email) != nil ? "Signing in with the Apple ID the installer used…" : renewing != nil ? "Signing in with your Keychain password…" : "Signing in…")
+		stage = .working(handedOver(for: email) != nil ? "Signing in with the Apple ID the installer used…" : "Signing in…")
 		task = Task { await run(email: email, password: password) }
 	}
 
@@ -146,6 +181,7 @@ final class AppleIDSignIn {
 	/// prompt and the choices with a cancel. A call to Apple that's under
 	/// way finishes first, and what it brings back is dropped.
 	func cancel() {
+		finish(false)
 		cancelled = true
 		task?.cancel()
 		answerCode(nil)
@@ -166,11 +202,12 @@ final class AppleIDSignIn {
 			// again, from the sheet filled in.
 			if installer != nil { certificates.forgetInstallerSignIn() }
 		}
-		AppleIDLog.note(installer != nil ? "Sign In with Apple ID, by itself with the installer's (#152)" : renewing != nil ? "New Certificate" : "Sign In with Apple ID")
+		AppleIDLog.note(installer != nil ? "Sign In with Apple ID, by itself with the installer's (#152)" : signsInAgain ? "Sign In Again" : renewing != nil ? "New Certificate" : "Sign In with Apple ID")
 		do {
 			let done = try await signInAndSave(email: email, password: password)
 			guard !cancelled else { return note("done, after the sheet closed") }
 			stage = .done(done)
+			finish(true)
 		} catch Stop.cancelled {
 			note("cancelled")
 			guard !cancelled else { return }
@@ -211,7 +248,7 @@ final class AppleIDSignIn {
 				do {
 					try await signedIn.session.chooseTeam(handedOver)
 				} catch {
-					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+					throw Stop.failed(Self.explain(error, "Atelier couldn’t switch to that team"))
 				}
 				note("team: the installer's, \(handedOver.id), of \(signedIn.teams.count)")
 			}
@@ -222,7 +259,7 @@ final class AppleIDSignIn {
 				do {
 					try await signedIn.session.chooseTeam(own)
 				} catch {
-					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+					throw Stop.failed(Self.explain(error, "Atelier couldn’t switch to that team"))
 				}
 				note("team: the Apple ID's own, \(own.id), of \(signedIn.teams.count)")
 			}
@@ -235,7 +272,7 @@ final class AppleIDSignIn {
 				do {
 					try await signedIn.session.chooseTeam(picked)
 				} catch {
-					throw Stop.failed(Self.explain(error, "Atelier couldn't switch to that team"))
+					throw Stop.failed(Self.explain(error, "Atelier couldn’t switch to that team"))
 				}
 			}
 			team = picked
@@ -249,7 +286,7 @@ final class AppleIDSignIn {
 			note("register: this \(ThisDevice.name) \(registered.added ? "added" : "already registered"), \(registered.devices) in the team")
 		} catch {
 			note("register: failed: \(error)")
-			throw Stop.failed(Self.explain(error, "Apple didn't register this \(ThisDevice.name)"))
+			throw Stop.failed(Self.explain(error, "Apple didn’t register this \(ThisDevice.name)"))
 		}
 		try checkCancelled()
 
@@ -293,12 +330,15 @@ final class AppleIDSignIn {
 		let otherInUse = certificates.defaultID == id ? nil : certificates.inUseName
 		let inUse: Bool
 		do {
-			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password)
+			// Apple's token takes the password's place, which then only went
+			// to Apple (#182, token only).
+			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password.isEmpty ? nil : password, token: signedIn.token)
 		} catch {
 			throw Stop.failed("Atelier couldn't keep the Apple ID: \(error.localizedDescription)")
 		}
 		// Not the other one's name, which may be an Apple ID.
 		note("kept, \(inUse ? "in use" : "another certificate staying in use")")
+		if let token = signedIn.token { note("token: kept, \(AppleIDLog.describe(token))") }
 		// The installs right after use this sign-in, and its page shows
 		// what it allows a moment later, asked with it (#49).
 		let access = AppleIDAccess.shared
@@ -311,10 +351,13 @@ final class AppleIDSignIn {
 			SelfUpdate.shared.syncRecord(in: context, certificates: certificates)
 		}
 		let renewsFirst = renewing != nil
+		let signsInAgain = self.signsInAgain
 		Task {
 			// New Certificate's apps first, which wait in Re-sign meanwhile
 			// (12 Nov 2026).
 			if renewsFirst { await ProfileRenewals.shared.renewAfterSignIn(certificates.appleID(id) ?? saved) }
+			// Sign In Again's, which waited for it (#182).
+			if signsInAgain { await ProfileRenewals.shared.renewAfterSignInAgain(certificates.appleID(id) ?? saved) }
 			await access.checkLimits(of: saved, using: signedIn.session, startingVPN: false)
 			// Its apps signed with a certificate it no longer has, as after
 			// Apple revoked it, are renewed or signed again: Atelier itself
@@ -325,14 +368,70 @@ final class AppleIDSignIn {
 		return Done(account: account, inUse: inUse, otherInUse: inUse ? nil : otherInUse, source: source, byInstaller: installer != nil)
 	}
 
-	/// Signs in through each anisette server in turn until one works, as
-	/// `AnisetteRoute` says: the user's own only, when there's one.
+	/// Signs in with the token the installer handed over, or New
+	/// Certificate's Apple ID's own, when there's one Apple still takes
+	/// (#182); else through each anisette server in turn until one works,
+	/// as `AnisetteRoute` says: the user's own only, when there's one.
 	private func signInToApple(email: String, password: String) async throws -> AppleIDSession.SignedIn {
+		if let token = token(for: email), let resumed = try await resume(email: email, token: token, withPassword: !password.isEmpty) {
+			return resumed
+		}
 		// Through the installer's server first, whose machine Apple trusts.
 		let server = handedOver(for: email)?.signIn?.anisetteServer.flatMap(AnisetteList.serverURL)
-		return try await AppleIDRoute.signIn(email: email, password: password, firstServer: server, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
+		return try await AppleIDRoute.signIn(email: email, password: password, firstServer: server, appleIDIsSet: renewing != nil, isCancelled: { [weak self] in self?.cancelled ?? true }) { [weak self] request in
 			self?.waitForCode(request)
 		}
+	}
+
+	/// The token to sign in with first, without the password (#182): the
+	/// one the installer handed over for `email`, or New Certificate's Apple
+	/// ID's own, kept in the Keychain, while it lasts: one that expired
+	/// waits for the password. Nil once Apple refused it.
+	private func token(for email: String) -> AppleIDToken? {
+		guard !tokenRefused else { return nil }
+		if let token = handedOver(for: email)?.signIn?.token { return token }
+		guard let renewing, renewing.email.caseInsensitiveCompare(email) == .orderedSame,
+		      let token = (try? certificates.appleIDToken(for: renewing.id)) ?? nil, token.isUsable()
+		else { return nil }
+		return token
+	}
+
+	/// Signs in with `token`, through the anisette server it came through,
+	/// as the same machine. Nil when Apple refused it, which deletes the
+	/// Apple ID's own, or it ended, and there's a password to sign in with
+	/// instead; without one, the sheet asks for it. When Apple wasn't
+	/// reached, it stops, keeping the token to try again, unless there's a
+	/// password.
+	private func resume(email: String, token: AppleIDToken, withPassword: Bool) async throws -> AppleIDSession.SignedIn? {
+		var token = token
+		// As Atelier's own sign-ins name it, which its state is kept by.
+		if let url = AnisetteList.serverURL(token.server) { token.server = url.absoluteString }
+		if !token.isUsable() {
+			note("token: Apple says it ended")
+		} else if let why = AppleIDAccess.unusableMachine(for: token) {
+			note("token: not tried, as \(why)")
+		} else {
+			note("Signing in with Apple's token, \(AppleIDLog.describe(token))")
+			do {
+				let resumed = try await AppleIDSession.resume(email: email, token: token, storage: Self.storage())
+				note("sign-in with the token: \(AppleIDLog.describe(resumed))")
+				return resumed
+			} catch let error as AppleIDError where error.kind == .tokenRefused {
+				note("token: Apple refused it\(error.appleCode == 0 ? "" : " (\(error.appleCode))"): \(error.message)")
+				if let renewing { certificates.setAppleIDToken(nil, for: renewing.id) }
+			} catch {
+				note("token: Apple wasn't reached with it: \(error)")
+				guard withPassword else { throw Stop.failed(Self.explain(error, AppleIDError.couldNotReachApple)) }
+				return nil
+			}
+		}
+		tokenRefused = true
+		guard withPassword else {
+			throw Stop.failed(installer != nil
+				? "The installer’s sign-in has expired. Type the Apple ID’s password to sign in."
+				: "Atelier’s sign-in with this Apple ID has expired. Type its password to sign in.")
+		}
+		return nil
 	}
 
 	/// What the installer handed over, while the sheet still has the Apple
@@ -403,7 +502,7 @@ final class AppleIDSignIn {
 			return try await session.adoptCertificate(key: key, p12Password: p12Password, keys: keys)
 		} catch {
 			note("certificate: listing failed: \(error)")
-			throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
+			throw Stop.failed(Self.explain(error, "Apple didn’t list the team’s certificates"))
 		}
 	}
 
@@ -427,7 +526,7 @@ final class AppleIDSignIn {
 				do {
 					listed = try await session.certificates()
 				} catch {
-					throw Stop.failed(Self.explain(error, "Apple didn't list the team's certificates"))
+					throw Stop.failed(Self.explain(error, "Apple didn’t list the team’s certificates"))
 				}
 				try checkCancelled()
 				note("certificate: at Apple's limit, \(listed.count) listed\(revoked.isEmpty ? "" : ", \(revoked.count) revoked so far")")
@@ -437,7 +536,7 @@ final class AppleIDSignIn {
 				listed.removeAll { certificate in certificate.serialNumber.map { revokedSerials.contains($0) } ?? false }
 				guard revoked.count < Self.maxRevokes, listed.contains(where: { $0.serialNumber != nil }) else {
 					note("certificate: nothing more to revoke")
-					if revoked.isEmpty { throw Stop.failed(Self.explain(error, "Apple didn't make the certificate")) }
+					if revoked.isEmpty { throw Stop.failed(Self.explain(error, "Apple didn’t make the certificate")) }
 					throw Stop.failed(revoked.count == 1
 						? "Apple still counts the certificate you revoked, so Atelier can't make its own yet. Try again later."
 						: "Apple still counts the certificates you revoked, so Atelier can't make its own yet. Try again later.")
@@ -450,14 +549,14 @@ final class AppleIDSignIn {
 					note("certificate: revoked \(serialNumber)\(picked.machineName.map { ", made for \($0)" } ?? "")")
 				} catch {
 					note("certificate: revoking failed: \(error)")
-					throw Stop.failed(Self.explain(error, "Apple didn't revoke the certificate"))
+					throw Stop.failed(Self.explain(error, "Apple didn’t revoke the certificate"))
 				}
 				revoked.append(picked)
 				try checkCancelled()
 				stage = .working("Making a certificate…")
 			} catch {
 				note("certificate: failed: \(error)")
-				throw Stop.failed(Self.explain(error, "Apple didn't make the certificate"))
+				throw Stop.failed(Self.explain(error, "Apple didn’t make the certificate"))
 			}
 		}
 	}
@@ -519,13 +618,19 @@ final class AppleIDSignIn {
 
 	// MARK: Helpers
 
+	private func finish(_ signedIn: Bool) {
+		let waiting = onFinish
+		onFinish = nil
+		waiting?(signedIn)
+	}
+
 	/// A line in the Apple ID log, which an Apple ID's page shows.
 	private func note(_ line: String) {
 		AppleIDLog.note(line)
 	}
 
-	/// "Apple didn't register this iPhone (35): Your development team has
-	/// reached the maximum number of registered iPhone devices."
+	/// "Apple didn’t register this iPhone. Apple says: “Your development
+	/// team has reached the maximum number of registered iPhone devices.”"
 	private static func explain(_ error: Error, _ what: String) -> String {
 		AppleIDRoute.explain(error, what)
 	}

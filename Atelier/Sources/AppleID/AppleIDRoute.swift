@@ -19,11 +19,14 @@ enum AppleIDRoute {
 	/// asks for a verification code, and waits there for the answer; nil
 	/// cancels. `isCancelled` is asked before each server. `firstServer`
 	/// goes before the list's, as the one the iPhone-only installer signed
-	/// in through (#152), unless the user has their own.
+	/// in through (#152), unless the user has their own. `appleIDIsSet`
+	/// when the user only typed the password, as in Sign In Again, for what
+	/// a wrong one says.
 	static func signIn(
 		email: String,
 		password: String,
 		firstServer: URL? = nil,
+		appleIDIsSet: Bool = false,
 		isCancelled: @escaping @MainActor () -> Bool,
 		askCode: @escaping @Sendable (AppleIDSession.CodeRequest) -> AppleIDSession.CodeAnswer?
 	) async throws -> AppleIDSession.SignedIn {
@@ -81,20 +84,16 @@ enum AppleIDRoute {
 				server = route.next(after: .server)
 			}
 		}
-		guard let explanation = route.explanation(of: last) else { throw Stop.cancelled }
+		guard let explanation = route.explanation(of: last, appleIDIsSet: appleIDIsSet) else { throw Stop.cancelled }
 		throw Stop.failed(explanation)
 	}
 
-	/// "Apple didn't register this iPhone (35): Your development team has
-	/// reached the maximum number of registered iPhone devices."
+	/// "Apple didn’t register this iPhone. Apple says: “Your development
+	/// team has reached the maximum number of registered iPhone devices.”"
+	/// (`AppleIDError.explained`), or Atelier's own error's description.
 	static func explain(_ error: Error, _ what: String) -> String {
 		guard let error = error as? AppleIDError else { return "\(what): \(error.localizedDescription)" }
-		switch error.kind {
-		case .developer, .signIn:
-			return error.message.isEmpty ? "\(what) (\(error.appleCode))." : "\(what) (\(error.appleCode)): \(error.message)"
-		case .cancelled, .noTeam, .other:
-			return error.message.isEmpty ? "\(what)." : "\(what): \(error.message)"
-		}
+		return error.explained(what)
 	}
 }
 

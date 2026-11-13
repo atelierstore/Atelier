@@ -8,6 +8,26 @@ import SigningKit
 import SwiftData
 import UniformTypeIdentifiers
 
+/// What Atelier signs in again as an Apple ID with (#182).
+enum AppleIDSignInKind: Equatable {
+	/// The password kept in the Keychain: an Apple ID signed in before
+	/// Atelier kept tokens, until its next sign-in gets one, which takes
+	/// its place.
+	case password
+	/// Apple's token alone, until `ends`, when Apple said: every Apple ID
+	/// once it has one, as Atelier keeps no passwords (token only, 13 Nov
+	/// 2026).
+	case token(ends: Date?)
+	/// Apple's token alone, which expired on `on`, or that Apple refused:
+	/// Sign In Again asks for the password.
+	case expired(on: Date?)
+
+	var isExpired: Bool {
+		if case .expired = self { return true }
+		return false
+	}
+}
+
 /// The user's signing certificates (#4): what's imported, the Apple IDs
 /// signed in with (#49), which one is the default, the import or sign-in
 /// in progress, and whether Apple revoked them or they're about to expire
@@ -67,7 +87,8 @@ final class CertificatesModel {
 			store = try CertificateStore(
 				directory: support.appendingPathComponent("Certificates", isDirectory: true),
 				secrets: KeychainCertificateSecrets(),
-				appleIDPasswords: KeychainCertificateSecrets.appleIDPasswords()
+				appleIDPasswords: KeychainCertificateSecrets.appleIDPasswords(),
+				appleIDTokens: KeychainCertificateSecrets.appleIDTokens()
 			)
 		} catch {
 			store = nil
@@ -308,6 +329,7 @@ final class CertificatesModel {
 		// Tests run only while their switch is on, even if Atelier was
 		// ended while it was turned off and they were ending (#20).
 		if !UserDefaults.standard.bool(forKey: TestActions.certificatesKey) { await endAllTests() }
+		forgetReplacedPasswords()
 		for certificate in certificates {
 			if !force, let last = certificate.revocation?.attemptedAt, Date.now.timeIntervalSince(last) < Self.recheckInterval { continue }
 			await check(certificate.id)
@@ -356,10 +378,36 @@ final class CertificatesModel {
 		return CertificateAttention(certificate)
 	}
 
+	/// A certificate or Apple ID that's revoked, expired or about to
+	/// expire, by the name Certificates lists it under.
+	struct Attention: Equatable {
+		var name: String
+		var health: CertificateHealth
+	}
+
 	/// Certificates that are revoked, expired or about to expire, Apple
-	/// IDs' included.
-	var needingAttention: Int {
-		certificates.filter { CertificateAttention($0) != nil }.count + appleIDs.filter { CertificateAttention($0) != nil }.count
+	/// IDs' included: what the Settings tab's badge counts. Worst first, as
+	/// Settings › Installs › Certificates names the first (13 Nov 2026):
+	/// revoked, then expired, then the one that runs out soonest; between
+	/// equals, the one in use, then as Certificates lists them.
+	var needingAttention: [Attention] {
+		// As Certificates lists them: Apple IDs, then imported pairs.
+		let listed = appleIDs.map { (inUse: $0.id == defaultID, item: Attention(name: $0.displayName, health: CertificateHealth($0))) }
+			+ certificates.map { (inUse: $0.id == defaultID, item: Attention(name: $0.displayName, health: CertificateHealth($0))) }
+		func order(_ index: Int) -> (Int, Int, Int, Int) {
+			let (inUse, item) = listed[index]
+			let (rank, days) = switch item.health {
+			case .revoked: (0, 0)
+			case .expired: (1, 0)
+			case .expiring(let days): (2, days)
+			case .valid: (3, 0)
+			}
+			return (rank, days, inUse ? 0 : 1, index)
+		}
+		return listed.indices
+			.filter { listed[$0].item.health != .valid }
+			.sorted { order($0) < order($1) }
+			.map { listed[$0].item }
 	}
 
 	private func refresh() {
@@ -394,6 +442,28 @@ final class CertificatesModel {
 		let signIn = AppleIDSignIn(certificates: self, newCertificateFor: account, password: password ?? "")
 		self.signIn = signIn
 		if RouteASetup.shared.isSetUp { signIn.signIn() }
+	}
+
+	/// Sign In Again (#182), on an Apple ID's page once Atelier's sign-in
+	/// with Apple's token alone has expired: the Sign In sheet for that
+	/// Apple ID, which waits for its password. One already open comes up.
+	func beginSignInAgain(for account: StoredAppleID) {
+		if let signIn { return signIn.reveal() }
+		signIn = AppleIDSignIn(certificates: self, signInAgainFor: account)
+	}
+
+	/// Sign In Again for an install, Renew or Check Now that met the Apple
+	/// ID's expired sign-in, with someone there (#182, 13 Nov 2026): the
+	/// sheet comes up instead of an error, and this returns once it signed
+	/// in, true, or closed without, false. False at once while another
+	/// sign-in is open.
+	func signInAgain(_ account: StoredAppleID) async -> Bool {
+		guard signIn == nil else { return false }
+		let sheet = AppleIDSignIn(certificates: self, signInAgainFor: account)
+		signIn = sheet
+		return await withCheckedContinuation { continuation in
+			sheet.onFinish = { continuation.resume(returning: $0) }
+		}
 	}
 
 	/// Closes it, stopping a sign-in that's running.
@@ -481,11 +551,12 @@ final class CertificatesModel {
 		store?.forgetInstallerCertificate()
 	}
 
-	/// Keeps an Apple ID once signed in, in use if nothing else is, and
-	/// checks its certificate. Returns whether it's in use.
-	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String) throws -> Bool {
+	/// Keeps an Apple ID once signed in, with Apple's token from the
+	/// sign-in (#182), in use if nothing else is, and checks its
+	/// certificate. Returns whether it's in use.
+	func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String?, token: AppleIDToken?) throws -> Bool {
 		guard let store else { throw CertificateImportError.storageFailed(storeError ?? "") }
-		try store.saveAppleID(account, p12: p12, p12Password: p12Password, password: password)
+		try store.saveAppleID(account, p12: p12, p12Password: p12Password, password: password, token: token)
 		refresh()
 		Task { await check(account.id) }
 		return store.defaultID == account.id
@@ -521,6 +592,73 @@ final class CertificatesModel {
 	/// The Apple ID's own password, for signing in again (#49).
 	func appleIDPassword(for id: UUID) throws -> String? {
 		try store?.appleIDPassword(for: id)
+	}
+
+	/// Apple's token for signing in again as the Apple ID without the
+	/// password (#182).
+	func appleIDToken(for id: UUID) throws -> AppleIDToken? {
+		try store?.appleIDToken(for: id)
+	}
+
+	/// Keeps Apple's token for the Apple ID `id`, in place of the one
+	/// before, or deletes it with nil, as once Apple refused it (#182).
+	func setAppleIDToken(_ token: AppleIDToken?, for id: UUID) {
+		do {
+			try store?.setAppleIDToken(token, for: id)
+		} catch {
+			AppleIDLog.note("token: couldn't be \(token == nil ? "deleted" : "kept"): \(error)")
+		}
+		// Its page says what Atelier signs in again with.
+		refresh()
+	}
+
+	/// Deletes the passwords kept for Apple IDs that have a token Apple
+	/// still takes (#182): Atelier keeps none (token only, 13 Nov 2026).
+	/// One kept before tokens were goes once its next sign-in gets one.
+	func forgetReplacedPasswords() {
+		guard let store else { return }
+		let forgotten = store.forgetReplacedPasswords()
+		guard forgotten > 0 else { return }
+		AppleIDLog.note("password: deleted for \(forgotten) Apple ID\(forgotten == 1 ? "" : "s"), as Apple's token took its place")
+		refresh()
+	}
+
+	/// What Atelier signs in again as the Apple ID with (#182), from what
+	/// the Keychain has. One whose password can't be read, as while this
+	/// iPhone is locked, counts as having it, as every Apple ID signed in
+	/// with the sheet does.
+	func signInKind(for account: StoredAppleID, now: Date = .now) -> AppleIDSignInKind {
+		guard let store else { return .password }
+		do {
+			if try store.appleIDPassword(for: account.id) != nil { return .password }
+		} catch {
+			return .password
+		}
+		let token: AppleIDToken?
+		do {
+			token = try store.appleIDToken(for: account.id)
+		} catch {
+			return .token(ends: nil)
+		}
+		guard let token else { return .expired(on: nil) }
+		return token.isUsable(at: now) ? .token(ends: token.endsAt) : .expired(on: token.endsAt)
+	}
+
+	/// Test Actions' Expire Apple's Tokens (#182): each Apple ID's kept
+	/// token says it ended now, so it isn't sent to Apple any more. An Apple
+	/// ID with a password signs in with that next, and one without has
+	/// Sign In Again, as once its token really expired. Returns how many.
+	func expireAppleIDTokensForTest() -> Int {
+		var expired = 0
+		for account in appleIDs {
+			guard var token = (try? appleIDToken(for: account.id)) ?? nil else { continue }
+			token.expiry = UInt64(Date.now.timeIntervalSince1970 * 1000)
+			AppleIDAccess.shared.forget(account.id)
+			setAppleIDToken(token, for: account.id)
+			AppleIDLog.note("test: Apple's token made to end now")
+			expired += 1
+		}
+		return expired
 	}
 
 	/// Keeps what changed about an Apple ID: an app's new profile, or what

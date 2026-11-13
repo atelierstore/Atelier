@@ -659,7 +659,7 @@ private struct AppDetailContent: View {
 	private func renewNote(_ item: LibraryItem) -> String? {
 		guard ProfileRenewals.shared.canRenew(item), let account = item.appleID else { return nil }
 		let name = item.install.name
-		if let problem = ProfileRenewals.shared.problems[item.install.bundleID], !problem.isUnreachable {
+		if let problem = ProfileRenewals.shared.problems[item.install.bundleID], problem.showsUnderApp {
 			return problem.message(isOwn: item.isOwn)
 		}
 		if AppProfileRenewal.needsSignIn(account) {

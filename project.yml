@@ -153,6 +153,16 @@ targets:
         # (InstallerCertificate.version), so builds before it, which never
         # read the file, don't keep a password they don't use (#152).
         AtelierInstallerHandOff: 1
+        # What atelier-install hands any app that declares it, from its
+        # v0.2.0: the pairing, and the certificate and the sign-in in its
+        # version 2, with Apple's token in place of the password, so the
+        # password only goes to Apple (InstallerCertificate.sideloadVersion,
+        # #182). Its v0.1.0 refuses version 2, and goes by
+        # AtelierInstallerHandOff above, with the password, at the same paths.
+        SideloadHandOff:
+          Version: 2
+          PairingFile: Library/Application Support/Pairing/pairingFile.plist
+          SigningIdentity: Library/Caches/Installer/certificate.plist
         # The install check (#11): Atelier adds one of these schemes to each
         # app it signs, and canOpenURL answering for it shows the install
         # worked. Must match InstallCheck.schemes; iOS 27 allows 25 at most.

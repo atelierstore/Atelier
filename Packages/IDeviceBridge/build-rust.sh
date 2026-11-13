@@ -56,6 +56,12 @@ features = ["ring"]
 [dependencies.rootcause]
 version = "0.12"
 
+# isideload's HTTP errors, which tell whether Apple refused a kept sign-in's
+# token (HTTP 401 or 403) or didn't answer (#182).
+[dependencies.reqwest]
+version = "0.13"
+default-features = false
+
 # The versions isideload uses, for the certificate whose key another tool
 # handed over (#152): its key, the certificate, and where isideload keeps it.
 [dependencies.rsa]
