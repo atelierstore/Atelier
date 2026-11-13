@@ -479,6 +479,8 @@ a.route.route-pick:hover { border-color: var(--pine); }
   .keys dt { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 8px; }
 }
 .steps p.small { margin-top: 12px; font-size: 15px; }
+/* Step 3 of the Apple ID page: rootshell's settings, then the lines. */
+.steps h3 + p + p { margin-top: 10px; }
 .steps .callout + p { margin-top: 12px; font-size: 15px; }
 .points { margin: 16px 0 0; padding-left: 1.2em; display: grid; gap: 8px; color: var(--ink-2); }
 .points li { padding-left: 2px; }
