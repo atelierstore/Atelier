@@ -908,9 +908,13 @@ struct ResignNoteLabel: View {
 		case .certificate:
 			if let attention { CertificateAttentionLabel(attention: attention) }
 		case .reinstallRequired:
+			// On one line, smaller in a narrow row, rather than on two (13
+			// Nov 2026).
 			Label("Reinstall required", systemImage: "exclamationmark.triangle.fill")
 				.font(.caption.weight(.medium))
 				.foregroundStyle(.orange)
+				.lineLimit(1)
+				.minimumScaleFactor(0.7)
 		case .failed(let why):
 			Text(why.map { "Didn't re-sign: \($0)" } ?? "Didn't re-sign")
 				.font(.caption.weight(.medium))
