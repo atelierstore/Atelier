@@ -70,7 +70,9 @@ async function addZip(files, name, data) {
 /** The certificate `files` make with `password`, as the page shows it:
  *  {der, name, teamName, profile, kind, expiry, rows, blocked}. `rows` are
  *  the card's lines but Apple's ({state: "ok", "bad" or "note", lead, text},
- *  `lead` in bold), and `blocked` says one of them keeps iOS from
+ *  `lead` in bold, and for "bad", the `reason` the site counts it as:
+ *  "other-profile", "expired" or "app-store"), and `blocked` says one of
+ *  them keeps iOS from
  *  installing Atelier. `openP12(p12, password)` resolves to {status,
  *  certificate} as signer.js's openP12 answers. Throws a CheckError for
  *  files that make no certificate. */
@@ -106,9 +108,9 @@ export async function examine(files, password, openP12, now = new Date()) {
 
   const rows = [{ state: "ok", lead: "Password", text: " opens the .p12" }];
   if (!allows(profile, opened.certificate)) {
-    rows.push({ state: "bad", text: `The profile “${profile.name}” wasn't made for the certificate “${identity.name}”. Pick the profile that goes with this certificate.` });
+    rows.push({ state: "bad", reason: "other-profile", text: `The profile “${profile.name}” wasn't made for the certificate “${identity.name}”. Pick the profile that goes with this certificate.` });
   } else if (expiry.daysLeft === 0) {
-    rows.push({ state: "bad", text: `It expired on ${formatDate(expiry.date)}.` });
+    rows.push({ state: "bad", reason: "expired", text: `It expired on ${formatDate(expiry.date)}.` });
   } else {
     rows.push({ state: "ok", lead: "Profile", text: ` is for this certificate, until ${formatDate(expiry.date)}` });
   }
@@ -131,7 +133,7 @@ export async function examine(files, password, openP12, now = new Date()) {
  *  each one's UDID and models (devices.js), for the visitor to compare. */
 function devicesRow(profile) {
   if (profile.kind === "appStore") {
-    return { state: "bad", text: "This certificate can only sign apps for the App Store and TestFlight, not for your iPhone." };
+    return { state: "bad", reason: "app-store", text: "This certificate can only sign apps for the App Store and TestFlight, not for your iPhone." };
   }
   if (profile.kind === "enterprise") return { state: "ok", lead: "Any iPhone", text: " can install it: enterprise profiles don't list devices" };
   const devices = profileDevices(profile);

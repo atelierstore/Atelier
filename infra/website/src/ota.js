@@ -7,13 +7,15 @@
 // a minute after iOS has downloaded it, or 10 minutes after it came,
 // whichever is first. The IPA can have the visitor's certificate in it
 // (AtelierCertificate.plist), so nothing else keeps it and nothing is
-// logged.
+// logged. The site's counts (stats.js) only go up by one when iOS asks to
+// install an upload and when it has downloaded it.
 //
 // The page also downloads the release it signs through here, as GitHub's
 // downloads can't be read by other sites' pages.
 
 import { HEADERS, json } from "./http.js";
 import { IPAError, readInfo } from "./ipa.js";
+import { tally } from "./stats.js";
 
 /** How long an upload is kept at most, in milliseconds. */
 export const LIFETIME = 10 * 60 * 1000;
@@ -263,13 +265,24 @@ export function byteRange(header, size) {
  *    `waiting` to `asked`.
  *  - GET or HEAD /ipa: the IPA, or the part a Range header asks for; with
  *    ?file=<name>, a 404 unless that's the upload's file name.
- *  BuildApp (builds.js) keeps builds the same way, for longer. */
+ *  BuildApp (builds.js) keeps builds the same way, for longer, and doesn't
+ *  add to the site's counts (stats.js), as SignedApp does when iOS asks to
+ *  install its upload and when iOS has downloaded all of it. */
 export class SignedApp {
   /** How long an upload is kept at most, in milliseconds. */
   static lifetime = LIFETIME;
+  /** Whether installs add to the site's counts. */
+  static counted = true;
 
   constructor(ctx) {
     this.storage = ctx.storage;
+    // The site's counts. Tests' objects have none.
+    this.stats = this.constructor.counted ? ctx.exports?.SiteStats : undefined;
+  }
+
+  /** Adds `name` to the site's counts, without waiting for it. */
+  count(name) {
+    if (this.stats) this.counting = tally(this.stats, [name]);
   }
 
   async fetch(request) {
@@ -282,6 +295,7 @@ export class SignedApp {
       if (app.state === "waiting") {
         app.state = "asked";
         await this.storage.put("app", app);
+        this.count("event:install-asked");
       }
       return new Response(null, { status: 204 });
     }
@@ -424,6 +438,7 @@ export class SignedApp {
     app.state = "downloaded";
     await this.storage.put("app", app);
     await this.storage.setAlarm(app.expires);
+    this.count("event:install-downloaded");
   }
 }
 

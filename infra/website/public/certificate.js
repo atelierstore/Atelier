@@ -19,6 +19,7 @@ import { PlistError } from "./plist.js";
 import { qrCode, qrPath } from "./qr.js";
 import { ATELIER_BUNDLE_ID, newestRelease } from "./release.js";
 import { SignError, readAppInfo } from "./signer.js";
+import { tallyOnce } from "./tally.js";
 import { concat } from "./zip.js";
 
 const SOURCE_URL = "https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json";
@@ -222,6 +223,9 @@ async function check() {
   const { files } = state;
   const key = password.value;
   if (!files.p12 || !files.profile) return update();
+  // What the site counts (tally.js): a certificate chosen, then whether it
+  // can install Atelier, and why not, once each while the page is open.
+  tallyOnce("certificate-chosen");
 
   state.checking = true;
   update();
@@ -236,6 +240,7 @@ async function check() {
       if (key) showPasswordProblem(error.message);
     } else if (error instanceof CheckError) {
       state.checkProblem = error.message;
+      tallyOnce("certificate-unreadable");
     } else {
       // The signer couldn't load or ran out of memory: the next check starts
       // another.
@@ -248,6 +253,7 @@ async function check() {
   if (stale()) return;
   state.checking = false;
   state.certificate = certificate;
+  for (const row of certificate.rows) if (row.reason) tallyOnce(`certificate-${row.reason}`);
   showCertificate();
   update();
 
@@ -262,6 +268,8 @@ async function check() {
   }
   if (stale()) return;
   state.apple = revocationRow(answer);
+  if (state.apple.state === "bad") tallyOnce("certificate-revoked");
+  else if (!blocked()) tallyOnce("certificate-accepted");
   showCertificate();
   update();
 }
@@ -424,6 +432,7 @@ $("try-again").addEventListener("click", signAndInstall);
 // Nothing on the page can change while it works, so only the install that
 // follows can be left behind by a newer one.
 async function signAndInstall() {
+  tallyOnce(onComputer ? "sign-computer" : "sign-iphone");
   const run = ++runs;
   const { files, certificate } = state;
   const secret = password.value;

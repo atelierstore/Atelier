@@ -21,6 +21,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/site.css">
+<script type="module" src="/tally.js"></script>
 </head>
 <body>
 <header class="hero" id="top">
@@ -178,7 +179,7 @@
         <p class="eyebrow">Install</p>
         <h2 id="install-title">Get Atelier</h2>
         <p class="section-lede">Like every app from outside the App Store, Atelier has to be signed for your iPhone before iOS will install it. That takes a certificate: buy one from a signing service, or make one free with your Apple ID. Once Atelier is in, it signs your other apps with the same certificate and keeps itself updated.</p>
-        <p class="aside-link">Run a signing service? <a class="text-link" href="/signing-services">Offer Atelier preconfigured for your customers</a></p>
+        <p class="aside-link">Run a signing service? <a class="text-link" href="/signing-services" data-tally="signing-services">Offer Atelier preconfigured for your customers</a></p>
       </div>
       <!-- The ways to install Atelier (#152): the certificate page signs
            Atelier in Safari and installs it, the Apple ID one is still to
@@ -199,7 +200,7 @@
         </li>
         <li class="routes-label" data-pal-here hidden>Until then</li>
         <li>
-          <a class="route" href="/certificate">
+          <a class="route" href="/certificate" data-tally="route-certificate">
             <span class="r-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><circle cx="12" cy="9.5" r="5.5"/><path d="M9.6 9.6l1.7 1.6 3.2-3.3"/><path d="M8.5 14l-1.5 7 5-2.5 5 2.5-1.5-7"/></svg></span>
             <span class="r-text">
               <span class="r-head"><strong>With a signing service</strong></span>
@@ -216,7 +217,7 @@
           </span>
         </li>
         <li>
-          <a class="route" href="/sideload">
+          <a class="route" href="/sideload" data-tally="route-sideload">
             <span class="r-icon" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9z"/><path d="M4 7.5l8 4.5 8-4.5"/><path d="M12 12v9"/></svg></span>
             <span class="r-text">
               <span class="r-head"><strong>I already know how to sideload</strong></span>
@@ -280,7 +281,7 @@
         </details>
         <details>
           <summary>Is it safe?</summary>
-          <p>Atelier is open source, so anyone can read what it does. It signs on your iPhone, and your certificate isn't uploaded anywhere. When you install Atelier from this website, your browser signs it too, on your iPhone or computer. With Include Certificate on, your certificate goes inside Atelier, and this site keeps the signed Atelier at a private address until iOS downloads it, for 10 minutes at most, and logs nothing. Add only sources you trust, since Atelier installs what they list.</p>
+          <p>Atelier is open source, so anyone can read what it does. It signs on your iPhone, and your certificate isn't uploaded anywhere. When you install Atelier from this website, your browser signs it too, on your iPhone or computer. With Include Certificate on, your certificate goes inside Atelier, and this site keeps the signed Atelier at a private address until iOS downloads it, for 10 minutes at most. To see what people use, the site counts visits and taps per day, with no cookies and nothing that identifies you. Add only sources you trust, since Atelier installs what they list.</p>
         </details>
         <details>
           <summary>Does it work on iPad?</summary>

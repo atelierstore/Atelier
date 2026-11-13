@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Stats · Atelier</title>
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#3A5A47">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
+<link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="/site.css">
+<!-- The site's own counts (src/stats.js), which stats.js asks /stats/data
+     for with the key in the website's STATS_KEY secret. Only the person
+     with the key sees them; this page isn't counted itself. -->
+<script type="module" src="/stats.js"></script>
+</head>
+<body>
+<header class="hero page-hero stats-hero">
+  <div class="wrap">
+    <nav class="nav" aria-label="Main">
+      <a class="brand" href="/"><img src="/img/icon.png" alt="" width="36" height="36"><span>Atelier</span></a>
+    </nav>
+    <div class="page-head">
+      <h1>Stats</h1>
+      <p class="lede">What people do on atelierstore.app, counted by the site itself. Daily totals only, with no cookies, IP addresses or IDs.</p>
+      <div class="stats-range" id="range" role="group" aria-label="Period" hidden>
+        <button type="button" data-days="7" aria-pressed="false">7 days</button>
+        <button type="button" data-days="30" aria-pressed="true">30 days</button>
+        <button type="button" data-days="365" aria-pressed="false">12 months</button>
+      </div>
+    </div>
+  </div>
+</header>
+
+<main class="stats-body">
+  <div class="wrap">
+    <form class="stats-card stats-key" id="key-form" hidden>
+      <h2>Enter the stats key</h2>
+      <p class="stats-note">It's the STATS_KEY secret in the website's settings on Cloudflare. Safari can save it with your passwords, so you only enter it once.</p>
+      <input type="text" name="username" value="Atelier stats" autocomplete="username" hidden>
+      <div class="field" id="key-field">
+        <label for="key">Stats key</label>
+        <input id="key" name="password" type="password" autocomplete="current-password" autocapitalize="off" spellcheck="false" required>
+      </div>
+      <p class="problem-text" id="key-problem" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg><span></span></p>
+      <button class="btn btn-primary" type="submit">Show Stats</button>
+    </form>
+
+    <div id="stats" hidden aria-live="polite">
+      <div class="stats-tiles">
+        <div class="stats-tile"><span>Visits</span><strong id="tile-visits">–</strong></div>
+        <div class="stats-tile"><span>Page views</span><strong id="tile-views">–</strong></div>
+        <div class="stats-tile"><span>Installed from the site</span><strong id="tile-installs">–</strong></div>
+        <div class="stats-tile"><span>IPA download taps</span><strong id="tile-downloads">–</strong></div>
+        <div class="stats-tile stats-wide"><span>Donate taps</span><strong id="tile-donate">–</strong></div>
+      </div>
+
+      <section class="stats-card stats-chart-card">
+        <h2 id="chart-title">Visits per day</h2>
+        <p class="stats-note"><span id="chart-period"></span> A visit is a page view that came from another site or an address typed in.</p>
+        <svg class="stats-chart" id="chart" viewBox="0 0 600 190" preserveAspectRatio="none" aria-hidden="true"></svg>
+        <div class="stats-axis" id="axis"></div>
+      </section>
+
+      <!-- Three columns on wide screens; one on phones, in each card's
+           order (site.css). -->
+      <div class="stats-cards">
+        <div class="stats-col">
+          <section class="stats-card stats-ga">
+            <h2>Get Atelier</h2>
+            <p class="stats-note">Taps on the home page's ways to install.</p>
+            <ul class="stats-rows" id="routes"></ul>
+            <p class="stats-sub" id="pal"></p>
+          </section>
+          <section class="stats-card stats-devices">
+            <h2>Devices</h2>
+            <p class="stats-note">Per visit.</p>
+            <ul class="stats-rows" id="devices"></ul>
+          </section>
+          <section class="stats-card stats-sideload">
+            <h2>Sideload page</h2>
+            <p class="stats-note" id="sideload-note">Taps.</p>
+            <ul class="stats-rows" id="sideload"></ul>
+          </section>
+        </div>
+        <div class="stats-col">
+          <section class="stats-card stats-certificate">
+            <h2>Certificate page</h2>
+            <p class="stats-note">From opening the page to iOS installing Atelier.</p>
+            <ul class="stats-rows stats-pine" id="funnel"></ul>
+            <div class="stats-sub">Couldn't go ahead: <strong id="held"></strong>
+              <div class="stats-chips" id="reasons"></div>
+            </div>
+            <p class="stats-sub" id="computer"></p>
+          </section>
+          <section class="stats-card stats-from">
+            <h2>Where visits come from</h2>
+            <p class="stats-note">The site's name only, never the page.</p>
+            <ul class="stats-rows" id="from"></ul>
+          </section>
+        </div>
+        <div class="stats-col">
+          <section class="stats-card stats-pages">
+            <h2>Pages</h2>
+            <p class="stats-note">Views. Link pages count the kind of link, not its address.</p>
+            <ul class="stats-rows" id="pages"></ul>
+          </section>
+          <section class="stats-card stats-countries">
+            <h2>Countries</h2>
+            <p class="stats-note">Where Cloudflare places each visit.</p>
+            <ul class="stats-rows" id="countries"></ul>
+          </section>
+        </div>
+      </div>
+
+      <p class="stats-privacy">Nothing identifies a visitor: no cookies, IP addresses or IDs, no full addresses and nothing anyone types. So a visitor who comes back is counted again. Days are in UTC, and today's bar is today so far.</p>
+    </div>
+
+    <p class="problem-text stats-problem" id="problem" role="alert" hidden><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4v.1"/></svg><span></span></p>
+  </div>
+</main>
+</body>
+</html>

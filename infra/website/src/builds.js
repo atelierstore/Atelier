@@ -248,6 +248,8 @@ function itmsServices(manifestURL) {
  *  SignedApp keeps the certificate page's. */
 export class BuildApp extends SignedApp {
   static lifetime = LIFETIME;
+  // CI's builds aren't the site's installs.
+  static counted = false;
 
   async downloaded() {}
 }
