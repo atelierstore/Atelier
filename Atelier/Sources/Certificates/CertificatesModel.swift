@@ -356,10 +356,36 @@ final class CertificatesModel {
 		return CertificateAttention(certificate)
 	}
 
+	/// A certificate or Apple ID that's revoked, expired or about to
+	/// expire, by the name Certificates lists it under.
+	struct Attention: Equatable {
+		var name: String
+		var health: CertificateHealth
+	}
+
 	/// Certificates that are revoked, expired or about to expire, Apple
-	/// IDs' included.
-	var needingAttention: Int {
-		certificates.filter { CertificateAttention($0) != nil }.count + appleIDs.filter { CertificateAttention($0) != nil }.count
+	/// IDs' included: what the Settings tab's badge counts. Worst first, as
+	/// Settings › Installs › Certificates names the first (13 Nov 2026):
+	/// revoked, then expired, then the one that runs out soonest; between
+	/// equals, the one in use, then as Certificates lists them.
+	var needingAttention: [Attention] {
+		// As Certificates lists them: Apple IDs, then imported pairs.
+		let listed = appleIDs.map { (inUse: $0.id == defaultID, item: Attention(name: $0.displayName, health: CertificateHealth($0))) }
+			+ certificates.map { (inUse: $0.id == defaultID, item: Attention(name: $0.displayName, health: CertificateHealth($0))) }
+		func order(_ index: Int) -> (Int, Int, Int, Int) {
+			let (inUse, item) = listed[index]
+			let (rank, days) = switch item.health {
+			case .revoked: (0, 0)
+			case .expired: (1, 0)
+			case .expiring(let days): (2, days)
+			case .valid: (3, 0)
+			}
+			return (rank, days, inUse ? 0 : 1, index)
+		}
+		return listed.indices
+			.filter { listed[$0].item.health != .valid }
+			.sorted { order($0) < order($1) }
+			.map { listed[$0].item }
 	}
 
 	private func refresh() {
