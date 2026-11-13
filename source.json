@@ -17,6 +17,17 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.7.0",
+          "marketingVersion": "0.7.0-alpha",
+          "buildVersion": "1101",
+          "date": "2026-11-13T13:21:24Z",
+          "localizedDescription": "Atelier installed with a free Apple ID now renews and updates itself with that Apple ID, and after the iPhone-only installer it opens already signed in, reusing the installer's certificate. Atelier no longer keeps your Apple ID's password, only Apple's sign-in token, and asks you to Sign In Again once that ends. Apps signed with a certificate that comes with App Groups keep theirs, and the website can install Atelier with your certificate from a computer.",
+          "downloadURL": "https://github.com/atelierstore/Atelier/releases/download/v0.7.0-alpha/Atelier-0.7.0-alpha.ipa",
+          "size": 12792528,
+          "sha256": "3917fbbf76e0ded3482accad8059bcf1fc215a58df0f818616c326a3ac565376",
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.6.0",
           "marketingVersion": "0.6.0-alpha",
           "buildVersion": "1018",
@@ -39,6 +50,14 @@
     }
   ],
   "news": [
+    {
+      "identifier": "release-0.7.0-alpha",
+      "title": "Atelier 0.7.0-alpha is out",
+      "caption": "Atelier installed with a free Apple ID now renews and updates itself with that Apple ID, and after the iPhone-only installer it opens already signed in, reusing the installer's certificate. Atelier no longer keeps your Apple ID's password, only Apple's sign-in token, and asks you to Sign In Again once that ends. Apps signed with a certificate that comes with App Groups keep theirs, and the website can install Atelier with your certificate from a computer.",
+      "date": "2026-11-13T13:21:24Z",
+      "tintColor": "4B8B65",
+      "appID": "com.atelier.app"
+    },
     {
       "identifier": "release-0.6.0-alpha",
       "title": "Atelier 0.6.0-alpha is out",
