@@ -7,6 +7,7 @@ final class AppleIDStoreTests: XCTestCase {
 	var directory: URL!
 	let secrets = InMemoryCertificateSecrets()
 	let appleIDPasswords = InMemoryCertificateSecrets()
+	let appleIDTokens = InMemoryCertificateSecrets()
 
 	override func setUpWithError() throws {
 		directory = FileManager.default.temporaryDirectory.appendingPathComponent("AppleIDStoreTests-\(UUID().uuidString)")
@@ -17,7 +18,7 @@ final class AppleIDStoreTests: XCTestCase {
 	}
 
 	private func open() throws -> CertificateStore {
-		try CertificateStore(directory: directory, secrets: secrets, appleIDPasswords: appleIDPasswords)
+		try CertificateStore(directory: directory, secrets: secrets, appleIDPasswords: appleIDPasswords, appleIDTokens: appleIDTokens)
 	}
 
 	/// A certificate to stand for the one Atelier made: the fixture's.
@@ -107,6 +108,64 @@ final class AppleIDStoreTests: XCTestCase {
 		XCTAssertNil(try store.password(for: account.id))
 		XCTAssertNil(try store.appleIDPassword(for: account.id))
 		XCTAssertEqual(store.certificates.map(\.id), [pair.id], "the imported one stays")
+	}
+
+	/// Apple's token from a sign-in (#182).
+	private func token(_ value: String = "a token") -> AppleIDToken {
+		AppleIDToken(
+			adsid: "000123-45-6789",
+			token: value,
+			duration: 31_536_000,
+			expiry: 1_826_000_000_000,
+			receivedAt: Fixture.utc(2026, 11, 12),
+			server: "https://ani.example.com",
+			clientInfo: "<MacBookPro13,2> <macOS;13.1;22C65> <com.apple.AuthKit/1 (com.apple.dt.Xcode/3594.4.19)>",
+			userAgent: "akd/1.0 CFNetwork/808.1.4"
+		)
+	}
+
+	func testKeepsApplesTokenInTheKeychainWithTheAppleID() throws {
+		let store = try open()
+		let account = try appleID()
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token())
+		XCTAssertEqual(try store.appleIDToken(for: account.id), token())
+		XCTAssertNotNil(try appleIDTokens.password(for: account.id), "in the Keychain")
+		let index = try String(contentsOf: directory.appendingPathComponent("index.json"), encoding: .utf8)
+		XCTAssertFalse(index.contains("a token"), "never in the index")
+		XCTAssertEqual(try open().appleIDToken(for: account.id), token(), "survives a relaunch")
+
+		// Apple refused it: the password stays.
+		try store.setAppleIDToken(nil, for: account.id)
+		XCTAssertNil(try store.appleIDToken(for: account.id))
+		XCTAssertEqual(try store.appleIDPassword(for: account.id), "apple password")
+
+		// Signing in again keeps its own, and one without a token leaves
+		// none from before.
+		try store.setAppleIDToken(token(), for: account.id)
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token("a later token"))
+		XCTAssertEqual(try store.appleIDToken(for: account.id)?.token, "a later token")
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password")
+		XCTAssertNil(try store.appleIDToken(for: account.id))
+	}
+
+	func testSigningOutDeletesApplesToken() throws {
+		let store = try open()
+		let account = try appleID()
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token())
+		try store.deleteAppleID(account.id)
+		XCTAssertNil(try appleIDTokens.password(for: account.id))
+		// Nor is one kept for an Apple ID signed out of meanwhile, as when a
+		// sign-in again ends after it.
+		try store.setAppleIDToken(token(), for: account.id)
+		XCTAssertNil(try appleIDTokens.password(for: account.id))
+	}
+
+	func testATokenThatCantBeReadIsNone() throws {
+		let store = try open()
+		let account = try appleID()
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password")
+		try appleIDTokens.setPassword("not a token", for: account.id)
+		XCTAssertNil(try store.appleIDToken(for: account.id))
 	}
 
 	func testAnAppleIDTakesOverFromADeletedPairWhenItsAllThereIs() throws {

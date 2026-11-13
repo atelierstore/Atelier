@@ -144,6 +144,7 @@ final class AnisetteRouteTests: XCTestCase {
 		XCTAssertEqual(AppleIDError(kind: .cancelled, message: "").routeFailure, .final)
 		XCTAssertEqual(AppleIDError(kind: .developer, appleCode: 1100, message: "").routeFailure, .final)
 		XCTAssertEqual(AppleIDError(kind: .noTeam, message: "").routeFailure, .final)
+		XCTAssertEqual(AppleIDError(kind: .tokenRefused, appleCode: 1100, message: "").routeFailure, .final)
 		XCTAssertEqual(AppleIDError(kind: .signIn, appleCode: -22421, message: "").routeFailure, .tryAgain)
 		XCTAssertEqual(AppleIDError(kind: .signIn, appleCode: -80045, message: "").routeFailure, .refused)
 		XCTAssertEqual(AppleIDError(kind: .signIn, appleCode: -45061, message: "").routeFailure, .server)

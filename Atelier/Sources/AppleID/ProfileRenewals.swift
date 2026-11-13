@@ -148,7 +148,9 @@ final class ProfileRenewals {
 			let targets = apps(of: account, in: due, context: context)
 			guard !targets.isEmpty else { continue }
 			if !AppleIDAccess.shared.hasSession(for: account) {
-				if Self.codeNeeded.contains(account.id) {
+				// Apple's token, while there's one, signs in with no code
+				// (#182).
+				if Self.codeNeeded.contains(account.id), !AppleIDAccess.shared.canResume(account) {
 					mark(targets, .codeNeeded)
 					continue
 				}
