@@ -50,9 +50,11 @@ public extension CertificateSecrets {
 /// folder under `directory`, the .p12 password in `secrets`, and an index
 /// listing them and which one is the default. Apple IDs signed in with
 /// (#49) are kept the same way: their certificate's .p12 and key in a
-/// folder of their own, the .p12's password in `secrets`, the Apple ID's
-/// own password in `appleIDPasswords` and Apple's token for signing in
-/// again in `appleIDTokens` (#182). The default is one of either.
+/// folder of their own, the .p12's password in `secrets`, and Apple's token
+/// for signing in again in `appleIDTokens` (#182). The Apple ID's own
+/// password is in `appleIDPasswords` only until Apple's token takes its
+/// place: Atelier keeps no passwords once it has a token Apple still takes
+/// (token only, decided 13 Nov 2026). The default is one of either.
 ///
 /// The files are written with complete file protection (readable only while
 /// the device is unlocked), or "after first unlock" while automatic updates
@@ -281,14 +283,17 @@ public final class CertificateStore {
 	/// the same ID is replaced. It's put in use with `use`, or when nothing
 	/// is.
 	@discardableResult
-	public func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String?, token: AppleIDToken? = nil, use: Bool = false) throws -> StoredAppleID {
+	public func saveAppleID(_ account: StoredAppleID, p12: Data, p12Password: String, password: String?, token: AppleIDToken? = nil, use: Bool = false, now: Date = .now) throws -> StoredAppleID {
+		// Apple's token takes the password's place (#182): with one Apple
+		// still takes, no password is kept, and one kept before goes.
+		let replacesPassword = token?.isUsable(at: now) == true
 		let folder = folder(for: account.id)
 		let existing = index.appleIDs.firstIndex { $0.id == account.id }
 		do {
 			try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 			try write(p12, to: folder.appendingPathComponent(Self.p12FileName))
 			try secrets.setPassword(p12Password, for: account.id)
-			if let password, !password.isEmpty {
+			if !replacesPassword, let password, !password.isEmpty {
 				try appleIDPasswords.setPassword(password, for: account.id)
 			}
 			try writeToken(token, for: account.id)
@@ -304,6 +309,7 @@ public final class CertificateStore {
 			}
 			if use || updated.defaultID == nil || !updated.has(updated.defaultID) { updated.defaultID = account.id }
 			try save(updated)
+			if replacesPassword { try? appleIDPasswords.deletePassword(for: account.id) }
 		} catch {
 			// A new one leaves nothing behind; one saved before keeps what
 			// it had, short of what this wrote over.
@@ -334,8 +340,25 @@ public final class CertificateStore {
 		try? appleIDTokens.deletePassword(for: id)
 	}
 
-	/// The Apple ID's own password, for signing in again.
+	/// The Apple ID's own password, for signing in again, while Apple's
+	/// token hasn't taken its place (#182).
 	public func appleIDPassword(for id: UUID) throws -> String? { try appleIDPasswords.password(for: id) }
+
+	/// Deletes the password of each Apple ID that has a token Apple still
+	/// takes (#182, token only): those kept before Atelier kept tokens, or
+	/// before it stopped keeping passwords. Returns how many it deleted.
+	@discardableResult
+	public func forgetReplacedPasswords(now: Date = .now) -> Int {
+		var forgotten = 0
+		for account in index.appleIDs {
+			guard let token = try? appleIDToken(for: account.id), token.isUsable(at: now),
+			      (try? appleIDPasswords.password(for: account.id)) != nil,
+			      (try? appleIDPasswords.deletePassword(for: account.id)) != nil
+			else { continue }
+			forgotten += 1
+		}
+		return forgotten
+	}
 
 	/// Apple's token for signing in again as the Apple ID `id` without the
 	/// password (#182); nil when none is kept, or what's kept can't be read.
@@ -345,11 +368,13 @@ public final class CertificateStore {
 	}
 
 	/// Keeps `token` for the Apple ID `id`, in place of the one before, as
-	/// after a sign-in with the password; nil deletes it, as once Apple
+	/// after a sign-in with the password, which it then deletes when Apple
+	/// still takes the token (token only); nil deletes it, as once Apple
 	/// refused it. Nothing is kept for an Apple ID signed out of meanwhile.
-	public func setAppleIDToken(_ token: AppleIDToken?, for id: UUID) throws {
+	public func setAppleIDToken(_ token: AppleIDToken?, for id: UUID, now: Date = .now) throws {
 		guard token == nil || index.appleIDs.contains(where: { $0.id == id }) else { return }
 		try writeToken(token, for: id)
+		if token?.isUsable(at: now) == true { try? appleIDPasswords.deletePassword(for: id) }
 	}
 
 	private func writeToken(_ token: AppleIDToken?, for id: UUID) throws {

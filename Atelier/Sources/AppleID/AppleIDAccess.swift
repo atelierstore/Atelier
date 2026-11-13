@@ -77,7 +77,17 @@ final class AppleIDAccess {
 		case .signedIn(let resumed):
 			signedIn = resumed
 		case .notSignedIn(let why):
-			signedIn = try await signIn(account, purpose: purpose, tokenFailure: why)
+			do {
+				signedIn = try await signIn(account, purpose: purpose, tokenFailure: why)
+			} catch Failure.signInExpired where purpose != nil {
+				// Someone is there: Sign In Again comes up rather than an
+				// error, and what asked goes on once it signed in, with the
+				// session it kept (13 Nov 2026).
+				AppleIDLog.note("sign-in: Sign In Again comes up")
+				guard await CertificatesModel.shared.signInAgain(account) else { throw Failure.cancelled }
+				guard hasSession(for: account), let kept = sessions[account.id] else { throw Failure.signInExpired }
+				return kept.session
+			}
 		}
 		if Task.isCancelled { throw Failure.cancelled }
 		// Its team, which a sign-in may not list first.

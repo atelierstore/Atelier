@@ -152,7 +152,8 @@ private struct SignInForm: View {
 
 			Section {
 				Point(symbol: "key") {
-					Text("\(Text("Your password stays on this \(ThisDevice.name),").bold()) in its Keychain and never synced, so Atelier can renew your apps every week. It only goes to Apple.")
+					// Token only, as approved on 13 Nov 2026 (#182).
+					Text("\(Text("Your password only goes to Apple.").bold()) Atelier keeps Apple’s sign-in token instead, in this \(ThisDevice.name)’s Keychain and never synced, and renews your apps with it every week.")
 				}
 				Point(symbol: "checkmark.shield") {
 					if let host = (try? CustomAnisetteServer.resolve(customServer).get())?.host {

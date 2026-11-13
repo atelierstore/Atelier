@@ -72,7 +72,7 @@ extension AppleIDSignInKind {
 			return "Apple’s token for this Apple ID is in this \(ThisDevice.name)’s Keychain, not your password. With it, Atelier renews your apps every week until the sign-in expires\(ends.map { ", on \(Self.day($0))" } ?? ""). Atelier then asks you to sign in again."
 		case .expired(let on):
 			let expired = on.map { "expired on \(Self.day($0))" } ?? "has expired"
-			return "Atelier’s sign-in with this Apple ID \(expired). Your password was never on this \(ThisDevice.name)."
+			return "Atelier’s sign-in with this Apple ID \(expired). Atelier doesn’t keep your password."
 		}
 	}
 }

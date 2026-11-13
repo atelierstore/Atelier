@@ -36,9 +36,9 @@ final class ProfileRenewals {
 		case unreachable(String)
 		/// Apple asked for its code, with nobody there to enter it.
 		case codeNeeded
-		/// Apple's token alone signed in as its Apple ID, and it has expired
-		/// (#182): Sign In Again on the Apple ID's page asks for its
-		/// password.
+		/// Its Apple ID's sign-in, Apple's token, has expired (#182): Renew
+		/// opens Sign In Again, which asks for the password. Nothing's said
+		/// under the app (13 Nov 2026).
 		case signInExpired
 		/// Its App ID ended, and the Apple ID has no new ones left until
 		/// then.
@@ -56,7 +56,7 @@ final class ProfileRenewals {
 			switch self {
 			case .unreachable(let why): why
 			case .codeNeeded: "Apple wanted a code. Renew asks for it."
-			case .signInExpired: "Its Apple ID’s sign-in has expired. Sign In Again is on the Apple ID’s page."
+			case .signInExpired: "Atelier’s sign-in with this Apple ID has expired."
 			case .noAppIDLeft(let until): "Its App ID ended, and your Apple ID has no new ones left \(until.map { "until \(AppProfileDays.describe($0))" } ?? "this week")."
 			case .signInAgain: "Sign in with its Apple ID again, whose certificate Apple revoked or that ended. Atelier then signs it again, keeping its data."
 			case .signAgain: "Renew signs it again and reinstalls it, keeping its data: a new profile alone won’t do, as the certificate it was signed with is gone."
@@ -75,6 +75,16 @@ final class ProfileRenewals {
 		var isUnreachable: Bool {
 			if case .unreachable = self { return true }
 			return false
+		}
+
+		/// Whether it's said under the app: not when it's unreachable, nor
+		/// when the Apple ID's sign-in expired, as Renew then opens Sign In
+		/// Again (13 Nov 2026).
+		var showsUnderApp: Bool {
+			switch self {
+			case .unreachable, .signInExpired: false
+			default: true
+			}
 		}
 	}
 
@@ -312,6 +322,16 @@ final class ProfileRenewals {
 			AppleIDLog.note("renewal: the Apple ID's certificate was revoked or ended, so it has to sign in again")
 			mark(targets, .signInAgain)
 			return
+		}
+
+		// Renew with the Apple ID's sign-in expired opens Sign In Again
+		// first, before LocalDevVPN connects (#182, 13 Nov 2026).
+		if trigger == .user, !AppleIDAccess.shared.hasSession(for: account), CertificatesModel.shared.signInKind(for: account).isExpired {
+			AppleIDLog.note("renewal: the Apple ID's sign-in has expired, so Sign In Again comes up")
+			guard await CertificatesModel.shared.signInAgain(account) else {
+				AppleIDLog.note("renewal: Sign In Again closed without signing in")
+				return
+			}
 		}
 
 		// What iOS has: the apps, and their profiles.

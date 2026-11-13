@@ -124,43 +124,75 @@ final class AppleIDStoreTests: XCTestCase {
 		)
 	}
 
+	/// A day the fixture's token lasts, and one after it ended.
+	private let lasting = Fixture.utc(2026, 11, 13)
+	private let ended = Fixture.utc(2028, 1, 1)
+
 	func testKeepsApplesTokenInTheKeychainWithTheAppleID() throws {
 		let store = try open()
 		let account = try appleID()
-		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token())
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: nil, token: token(), now: lasting)
 		XCTAssertEqual(try store.appleIDToken(for: account.id), token())
 		XCTAssertNotNil(try appleIDTokens.password(for: account.id), "in the Keychain")
 		let index = try String(contentsOf: directory.appendingPathComponent("index.json"), encoding: .utf8)
 		XCTAssertFalse(index.contains("a token"), "never in the index")
 		XCTAssertEqual(try open().appleIDToken(for: account.id), token(), "survives a relaunch")
 
-		// Apple refused it: the password stays.
+		// Apple refused it.
 		try store.setAppleIDToken(nil, for: account.id)
 		XCTAssertNil(try store.appleIDToken(for: account.id))
-		XCTAssertEqual(try store.appleIDPassword(for: account.id), "apple password")
 
 		// Signing in again keeps its own, and one without a token leaves
 		// none from before.
-		try store.setAppleIDToken(token(), for: account.id)
-		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token("a later token"))
+		try store.setAppleIDToken(token(), for: account.id, now: lasting)
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: nil, token: token("a later token"), now: lasting)
 		XCTAssertEqual(try store.appleIDToken(for: account.id)?.token, "a later token")
 		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password")
 		XCTAssertNil(try store.appleIDToken(for: account.id))
 	}
 
-	func testATokenAloneKeepsNoPasswordAndLeavesOneFromBefore() throws {
+	func testATokenTakesThePasswordsPlace() throws {
 		let store = try open()
 		let account = try appleID()
-		// Signed in with the token the installer handed over (#182).
-		try store.saveAppleID(account, p12: Data(), p12Password: "", password: nil, token: token())
+		// Signed in with the sheet: the password only went to Apple (13 Nov
+		// 2026).
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token(), now: lasting)
 		XCTAssertNil(try store.appleIDPassword(for: account.id))
 		XCTAssertEqual(try store.appleIDToken(for: account.id), token())
 
-		// One kept before stays.
-		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token())
-		try store.saveAppleID(account, p12: Data(), p12Password: "", password: nil, token: token("a later token"))
+		// Kept before tokens were: the next sign-in's token deletes it.
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password")
 		XCTAssertEqual(try store.appleIDPassword(for: account.id), "apple password")
-		XCTAssertEqual(try store.appleIDToken(for: account.id)?.token, "a later token")
+		try store.setAppleIDToken(token(), for: account.id, now: lasting)
+		XCTAssertNil(try store.appleIDPassword(for: account.id))
+
+		// Not by a token that already ended, which signs in with nothing.
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password")
+		try store.setAppleIDToken(token(), for: account.id, now: ended)
+		XCTAssertEqual(try store.appleIDPassword(for: account.id), "apple password")
+		try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password", token: token(), now: ended)
+		XCTAssertEqual(try store.appleIDPassword(for: account.id), "apple password")
+	}
+
+	func testForgetsThePasswordsTokensReplaced() throws {
+		let store = try open()
+		let withToken = try appleID(email: "a@example.com")
+		let withoutToken = try appleID(email: "b@example.com")
+		let withEndedToken = try appleID(email: "c@example.com")
+		for account in [withToken, withoutToken, withEndedToken] {
+			try store.saveAppleID(account, p12: Data(), p12Password: "", password: "apple password")
+		}
+		// As kept by a build that kept both.
+		let kept = String(decoding: try JSONEncoder().encode(token()), as: UTF8.self)
+		try appleIDTokens.setPassword(kept, for: withToken.id)
+		try appleIDTokens.setPassword(kept, for: withEndedToken.id)
+
+		XCTAssertEqual(store.forgetReplacedPasswords(now: ended), 0, "a token that ended replaces nothing")
+		XCTAssertEqual(store.forgetReplacedPasswords(now: lasting), 2)
+		XCTAssertNil(try store.appleIDPassword(for: withToken.id))
+		XCTAssertNil(try store.appleIDPassword(for: withEndedToken.id))
+		XCTAssertEqual(try store.appleIDPassword(for: withoutToken.id), "apple password", "kept until its next sign-in gets a token")
+		XCTAssertEqual(store.forgetReplacedPasswords(now: lasting), 0)
 	}
 
 	func testSigningOutDeletesApplesToken() throws {

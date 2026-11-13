@@ -13,10 +13,10 @@ import Observation
 /// certificate, the one whose key it kept or the one the iPhone-only
 /// installer handed over (#152), else has Apple make one. At Apple's limit
 /// it lists the team's certificates and asks which one to revoke, never
-/// revoking one by itself. The Apple ID, its
-/// password, Apple's token from the sign-in (#182) and the certificate are
-/// then kept with the certificates (`CertificateStore.saveAppleID`), in use
-/// if nothing else is.
+/// revoking one by itself. The Apple ID, Apple's
+/// token from the sign-in (#182) and the certificate are then kept with the
+/// certificates (`CertificateStore.saveAppleID`), in use if nothing else
+/// is.
 ///
 /// When the installer also handed over its sign-in, Atelier signs in with
 /// it by itself as it first opens (`CertificatesModel.signInAsInstaller`),
@@ -24,11 +24,13 @@ import Observation
 /// sheet comes up, filled in, once it has something to show: Apple's code,
 /// a choice, why it stopped, or You're Signed In. The installer's version 2
 /// hands over Apple's token from its sign-in in place of the password
-/// (#182): Atelier signs in with that, and keeps no password, unless Apple
-/// refuses it, when the sheet asks for the password. New Certificate signs
-/// in with the Apple ID's own token first too. Once that token alone has
-/// expired, Sign In Again on the Apple ID's page asks for its password,
-/// which it then keeps, as any sign-in with the sheet does.
+/// (#182): Atelier signs in with that, unless Apple refuses it, when the
+/// sheet asks for the password. New Certificate signs in with the Apple
+/// ID's own token first too.
+///
+/// Atelier keeps no passwords (token only, 13 Nov 2026): a sign-in with
+/// one keeps Apple's token from it instead. Once that has expired, Sign In
+/// Again on the Apple ID's page asks for the password.
 ///
 /// Installing with it comes with the install PR, and renewing its apps'
 /// profiles every week with the one after.
@@ -90,6 +92,10 @@ final class AppleIDSignIn {
 	/// token alone has expired: it asks for the password, then renews the
 	/// Apple ID's apps.
 	let signsInAgain: Bool
+	/// Whoever waits on the sheet: an install, Renew or Check Now that met
+	/// the Apple ID's expired sign-in (#182), told once whether it signed
+	/// in or the sheet closed without.
+	@ObservationIgnored var onFinish: ((Bool) -> Void)?
 	@ObservationIgnored private var task: Task<Void, Never>?
 	@ObservationIgnored private var cancelled = false
 	@ObservationIgnored private var teamChoice: CheckedContinuation<AppleIDSession.Team?, Never>?
@@ -175,6 +181,7 @@ final class AppleIDSignIn {
 	/// prompt and the choices with a cancel. A call to Apple that's under
 	/// way finishes first, and what it brings back is dropped.
 	func cancel() {
+		finish(false)
 		cancelled = true
 		task?.cancel()
 		answerCode(nil)
@@ -200,6 +207,7 @@ final class AppleIDSignIn {
 			let done = try await signInAndSave(email: email, password: password)
 			guard !cancelled else { return note("done, after the sheet closed") }
 			stage = .done(done)
+			finish(true)
 		} catch Stop.cancelled {
 			note("cancelled")
 			guard !cancelled else { return }
@@ -322,7 +330,8 @@ final class AppleIDSignIn {
 		let otherInUse = certificates.defaultID == id ? nil : certificates.inUseName
 		let inUse: Bool
 		do {
-			// Signed in with a token alone, there's no password to keep (#182).
+			// Apple's token takes the password's place, which then only went
+			// to Apple (#182, token only).
 			inUse = try certificates.saveAppleID(account, p12: made.p12, p12Password: p12Password, password: password.isEmpty ? nil : password, token: signedIn.token)
 		} catch {
 			throw Stop.failed("Atelier couldn't keep the Apple ID: \(error.localizedDescription)")
@@ -608,6 +617,12 @@ final class AppleIDSignIn {
 	}
 
 	// MARK: Helpers
+
+	private func finish(_ signedIn: Bool) {
+		let waiting = onFinish
+		onFinish = nil
+		waiting?(signedIn)
+	}
 
 	/// A line in the Apple ID log, which an Apple ID's page shows.
 	private func note(_ line: String) {

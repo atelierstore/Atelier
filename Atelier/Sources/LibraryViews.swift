@@ -1181,7 +1181,7 @@ struct RenewDueLabel: View {
 				.foregroundStyle(.orange)
 				.lineLimit(1)
 		}
-		if let problem, !problem.isUnreachable {
+		if let problem, problem.showsUnderApp {
 			Text(problem.message(isOwn: isOwn))
 				.font(.caption)
 				.foregroundStyle(.red)

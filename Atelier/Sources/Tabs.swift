@@ -964,7 +964,7 @@ private struct TestActionsSection: View {
 			} header: {
 				Text("Test Actions")
 			} footer: {
-				Text("For Setup's Local Network fix, pick Refused and turn Local Network off for Atelier. Run Background Check does what iOS's background refresh does: refreshes your sources, downloads updates ahead on Wi-Fi, and notifies. With Install updates automatically on, it runs automatic updates instead, which install what they can by themselves. It forgets which updates and news it already told you about first, so they're told again. Expire Apple’s Tokens makes each Apple ID’s sign-in token expire now: one with a password signs in with that next, and one the installer signed in with its token alone asks you to Sign In Again. Show Welcome opens the welcome and Get Ready as on the first launch. Tapping Version seven times again hides this section and turns everything in it off.")
+				Text("For Setup's Local Network fix, pick Refused and turn Local Network off for Atelier. Run Background Check does what iOS's background refresh does: refreshes your sources, downloads updates ahead on Wi-Fi, and notifies. With Install updates automatically on, it runs automatic updates instead, which install what they can by themselves. It forgets which updates and news it already told you about first, so they're told again. Expire Apple’s Tokens makes each Apple ID’s sign-in token expire now, so its page asks you to Sign In Again. Show Welcome opens the welcome and Get Ready as on the first launch. Tapping Version seven times again hides this section and turns everything in it off.")
 			}
 		}
 	}
