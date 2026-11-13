@@ -19,6 +19,8 @@ export const PAGES = Object.freeze({
   "/certificate.html": "certificate",
   "/certificate/install": "certificate-install",
   "/certificate/install.html": "certificate-install",
+  "/apple-id": "apple-id",
+  "/apple-id.html": "apple-id",
   "/sideload": "sideload",
   "/sideload.html": "sideload",
   "/signing-services": "signing-services",
@@ -47,6 +49,7 @@ export const PAGES = Object.freeze({
  *  (view:notfound), in index.js. */
 export const EVENTS = Object.freeze(new Set([
   "route-certificate",
+  "route-apple-id",
   "route-sideload",
   "signing-services",
   "donate",

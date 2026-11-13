@@ -10,6 +10,7 @@ const PAGES = {
   "home": "Home",
   "certificate": "Certificate",
   "certificate-install": "Certificate, from a computer's code",
+  "apple-id": "Apple ID",
   "sideload": "Sideload",
   "signing-services": "For signing services",
   "install": "Install links",
@@ -20,6 +21,7 @@ const PAGES = {
 };
 const ROUTES = [
   ["route-certificate", "With a signing service"],
+  ["route-apple-id", "With your Apple ID"],
   ["route-sideload", "I already know how to sideload"],
   ["signing-services", "Run a signing service?"],
 ];

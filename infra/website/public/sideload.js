@@ -4,6 +4,7 @@
 // releases page and the release's version, size, date and SHA-256 stay
 // hidden.
 
+import { copies } from "./copy.js";
 import { formatSize } from "./link.js";
 import { formatDate, newestRelease, shortHash } from "./release.js";
 
@@ -34,27 +35,4 @@ function showRelease(source) {
     });
     row.hidden = false;
   }
-}
-
-/** Copies `text()` when `button` is tapped, and says Copied. Where the
- *  clipboard refuses, it selects the text in `node()` instead, and says
- *  Selected. */
-function copies(button, text, node) {
-  const label = button.textContent;
-  let timer;
-  button.addEventListener("click", async () => {
-    try {
-      await navigator.clipboard.writeText(text());
-      button.textContent = "Copied";
-    } catch {
-      const range = document.createRange();
-      range.selectNodeContents(node());
-      const selection = window.getSelection();
-      selection.removeAllRanges();
-      selection.addRange(range);
-      button.textContent = "Selected";
-    }
-    clearTimeout(timer);
-    timer = setTimeout(() => { button.textContent = label; }, 1800);
-  });
 }
