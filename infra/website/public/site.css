@@ -488,6 +488,8 @@ a.route.route-pick:hover { border-color: var(--pine); }
 code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
 .install-grid > div > .callout { margin-top: 28px; }
 .install-grid > div > .callout p { margin-top: 2px; font-size: 15px; color: var(--ink-2); }
+/* The Apple ID page on an iPhone with an older iOS: over You'll need. */
+.install-grid > div > .callout.notice { margin: 0 0 28px; }
 /* On the home page, under Get Atelier's text: the way to this page. */
 .aside-link { margin-top: 22px; font-size: 15px; color: var(--ink-2); }
 

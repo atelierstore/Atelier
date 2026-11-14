@@ -3,9 +3,19 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
 import worker from "../src/index.js";
-import { PAL_COUNTRIES, homePage, palCountry, palPage } from "../src/region.js";
+import { PAL_COUNTRIES, homePage, oldIOSPage, palCountry, palPage } from "../src/region.js";
 
 const HOME = await readFile(new URL("../public/index.html", import.meta.url), "utf8");
+
+// Safari on an iPhone with iOS 26 and 27: its version is iOS's.
+const IOS_26 = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/26.0 Mobile/15E148 Safari/604.1";
+const IOS_27 = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/27.0 Mobile/15E148 Safari/604.1";
+
+/** The list of ways to install Atelier in `page`. */
+function routes(page) {
+  const start = page.indexOf('<ul class="routes"');
+  return page.slice(start, page.indexOf("</ul>", start));
+}
 
 /** A request for the home page from `country`, as Cloudflare places it. */
 function from(country, init = {}) {
@@ -107,4 +117,59 @@ test("the Worker serves the home page", async () => {
   const files = assets();
   const response = await worker.fetch(from("BR"), { ASSETS: files }, {});
   assert.match(await response.text(), /Recommended in <span data-pal-country>Brazil<\/span>/);
+});
+
+test("the home page has the Apple ID first, recommended on iOS 27, between the apple-id comments", () => {
+  const list = routes(HOME);
+  assert.ok(list.indexOf('href="/apple-id"') < list.indexOf('href="/certificate"'));
+  assert.match(list, /<!-- apple-id -->\s*<li>\s*<a class="route route-pick" href="\/apple-id"[\s\S]*?<\/li>\s*<!-- \/apple-id -->\s*<li>\s*<a class="route" href="\/certificate"/);
+  assert.match(list, /Recommended on <span class="as-is">iOS<\/span> 27/);
+  assert.doesNotMatch(list, /Needs iOS/);
+});
+
+test("on an iPhone with an older iOS, the signing service comes first, and the Apple ID needs iOS 27", () => {
+  const page = oldIOSPage(HOME);
+  const list = routes(page);
+  const certificate = list.indexOf('href="/certificate"');
+  const appleID = list.indexOf('href="/apple-id"');
+  assert.ok(certificate < appleID && appleID < list.indexOf('href="/sideload"'));
+  assert.doesNotMatch(list, /route-pick|r-label">Recommended on|Recommended on <span class="as-is">iOS/);
+  assert.match(list, /<a class="route" href="\/apple-id" data-tally="route-apple-id">/);
+  assert.match(list, /<span class="r-head"><strong>With your Apple ID<\/strong><span class="soon">Needs iOS 27<\/span><\/span>/);
+  // The same items, moved: only the label went, and the badge came.
+  const items = (html) => html.match(/<li[\s\S]*?<\/li>/g).length;
+  assert.equal(items(list), items(routes(HOME)));
+  // Only the list changed.
+  assert.equal(page.slice(0, page.indexOf('<ul class="routes"')), HOME.slice(0, HOME.indexOf('<ul class="routes"')));
+  assert.equal(page.slice(page.indexOf("</ul>", page.indexOf('<ul class="routes"'))), HOME.slice(HOME.indexOf("</ul>", HOME.indexOf('<ul class="routes"'))));
+});
+
+test("where Apple allows AltStore PAL, on an older iOS, it comes first, then the signing service", () => {
+  const list = routes(oldIOSPage(palPage(HOME, "Greece")));
+  const order = ["From AltStore PAL", ">Until then<", 'href="/certificate"', 'href="/apple-id"', 'href="/sideload"'].map((part) => list.indexOf(part));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || order[i - 1] < at)), order.join(" "));
+  assert.equal(list.match(/From AltStore PAL/g).length, 1);
+  assert.equal(oldIOSPage(palPage(HOME, "Greece")), palPage(oldIOSPage(HOME), "Greece"));
+});
+
+test("on an iPhone with an older iOS, the Worker sends the page with the signing service first, without the file's validators", async () => {
+  const files = assets();
+  const response = await homePage(from("US", { headers: { "User-Agent": IOS_26, "If-None-Match": '"file"' } }), files);
+  assert.equal(files.requests[0].headers.get("If-None-Match"), null);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("ETag"), null);
+  assert.equal(await response.text(), oldIOSPage(HOME));
+});
+
+test("on iOS 27, and where AltStore PAL is too, the Worker sends the page for both", async () => {
+  const files = assets();
+  const request = from("US", { headers: { "User-Agent": IOS_27 } });
+  const response = await homePage(request, files);
+  assert.equal(files.requests[0], request);
+  assert.equal(await response.text(), HOME);
+  const both = await homePage(from("IT", { headers: { "User-Agent": IOS_26 } }), assets());
+  assert.equal(await both.text(), oldIOSPage(palPage(HOME, "Italy")));
+  const head = await homePage(from(undefined, { method: "HEAD", headers: { "User-Agent": IOS_26 } }), assets());
+  assert.equal(head.status, 200);
+  assert.equal(head.body, null);
 });
