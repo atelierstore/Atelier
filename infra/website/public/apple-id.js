@@ -3,12 +3,21 @@
 // it, with its Copy button. On an iPhone or iPad, a button also copies the
 // line and opens rootshell. On a computer, a code opens the page on the
 // iPhone, where the line is copied into rootshell. Until the source loads,
-// step 3 says so, and when it can't, it says to reload.
+// step 3 says so, and when it can't, it says to reload. On an iPhone with an
+// older iOS than the installer needs, a notice over You'll need says so.
 
 import { copies, copy } from "./copy.js";
+import { INSTALLER_IOS, iPhoneIOS } from "./ios.js";
 import { formatSize, onIOS } from "./link.js";
 import { qrCode, qrPath } from "./qr.js";
 import { formatDate, installLine, newestRelease } from "./release.js";
+
+const ios = iPhoneIOS(navigator.userAgent);
+if (ios !== null && ios < INSTALLER_IOS) {
+  const notice = document.getElementById("old-ios");
+  notice.querySelector("[data-ios-version]").textContent = ios;
+  notice.hidden = false;
+}
 
 const box = document.querySelector("[data-command]");
 const line = box.querySelector("[data-install-line]");

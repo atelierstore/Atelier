@@ -1,9 +1,14 @@
-// The home page, by where the visitor is. Get Atelier lists AltStore PAL,
-// which is planned, last; for visitors where Apple allows alternative app
-// marketplaces such as AltStore PAL, it comes first, recommended in their
-// country. Cloudflare places each request in a country by its IP address
-// (request.cf.country, the same as the CF-IPCountry header), so the page
-// comes the right way round, with no script and nothing stored.
+// The home page, by where the visitor is and which iPhone they're on. Get
+// Atelier lists AltStore PAL, which is planned, last; for visitors where
+// Apple allows alternative app marketplaces such as AltStore PAL, it comes
+// first, recommended in their country. Cloudflare places each request in a
+// country by its IP address (request.cf.country, the same as the
+// CF-IPCountry header). The Apple ID comes first, recommended on iOS 27, and
+// on an iPhone with an older iOS, by Safari's user agent, the signing
+// service comes first instead. Either way, the page comes the right way
+// round, with no script and nothing stored.
+
+import { INSTALLER_IOS, iPhoneIOS } from "../public/ios.js";
 
 /** Where Apple allows alternative app marketplaces, by ISO 3166 code, with
  *  each one's name as the page shows it: the EU's countries and regions, as
@@ -71,12 +76,30 @@ export function palPage(html, country) {
     .replace(/\n[ \t]*<!-- not-pal -->[\s\S]*?<!-- \/not-pal -->/, "");
 }
 
+/** The home page's HTML, `html`, for an iPhone whose iOS is older than the
+ *  installer needs: the signing service first, then the Apple ID item,
+ *  between the apple-id comments, without its label and pine border, marked
+ *  Needs iOS 27. It still opens the Apple ID page, which says the same. */
+export function oldIOSPage(html) {
+  return html.replace(
+    /(\n[ \t]*<!-- apple-id -->[\s\S]*?<!-- \/apple-id -->)(\n[ \t]*<li>[\s\S]*?<\/li>)/,
+    (_, appleID, next) => next + appleID
+      .replace('class="route route-pick"', 'class="route"')
+      .replace(/\n[ \t]*<span class="r-label">.*/, "")
+      .replace(/(<span class="r-head"><strong>[^<]*<\/strong>)/, `$1<span class="soon">Needs iOS ${INSTALLER_IOS}</span>`),
+  );
+}
+
 /** The response to `request` for the home page, from `assets`
  *  (env.ASSETS): public/index.html as it is, or, for a visitor where Apple
- *  allows AltStore PAL, with it first (palPage). */
+ *  allows AltStore PAL, with it first (palPage), and on an iPhone with an
+ *  older iOS than the installer needs, with the signing service first
+ *  (oldIOSPage). */
 export async function homePage(request, assets) {
   const country = palCountry(request);
-  if (!country) return assets.fetch(request);
+  const ios = iPhoneIOS(request.headers.get("User-Agent"));
+  const oldIOS = ios !== null && ios < INSTALLER_IOS;
+  if (!country && !oldIOS) return assets.fetch(request);
   // Without the browser's validators, so assets sends the page rather than
   // a 304 for the file as it is, which this visitor doesn't get.
   const headers = new Headers(request.headers);
@@ -88,6 +111,9 @@ export async function homePage(request, assets) {
   // They're the file's, and this page differs from it.
   out.delete("Content-Length");
   out.delete("ETag");
-  const body = request.method === "HEAD" ? null : palPage(await page.text(), country);
-  return new Response(body, { status: 200, headers: out });
+  if (request.method === "HEAD") return new Response(null, { status: 200, headers: out });
+  let html = await page.text();
+  if (country) html = palPage(html, country);
+  if (oldIOS) html = oldIOSPage(html);
+  return new Response(html, { status: 200, headers: out });
 }
