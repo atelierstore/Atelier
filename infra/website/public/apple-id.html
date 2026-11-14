@@ -73,10 +73,12 @@
       </div>
       <!-- The installer is atelier-install, a WebAssembly program for
            rootshell (github.com/atelierstore/atelier-install), and these
-           steps are its README's "Using it". apple-id.js fills in step 3's
-           line from Atelier's source, shows the button that copies it and
-           opens rootshell on an iPhone or iPad, and on a computer shows a
-           code that opens this page on the iPhone. -->
+           steps are its README's "Using it". On an iPhone or iPad,
+           apple-id.js shows step 3's Install Atelier button, which adds the
+           Install Atelier Shortcut, then runs it. Under Without the
+           Shortcut, it fills in the line from Atelier's source and shows
+           the button that copies it and opens rootshell. On a computer it
+           shows a code that opens this page on the iPhone. -->
       <ol class="steps">
         <li>
           <span class="n" aria-hidden="true">1</span>
@@ -97,6 +99,7 @@
               <a class="btn btn-secondary btn-small" href="https://apps.apple.com/app/rootshell-local-terminal-ssh/id6755794662">rootshell</a>
               <a class="btn btn-secondary btn-small" href="https://apps.apple.com/app/id6755608044">LocalDevVPN</a>
             </div>
+            <p>If you already have them, update both to their latest versions from the App Store.</p>
           </div>
         </li>
         <li>
@@ -111,45 +114,59 @@
           <div>
             <h3>Install Atelier</h3>
             <p>First, in rootshell's Settings › General, turn on Location Diary Mode with its Mode set to Session Only, so it keeps running while you're in Settings. Session Only turns itself off whenever rootshell closes, such as when your iPhone restarts.</p>
-            <p>Then copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>
+            <p>Then tap Install Atelier. It installs Atelier's newest release:</p>
             <div class="release" data-release data-source="https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json">
               <img src="/img/icon.png" alt="" width="52" height="52">
               <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Newest release</span></span>
             </div>
             <p class="small" data-release-wait aria-live="polite">Reading Atelier's newest release…</p>
-            <div class="url-box" data-command data-after-release hidden>
-              <code data-install-line></code>
-              <button class="btn btn-primary btn-small" type="button" aria-label="Copy the line">Copy</button>
+            <!-- On an iPhone or iPad: the Install Atelier Shortcut. The
+                 first tap opens its iCloud link, where Shortcuts offers Add
+                 Shortcut; later taps run it (apple-id.js). It connects
+                 LocalDevVPN, has rootshell run the installer with --page,
+                 then opens the installer's page in Safari. -->
+            <div class="actions go-row" data-shortcut hidden>
+              <a class="btn btn-primary" href="https://www.icloud.com/shortcuts/SHORTCUT-LINK" data-shortcut-button>Install Atelier</a>
             </div>
-            <!-- On an iPhone or iPad, once the line is there: LocalDevVPN's
-                 own link connects it, then opens the app whose links start
-                 with the scheme it's given, here rootshell. apple-id.js
-                 copies the line first. -->
-            <div class="actions go-row" data-on-ios hidden>
-              <a class="btn btn-primary" href="localdevvpn://enable?scheme=rootshell" data-open-rootshell>Copy and open rootshell</a>
-            </div>
-            <p class="small" data-on-ios hidden>Safari asks to open LocalDevVPN first. It connects, then switches to rootshell by itself. The first time, allow it to add its VPN.</p>
-            <p class="small">Paste the line in rootshell and press Return. Then do what rootshell asks:</p>
-            <ol class="points walk">
-              <li><strong>Pair.</strong> In Settings › Privacy &amp; Security › Developer Mode, tap Pair with Atelier and enter your passcode. Settings then asks for a code. Switch to rootshell to read it, then go back to Settings and type it.</li>
-              <li><strong>Go back to rootshell</strong> and press Return. LocalDevVPN is connected already.</li>
-              <li><strong>Sign in</strong> with your Apple ID, its password, and the code Apple sends if it asks. rootshell doesn't show the password as you type it.</li>
-              <li><strong>Stay in rootshell</strong> while it signs and installs Atelier.</li>
-            </ol>
-            <div class="callout">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
-              <div>
-                <strong>If it stops</strong>
-                <p>Copy the same line again. The installer picks up where it left off. If nothing happens for a minute, press Control-C in rootshell first.</p>
+            <p class="small" data-shortcut hidden>The first time, it adds the Install Atelier Shortcut. Tap Add Shortcut, come back here, and tap Install Atelier again.</p>
+            <p class="small" data-shortcut hidden>The Shortcut connects LocalDevVPN and starts the installer in rootshell. Safari then opens the installer's page, which carries on from this step: pair, sign in, then install. There's nothing to type in rootshell.</p>
+            <details class="fallback">
+              <summary>Without the Shortcut</summary>
+              <p>Then copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>
+              <div class="url-box" data-command data-after-release hidden>
+                <code data-install-line></code>
+                <button class="btn btn-primary btn-small" type="button" aria-label="Copy the line">Copy</button>
               </div>
-            </div>
-            <div class="callout">
-              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
-              <div>
-                <strong>If it waits after pairing</strong>
-                <p>If nothing shows for a minute after you press Return, your iPhone's pairing service has moved to another port, which can happen after a restart. Press Control-C. A Bonjour browser such as Discovery – DNS-SD Browser, free on the App Store, shows the port under <code class="key">_remotepairing._tcp</code>. Copy the line again, and add <code class="key">--port</code> and that number at the end.</p>
+              <!-- On an iPhone or iPad, once the line is there: LocalDevVPN's
+                   own link connects it, then opens the app whose links start
+                   with the scheme it's given, here rootshell. apple-id.js
+                   copies the line first. -->
+              <div class="actions go-row" data-on-ios hidden>
+                <a class="btn btn-primary" href="localdevvpn://enable?scheme=rootshell" data-open-rootshell>Copy and open rootshell</a>
               </div>
-            </div>
+              <p class="small" data-on-ios hidden>Safari asks to open LocalDevVPN first. It connects, then switches to rootshell by itself. The first time, allow it to add its VPN.</p>
+              <p class="small">Paste the line in rootshell and press Return. Then do what rootshell asks:</p>
+              <ol class="points walk">
+                <li><strong>Pair.</strong> In Settings › Privacy &amp; Security › Developer Mode, tap Pair with Atelier and enter your passcode. Settings then asks for a code. Switch to rootshell to read it, then go back to Settings and type it.</li>
+                <li><strong>Go back to rootshell</strong> and press Return. LocalDevVPN is connected already.</li>
+                <li><strong>Sign in</strong> with your Apple ID, its password, and the code Apple sends if it asks. rootshell doesn't show the password as you type it.</li>
+                <li><strong>Stay in rootshell</strong> while it signs and installs Atelier.</li>
+              </ol>
+              <div class="callout">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
+                <div>
+                  <strong>If it stops</strong>
+                  <p>Copy the same line again. The installer picks up where it left off. If nothing happens for a minute, press Control-C in rootshell first.</p>
+                </div>
+              </div>
+              <div class="callout">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 11v5.2"/><path d="M12 7.7v.1"/></svg>
+                <div>
+                  <strong>If it waits after pairing</strong>
+                  <p>If nothing shows for a minute after you press Return, your iPhone's pairing service has moved to another port, which can happen after a restart. Press Control-C. A Bonjour browser such as Discovery – DNS-SD Browser, free on the App Store, shows the port under <code class="key">_remotepairing._tcp</code>. Copy the line again, and add <code class="key">--port</code> and that number at the end.</p>
+                </div>
+              </div>
+            </details>
           </div>
         </li>
         <li>
