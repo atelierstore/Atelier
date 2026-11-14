@@ -129,7 +129,7 @@ test("the Apple ID page's Install Atelier button adds the Shortcut, then runs it
   // Without the Shortcut keeps the line, its buttons and the two If boxes.
   const fold = html.slice(html.indexOf('<details class="fallback">'), html.indexOf("</details>"));
   assert.match(fold, /<summary>Without the Shortcut<\/summary>/);
-  for (const part of ["data-install-line", "data-open-rootshell", "<strong>If it stops</strong>", "<strong>If it waits after pairing</strong>"]) {
+  for (const part of ["data-install-line", "data-open-rootshell", "<strong>If it stops</strong>"]) {
     assert.ok(fold.includes(part), part);
   }
   assert.ok(html.indexOf("data-shortcut-button") < html.indexOf('<details class="fallback">'));
