@@ -348,11 +348,13 @@ private struct ChooseTeam: View {
 					} label: {
 						HStack {
 							VStack(alignment: .leading, spacing: 3) {
+								// Color's: in a button, .primary and .secondary are
+								// shades of its tint.
 								Text(team.title)
-									.foregroundStyle(.primary)
+									.foregroundStyle(Color.primary)
 								Text(team.detail)
 									.font(.footnote)
-									.foregroundStyle(.secondary)
+									.foregroundStyle(Color.secondary)
 							}
 							Spacer()
 							if team.id == picked.id {
@@ -403,7 +405,8 @@ extension AppleIDSession.Team {
 /// once more. The one the Atelier that runs is signed with says so (#152),
 /// and is never picked to start with: revoking it makes Atelier sign itself
 /// again right after, with the one it makes. When Apple still counts one
-/// just revoked, it comes again as Revoke Another?, saying why.
+/// just revoked, it comes again as Revoke Another?, saying why without
+/// naming it, as another of the list may have the same name.
 private struct RevokeCertificate: View {
 	let signIn: AppleIDSignIn
 	let email: String
@@ -460,12 +463,15 @@ private struct RevokeCertificate: View {
 					} label: {
 						HStack {
 							VStack(alignment: .leading, spacing: 3) {
+								// Color's: in a button, .primary and .secondary are
+								// shades of its tint, which drew the row blue, like a
+								// link.
 								Text(Self.name(of: certificate))
-									.foregroundStyle(.primary)
+									.foregroundStyle(certificate.serialNumber == nil ? Color.secondary : Color.primary)
 								if let text = line(for: certificate) {
 									Text(text)
 										.font(.footnote)
-										.foregroundStyle(.secondary)
+										.foregroundStyle(Color.secondary)
 								}
 							}
 							Spacer()
@@ -481,7 +487,8 @@ private struct RevokeCertificate: View {
 			} header: {
 				Text("Development certificates")
 			} footer: {
-				Text("Apps signed with it stop opening, whichever app installed them, until that app signs them again.")
+				// Above Revoke and Continue, which is off until one is picked.
+				Text("Pick one to revoke. Apps signed with it stop opening, whichever app installed them, until that app signs them again.")
 			}
 
 			Section {
@@ -524,15 +531,13 @@ private struct RevokeCertificate: View {
 		certificate.machineName ?? certificate.name ?? "Development certificate"
 	}
 
-	/// "Apple still counts SideStore’s certificate, though it no longer
-	/// lists it. Waiting for Apple hasn’t freed its place before, but
-	/// revoking another one has."
+	/// "The certificate you picked is revoked, but Apple still won’t make a
+	/// new one. …", without its name: the installer calls each of its
+	/// certificates Atelier Installer, so the list may show another one of
+	/// that name (15 Nov 2026).
 	private static func stillCounted(_ revoked: [AppleIDSession.Certificate]) -> String {
-		guard revoked.count == 1 else {
-			return "Apple still counts the certificates you revoked, though it no longer lists them. Waiting for Apple hasn’t freed their places before, but revoking another one has."
-		}
-		let which = revoked[0].machineName.map { "\($0)’s certificate" } ?? "the certificate you revoked"
-		return "Apple still counts \(which), though it no longer lists it. Waiting for Apple hasn’t freed its place before, but revoking another one has."
+		let which = revoked.count == 1 ? "The certificate you picked is revoked" : "The certificates you picked are revoked"
+		return "\(which), but Apple still won’t make a new one. Sometimes you have to wait a while. Do you want to revoke another one instead?"
 	}
 
 	/// "Made 30 Oct 2026. Its key isn’t on this iPhone."
