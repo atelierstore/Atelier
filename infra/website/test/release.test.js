@@ -118,6 +118,23 @@ test("the Apple ID page has what its script fills in, and LocalDevVPN's link to 
   assert.match(html, /<a [^>]*href="localdevvpn:\/\/enable\?scheme=rootshell"[^>]* data-open-rootshell>/);
 });
 
+test("the Apple ID page's Install Atelier button adds the Shortcut, then runs it, with today's line folded under it", () => {
+  const html = readFileSync(new URL("../public/apple-id.html", import.meta.url), "utf8");
+  const script = readFileSync(new URL("../public/apple-id.js", import.meta.url), "utf8");
+  // The first tap follows the button's own link, the Shortcut's iCloud link.
+  assert.match(html, /<a class="btn btn-primary" href="https:\/\/www\.icloud\.com\/shortcuts\/[^"]+" data-shortcut-button>Install Atelier<\/a>/);
+  // Later taps run it by its name, which the installer's page uses too.
+  assert.match(script, /const SHORTCUT = "Install Atelier";/);
+  assert.match(script, /shortcuts:\/\/x-callback-url\/run-shortcut\?name=\$\{encodeURIComponent\(name\)\}&x-error=/);
+  // Without the Shortcut keeps the line, its buttons and the two If boxes.
+  const fold = html.slice(html.indexOf('<details class="fallback">'), html.indexOf("</details>"));
+  assert.match(fold, /<summary>Without the Shortcut<\/summary>/);
+  for (const part of ["data-install-line", "data-open-rootshell", "<strong>If it stops</strong>"]) {
+    assert.ok(fold.includes(part), part);
+  }
+  assert.ok(html.indexOf("data-shortcut-button") < html.indexOf('<details class="fallback">'));
+});
+
 test("gives no line for an IPA address a shell could read as something else", () => {
   for (const downloadURL of [
     "https://example.com/Atelier.ipa?token=a&b=c",

@@ -582,6 +582,17 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
    code that opens the page on the iPhone sits over step 1. */
 .steps .release + .url-box, .steps .release + p.small { margin-top: 12px; }
 .steps .go-row { margin-top: 12px; }
+/* Step 3 on the Apple ID page: today's line, folded under the Install
+   Atelier button. */
+.fallback { margin-top: 22px; border-top: 1px solid var(--line-strong); }
+.fallback summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding-block: 14px 2px; font-weight: 600; color: var(--ink); }
+.fallback summary::-webkit-details-marker { display: none; }
+.fallback summary::after { content: "+"; flex: none; font: 400 24px/0.8 var(--display); color: var(--pine-ink); transition: transform .2s ease; }
+.fallback[open] summary::after { transform: rotate(45deg); }
+.fallback summary + p { margin-top: 10px; }
+/* Step 1 on the Apple ID page: under the two apps' buttons. */
+.steps .add-row + p { margin-top: 12px; }
+@media (prefers-reduced-motion: reduce) { .fallback summary::after { transition: none; } }
 .steps .go-row .btn { box-sizing: border-box; width: 100%; max-width: 420px; }
 .points.walk { margin-top: 10px; font-size: 15px; line-height: 1.5; }
 .points.walk li::marker { font-weight: 700; }

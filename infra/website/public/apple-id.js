@@ -1,10 +1,12 @@
-// The Apple ID page (apple-id.html): step 3's line, which downloads the
+// The Apple ID page (apple-id.html). On an iPhone or iPad, step 3's
+// Install Atelier button adds the Install Atelier Shortcut the first time
+// and runs it after. Without the Shortcut, step 3's line downloads the
 // installer and installs Atelier's newest release as its own source lists
-// it, with its Copy button. On an iPhone or iPad, a button also copies the
-// line and opens rootshell. On a computer, a code opens the page on the
-// iPhone, where the line is copied into rootshell. Until the source loads,
-// step 3 says so, and when it can't, it says to reload. On an iPhone with an
-// older iOS than the installer needs, a notice over You'll need says so.
+// it, with its Copy button, and on an iPhone or iPad a button also copies
+// the line and opens rootshell. On a computer, a code opens the page on the
+// iPhone. Until the source loads, step 3 says so, and when it can't, it says
+// to reload. On an iPhone with an older iOS than the installer needs, a
+// notice over You'll need says so.
 
 import { copies, copy } from "./copy.js";
 import { INSTALLER_IOS, iPhoneIOS } from "./ios.js";
@@ -69,6 +71,72 @@ function offerRootshell() {
   box.querySelector("button").classList.replace("btn-primary", "btn-secondary");
   for (const node of document.querySelectorAll("[data-on-ios]")) node.hidden = false;
 }
+
+// MARK: The Install Atelier Shortcut
+
+/** The Shortcut's name, as Shortcuts' link that runs it names it. */
+const SHORTCUT = "Install Atelier";
+/** What the page keeps once the first tap has opened the Shortcut's
+ *  iCloud link, so later taps run it. */
+const ADDED = "shortcut-added";
+/** The address Shortcuts comes back to when it can't run the Shortcut, as
+ *  when it was never added: the button then adds it again. */
+const NOT_ADDED = "#add-shortcut";
+
+/** Whether the first tap has opened the Shortcut's iCloud link. Without
+ *  storage, it lasts while the page is open. */
+let added = (() => {
+  try {
+    return localStorage.getItem(ADDED) === "1";
+  } catch {
+    return false;
+  }
+})();
+
+function rememberAdded(value) {
+  added = value;
+  try {
+    if (value) localStorage.setItem(ADDED, "1");
+    else localStorage.removeItem(ADDED);
+  } catch {
+    // It lasts while the page is open.
+  }
+}
+
+/** Shortcuts' link that runs the Shortcut, coming back here if it can't.
+ *  Nothing comes back when it runs: it ends by opening the installer's page
+ *  in Safari, which should stay in front. */
+function runLink(name, back) {
+  return `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(name)}&x-error=${encodeURIComponent(back)}`;
+}
+
+/** Shows the Install Atelier button: its link, the Shortcut's iCloud link,
+ *  the first time, and Shortcuts' link that runs it after. */
+function offerShortcut() {
+  // In a new tab, or this one, which then only changes its hash.
+  notAdded();
+  addEventListener("hashchange", notAdded);
+  const button = document.querySelector("[data-shortcut-button]");
+  button.addEventListener("click", (event) => {
+    if (!added) {
+      rememberAdded(true);
+      return;
+    }
+    event.preventDefault();
+    location.href = runLink(SHORTCUT, new URL(NOT_ADDED, location.href).href);
+  });
+  for (const node of document.querySelectorAll("[data-shortcut]")) node.hidden = false;
+}
+
+/** When Shortcuts came back because it couldn't run the Shortcut: the next
+ *  tap adds it again. */
+function notAdded() {
+  if (location.hash !== NOT_ADDED) return;
+  rememberAdded(false);
+  history.replaceState(null, "", location.pathname);
+}
+
+if (onIOS) offerShortcut();
 
 if (!onIOS) {
   const notice = document.getElementById("on-computer");
