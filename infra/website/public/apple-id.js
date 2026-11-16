@@ -77,11 +77,8 @@ function offerRootshell() {
 /** The Shortcut's name, as Shortcuts' link that runs it names it. */
 const SHORTCUT = "Install Atelier";
 /** What the page keeps once the first tap has opened the Shortcut's
- *  iCloud link, so later taps run it. Named anew for the Shortcut that shows
- *  the installer's page in its own web view: one added before opens it in
- *  Safari, which needs Location Diary Mode, so the first tap adds the new
- *  one. */
-const ADDED = "shortcut-added-web-view";
+ *  iCloud link, so later taps run it. */
+const ADDED = "shortcut-added";
 /** The address Shortcuts comes back to when it can't run the Shortcut, as
  *  when it was never added: the button then adds it again. */
 const NOT_ADDED = "#add-shortcut";
