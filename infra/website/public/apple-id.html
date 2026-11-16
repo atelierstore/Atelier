@@ -113,8 +113,7 @@
           <span class="n" aria-hidden="true">3</span>
           <div>
             <h3>Install Atelier</h3>
-            <p>First, in rootshell's Settings › General, set Location Diary Mode to Auto During Active Sessions, so it keeps running while you're in Settings.</p>
-            <p>Then tap Install Atelier. It installs Atelier's newest release:</p>
+            <p>Tap Install Atelier. It installs Atelier's newest release:</p>
             <div class="release" data-release data-source="https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json">
               <img src="/img/icon.png" alt="" width="52" height="52">
               <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Newest release</span></span>
@@ -124,15 +123,16 @@
                  first tap opens its iCloud link, where Shortcuts offers Add
                  Shortcut; later taps run it (apple-id.js). It connects
                  LocalDevVPN, has rootshell run the installer with --page,
-                 then opens the installer's page in Safari. -->
+                 then shows the installer's page over rootshell, in its own
+                 web view, which keeps rootshell in front. -->
             <div class="actions go-row" data-shortcut hidden>
               <a class="btn btn-primary" href="https://www.icloud.com/shortcuts/e522f1adbcf34bc28baf3dbde4f7b699" data-shortcut-button>Install Atelier</a>
             </div>
             <p class="small" data-shortcut hidden>The first time, it adds the Install Atelier Shortcut. Tap Add Shortcut, come back here, and tap Install Atelier again.</p>
-            <p class="small" data-shortcut hidden>The Shortcut connects LocalDevVPN and starts the installer in rootshell. Safari then opens the installer's page, which carries on from this step: pair, sign in, then install. There's nothing to type in rootshell.</p>
+            <p class="small" data-shortcut hidden>The Shortcut connects LocalDevVPN and starts the installer in rootshell, then shows the installer's page over it. The page carries on from this step: pair, sign in, then install. There's nothing to type in rootshell.</p>
             <details class="fallback">
               <summary>Without the Shortcut</summary>
-              <p>Then copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>
+              <p>Copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>
               <div class="url-box" data-command data-after-release hidden>
                 <code data-install-line></code>
                 <button class="btn btn-primary btn-small" type="button" aria-label="Copy the line">Copy</button>
