@@ -76,6 +76,8 @@ final class AppleIDAccess {
 		switch await resume(account) {
 		case .signedIn(let resumed):
 			signedIn = resumed
+		case .appleDown(let why):
+			throw Failure.failed(why)
 		case .notSignedIn(let why):
 			do {
 				signedIn = try await signIn(account, purpose: purpose, tokenFailure: why)
@@ -124,6 +126,10 @@ final class AppleIDAccess {
 		/// refused it, with `why` nil; or it couldn't be read, or Apple
 		/// wasn't reached with it, which `why` says.
 		case notSignedIn(why: String?)
+		/// Apple's servers failed, or didn't answer in time (#42): the token
+		/// is kept, and the password isn't tried in its place, as Apple
+		/// would fail it too. `why` says so.
+		case appleDown(why: String)
 	}
 
 	/// A session from Apple's token kept for `account` (#182), without the
@@ -131,7 +137,8 @@ final class AppleIDAccess {
 	/// went through, as the same machine. None when there's no token worth
 	/// trying, or Apple refused it, which deletes it, or Apple wasn't
 	/// reached, which keeps it for the next time: the password then signs
-	/// in. One that expired is kept too, so its page says when.
+	/// in, unless Apple's servers failed (#42). One that expired is kept
+	/// too, so its page says when.
 	private func resume(_ account: StoredAppleID) async -> Resumed {
 		let token: AppleIDToken
 		do {
@@ -158,6 +165,9 @@ final class AppleIDAccess {
 			AppleIDLog.note("token: Apple refused it\(error.appleCode == 0 ? "" : " (\(error.appleCode))"), so it's deleted: \(error.message)")
 			CertificatesModel.shared.setAppleIDToken(nil, for: account.id)
 			return .notSignedIn(why: nil)
+		} catch let error as AppleIDError where error.isAppleDown {
+			AppleIDLog.note("token: Apple's servers failed, so it's kept, and the password isn't tried: \(error)")
+			return .appleDown(why: AppleIDRoute.explain(error, AppleIDError.couldNotReachApple))
 		} catch {
 			AppleIDLog.note("token: Apple wasn't reached with it, so it's kept: \(error)")
 			return .notSignedIn(why: AppleIDRoute.explain(error, AppleIDError.couldNotReachApple))

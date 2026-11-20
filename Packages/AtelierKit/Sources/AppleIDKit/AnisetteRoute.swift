@@ -17,6 +17,12 @@ import Foundation
 ///   Windows' ADI or another).
 /// - A wrong password, a locked Apple ID, a cancelled code or a refusal of
 ///   Apple's developer services: no other server changes that, so it stops.
+/// - Apple's own servers failing (#42): no answer in time, a server error,
+///   too many requests or an answer that can't be read stops it too, as
+///   each server would be one more sign-in on the Apple ID for nothing. A
+///   401 or another 4xx from Apple goes to the next server, as it can be
+///   one server's machine Apple refuses, but the sign-in then ends saying
+///   it's Apple, not the connection.
 public struct AnisetteRoute: Sendable {
 	public enum Failure: Equatable, Sendable {
 		/// The server didn't answer, or Apple's sign-in failed through it.
@@ -129,6 +135,15 @@ public struct AnisetteRoute: Sendable {
 		return nil
 	}
 
+	/// Which failure a sign-in that goes on after `last` with `new` should
+	/// end on, should it end there (#42): once Apple's servers failed
+	/// through one anisette server, the connection works, so a later server
+	/// that failed by itself doesn't make it the connection's fault.
+	public static func telling(_ new: AppleIDError, over last: AppleIDError?) -> AppleIDError {
+		if new.kind == .other, let last, last.kind == .appleUnavailable { return last }
+		return new
+	}
+
 	/// What to tell the user when the sign-in stopped on `error`: nil when
 	/// they cancelled it. Plain words, without Apple's code, as approved on
 	/// 13 Nov 2026 (#182): Apple ID Log keeps the code. `appleIDIsSet` when
@@ -151,6 +166,9 @@ public struct AnisetteRoute: Sendable {
 		if error.isTryLater {
 			return "Apple isn’t letting apps like Atelier sign in right now. Try again later."
 		}
+		// Through the user's own server too: it's Apple (#42).
+		if error.kind == .noAnswer { return AppleIDError.noAnswerInTime }
+		if error.kind == .appleUnavailable { return AppleIDError.signInDown }
 		if isCustom, let server = servers.first {
 			let what = error.kind == .signIn ? "Apple refused the sign-in through your own sign-in server, \(server.host).\(says)" : "Your own sign-in server, \(server.host), didn't answer."
 			return "\(what) Check that it's running, or turn it off in Settings › Installs › Advanced."

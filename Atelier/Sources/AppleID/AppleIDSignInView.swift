@@ -30,6 +30,17 @@ struct AppleIDSignInView: View {
 		.onChange(of: setup.isSetUp) { _, done in
 			if done { settingUp = false }
 		}
+		// VoiceOver says why the sign-in stopped, as the message takes the
+		// spinner's place without a word (#42).
+		.onChange(of: formError) { _, error in
+			if let error { AccessibilityNotification.Announcement(error).post() }
+		}
+	}
+
+	/// Why the last sign-in stopped, while the fields show it.
+	private var formError: String? {
+		if case .form(let error) = signIn.stage { return error }
+		return nil
 	}
 
 	/// Running, or waiting on a choice that only Cancel or the choice ends.
@@ -217,6 +228,21 @@ private struct SignInForm: View {
 			case .form(let error?):
 				Text(error)
 					.foregroundStyle(.red)
+				// When Apple's servers failed, a row of its own rather than
+				// words in the message, so it's easy to tap (#42, as approved
+				// on 20 Nov 2026).
+				if AppleIDError.saysAppleIsDown(error) {
+					Link(destination: AppleIDError.systemStatus) {
+						HStack {
+							Text("Check Apple’s System Status")
+							Spacer()
+							Image(systemName: "arrow.up.right")
+								.font(.footnote.weight(.semibold))
+								.accessibilityHidden(true)
+						}
+						.contentShape(Rectangle())
+					}
+				}
 			default:
 				EmptyView()
 			}

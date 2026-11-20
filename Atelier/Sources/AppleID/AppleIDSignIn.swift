@@ -416,7 +416,7 @@ final class AppleIDSignIn {
 	/// Apple ID's own, or it ended, and there's a password to sign in with
 	/// instead; without one, the sheet asks for it. When Apple wasn't
 	/// reached, it stops, keeping the token to try again, unless there's a
-	/// password.
+	/// password; when Apple's servers failed, it stops all the same (#42).
 	private func resume(email: String, token: AppleIDToken, withPassword: Bool) async throws -> AppleIDSession.SignedIn? {
 		var token = token
 		// As Atelier's own sign-ins name it, which its state is kept by.
@@ -434,6 +434,10 @@ final class AppleIDSignIn {
 			} catch let error as AppleIDError where error.kind == .tokenRefused {
 				note("token: Apple refused it\(error.appleCode == 0 ? "" : " (\(error.appleCode))"): \(error.message)")
 				if let renewing { certificates.setAppleIDToken(nil, for: renewing.id) }
+			} catch let error as AppleIDError where error.isAppleDown {
+				// The password would fail the same way (#42).
+				note("token: Apple's servers failed, so it's kept, and the password isn't tried: \(error)")
+				throw Stop.failed(Self.explain(error, AppleIDError.couldNotReachApple))
 			} catch {
 				note("token: Apple wasn't reached with it: \(error)")
 				guard withPassword else { throw Stop.failed(Self.explain(error, AppleIDError.couldNotReachApple)) }
