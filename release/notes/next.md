@@ -6,5 +6,6 @@
 
 - After the iPhone-only installer, Atelier's first launch shows its welcome, then Get Ready with the Apple ID already in, and no longer You're Signed In over the welcome. The sheet still opens when the sign-in needs you, or to offer Use for Installs while another certificate is in use (#28).
 - When Apple still won't make Atelier's certificate after a revoke, Revoke Another? now says the certificate you picked is revoked, that sometimes you have to wait a while, and asks whether to revoke another one instead. It used to name the revoked certificate, which read wrong when the list showed another with the same name. The list says to pick one, and its rows are no longer blue like links (#40).
+- When Apple's own sign-in or developer servers fail, signing in now says so: Apple's sign-in isn't working right now, so it isn't your password or your connection, rather than asking you to check your connection. It links to Apple's System Status, VoiceOver reads it, and Atelier stops instead of trying more sign-in servers, each of which would be one more sign-in on the Apple ID. A sign-in or step that Apple doesn't answer ends after a minute and says Apple didn't answer in time (#42, #44).
 
 ## Behind the scenes

@@ -183,6 +183,83 @@ final class AnisetteRouteTests: XCTestCase {
 		XCTAssertEqual(AppleIDError(kind: .developer, appleCode: 9, message: "").explained("Apple didn’t make the certificate"), "Apple didn’t make the certificate, and Atelier can’t tell why. Apple ID Log, on the Apple ID’s page, has what Apple answered.")
 	}
 
+	// MARK: Apple's servers failing (#42)
+
+	/// As the bridge words Apple refusing a new anisette machine, as on 17
+	/// Nov 2026.
+	private static let machineRefused = AppleIDError(kind: .appleUnavailable, appleCode: 401, message: "Failed to get anisette data for login: Failed to provision: Failed to send end provisioning request: Received error response from grandslam: HTTP status client error (401 Unauthorized) for url (https://gsa.apple.com/grandslam/MidService/finishMachineProvisioning)")
+	private static let serverError = AppleIDError(kind: .appleUnavailable, appleCode: 503, message: "Developer request failed: HTTP status server error (503 Service Unavailable)")
+	private static let unreadable = AppleIDError(kind: .appleUnavailable, appleCode: 0, message: "Failed to parse grandslam response plist: unexpected end of file")
+	private static let noAnswer = AppleIDError(kind: .noAnswer, message: "No answer within 60 seconds")
+
+	func testStopsAtOnceWhenApplesServersFail() {
+		XCTAssertEqual(Self.serverError.routeFailure, .final, "another server won't change a 503")
+		XCTAssertEqual(AppleIDError(kind: .appleUnavailable, appleCode: 429, message: "").routeFailure, .final)
+		XCTAssertEqual(Self.unreadable.routeFailure, .final)
+		XCTAssertEqual(Self.noAnswer.routeFailure, .final, "each server would wait 60 seconds more")
+		XCTAssertTrue(Self.serverError.isAppleDown)
+		XCTAssertTrue(Self.noAnswer.isAppleDown)
+	}
+
+	func testA401FromAppleGoesToTheNextServer() {
+		// It can be one server's machine Apple refuses.
+		XCTAssertEqual(Self.machineRefused.routeFailure, .server)
+		XCTAssertEqual(AppleIDError(kind: .appleUnavailable, appleCode: 404, message: "").routeFailure, .server)
+		XCTAssertFalse(Self.machineRefused.isAppleDown)
+		XCTAssertFalse(AppleIDError(kind: .other, message: "timed out").isAppleDown)
+	}
+
+	func testSaysItsAppleNotThePasswordOrTheConnection() {
+		XCTAssertEqual(
+			explain(Self.machineRefused, after: [.server, .server, .server, .server]),
+			"Apple’s sign-in isn’t working right now, so it isn’t your password or your connection. Try again later."
+		)
+		XCTAssertEqual(explain(Self.serverError, after: [.final]), AppleIDError.signInDown)
+		XCTAssertEqual(explain(Self.unreadable, after: [.final]), AppleIDError.signInDown)
+		XCTAssertEqual(explain(Self.noAnswer, after: [.final]), "Apple didn’t answer in time. Try again later.")
+		// Through the user's own server, it's still Apple.
+		XCTAssertEqual(explain(Self.serverError, after: [.final], custom: true), AppleIDError.signInDown)
+		// No server reached at all is still the connection.
+		XCTAssertEqual(
+			explain(AppleIDError(kind: .other, message: "timed out"), after: [.server, .server, .server, .server]),
+			"Atelier couldn't reach the servers it signs in through. Check your connection, then try again."
+		)
+	}
+
+	func testApplesFailureOutweighsALaterServers() {
+		let unreached = AppleIDError(kind: .other, message: "error sending request")
+		XCTAssertEqual(AnisetteRoute.telling(unreached, over: Self.machineRefused), Self.machineRefused, "Apple was reached, so it isn't the connection")
+		XCTAssertEqual(AnisetteRoute.telling(Self.machineRefused, over: unreached), Self.machineRefused)
+		XCTAssertEqual(AnisetteRoute.telling(unreached, over: nil), unreached)
+		let wrongPassword = Self.wrongPassword
+		XCTAssertEqual(AnisetteRoute.telling(wrongPassword, over: Self.machineRefused), wrongPassword, "Apple's own answer is newer news")
+	}
+
+	func testEachStepSaysApplesServersFailed() {
+		XCTAssertEqual(Self.serverError.explained("Apple didn’t give 12min a profile"), "Apple didn’t give 12min a profile, as Apple’s servers aren’t working right now. Try again later.")
+		XCTAssertEqual(Self.noAnswer.explained("Apple didn’t give 12min a profile"), "Apple didn’t give 12min a profile, as Apple didn’t answer in time. Try again later.")
+		// Signing in again with Apple's token.
+		XCTAssertEqual(Self.serverError.explained(AppleIDError.couldNotReachApple), "Apple’s servers aren’t working right now. Try again later.")
+		XCTAssertEqual(Self.noAnswer.explained(AppleIDError.couldNotReachApple), "Apple didn’t answer in time. Try again later.")
+	}
+
+	func testTheSheetLinksToSystemStatusOnlyWhenApplesDown() {
+		XCTAssertTrue(AppleIDError.saysAppleIsDown(AppleIDError.signInDown))
+		XCTAssertTrue(AppleIDError.saysAppleIsDown(Self.noAnswer.explained(AppleIDError.couldNotReachApple)))
+		XCTAssertTrue(AppleIDError.saysAppleIsDown(Self.serverError.explained("Apple didn’t register this iPhone")))
+		XCTAssertFalse(AppleIDError.saysAppleIsDown("Atelier couldn't reach the server it signs in through. Check your connection, then try again."))
+		XCTAssertFalse(AppleIDError.saysAppleIsDown(Self.wrongPassword.applesWords ?? ""))
+		XCTAssertEqual(AppleIDError.systemStatus.absoluteString, "https://www.apple.com/support/systemstatus/")
+	}
+
+	func testApplesPlaceholderIsntQuoted() {
+		// -27589 on 17 Nov 2026, refusing a trusted device's code.
+		let refused = AppleIDError(kind: .signIn, appleCode: -27589, message: "Failed to log in to Apple ID: Auth error -27589: Error Description not available")
+		XCTAssertNil(refused.applesWords)
+		XCTAssertEqual(explain(refused, after: [.server, .server, .server, .server]), "Apple didn’t let Atelier sign in.")
+		XCTAssertNil(AppleIDError(kind: .signIn, appleCode: -27589, message: "Auth error -27589: Error description not available.").applesWords)
+	}
+
 	func testTheCodeAlertsNoteInPlainWords() {
 		XCTAssertEqual(AppleIDError.plainCodeNote("-21669 - Incorrect verification code."), "That code wasn’t right.")
 		XCTAssertEqual(AppleIDError.plainCodeNote("Too Many Codes - You've asked for too many codes. Try again later."), "You've asked for too many codes. Try again later.")

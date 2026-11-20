@@ -16,12 +16,20 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		/// Apple refused the token a sign-in again went with, as once it
 		/// ended (#182), with Apple's code when it gave one.
 		case tokenRefused
+		/// Apple's own servers failed (#42): one answered with an HTTP
+		/// error, its status in `appleCode`, or with an answer that couldn't
+		/// be read, 0.
+		case appleUnavailable
+		/// Apple didn't answer within the bridge's 60 seconds, not counting
+		/// the time the code alert was up (#42).
+		case noAnswer
 		/// Anything else: no network, an anisette server that doesn't answer.
 		case other
 	}
 
 	public var kind: Kind
-	/// Apple's code, such as -22406 for a wrong password; 0 when there's none.
+	/// Apple's code, such as -22406 for a wrong password, or the HTTP status
+	/// Apple's servers failed with (`appleUnavailable`); 0 when there's none.
 	public var appleCode: Int32
 	public var message: String
 
@@ -48,16 +56,38 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 	/// The team has the most development certificates Apple allows.
 	public var isTooManyCertificates: Bool { kind == .developer && appleCode == 7460 }
 
+	/// Whether Apple's servers are failing whatever the anisette server, so
+	/// that another one, or the password in place of Apple's token, won't
+	/// change it (#42): no answer in time, a server error, too many
+	/// requests, or an answer that can't be read. Apple's 401 and other 4xx
+	/// can be one anisette server's machine being refused, as on 17 Nov
+	/// 2026, when Apple refused every new machine with a 401.
+	public var isAppleDown: Bool {
+		switch kind {
+		case .noAnswer: true
+		case .appleUnavailable: !(400..<500).contains(appleCode) || appleCode == 429
+		default: false
+		}
+	}
+
 	/// Apple's own sentence, as isideload ends the bridge's message with
 	/// it: what follows "Auth error <code>: " or "Developer error <code>: ".
-	/// Nil when there's none.
+	/// Nil when there's none, or Apple only said "Error Description not
+	/// available", as with -27589 on 17 Nov 2026 (#42).
 	public var applesWords: String? {
 		for marker in ["Auth error \(appleCode): ", "Developer error \(appleCode): "] {
 			guard let range = message.range(of: marker, options: .backwards) else { continue }
 			let words = message[range.upperBound...].trimmingCharacters(in: .whitespacesAndNewlines)
-			if !words.isEmpty { return words }
+			if words.isEmpty || Self.saysNothing(words) { return nil }
+			return words
 		}
 		return nil
+	}
+
+	/// Whether Apple's sentence is only a placeholder.
+	private static func saysNothing(_ words: String) -> Bool {
+		let words = words.trimmingCharacters(in: CharacterSet(charactersIn: ".").union(.whitespaces)).lowercased()
+		return words == "error description not available"
 	}
 
 	/// Whether Apple wasn't reached: no network, or no answer in time.
@@ -70,7 +100,9 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 	/// What a step with Apple says when it failed (#182, as approved on 13
 	/// Nov 2026): `what`, the step, then Apple's own sentence, that Apple
 	/// wasn't reached, or that Atelier can't tell why. No code: Apple ID
-	/// Log keeps it, with the rest of the message.
+	/// Log keeps it, with the rest of the message. When Apple's servers
+	/// failed, or didn't answer in time, it says so (#42, as approved on 20
+	/// Nov 2026).
 	public func explained(_ what: String) -> String {
 		if let words = applesWords { return "\(what). Apple says: “\(words)”" }
 		switch kind {
@@ -78,6 +110,9 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 			return what == Self.couldNotReachApple
 				? "\(what). Check your connection, then try again."
 				: "\(what), as Atelier couldn’t reach Apple. Check your connection, then try again."
+		case .appleUnavailable, .noAnswer:
+			let why = kind == .noAnswer ? Self.noAnswerInTime : Self.serversDown
+			return what == Self.couldNotReachApple ? why : "\(what), as \(why)"
 		case .cancelled, .noTeam:
 			return message.isEmpty ? "\(what)." : "\(what): \(message)"
 		case .signIn, .developer, .tokenRefused, .other:
@@ -88,6 +123,26 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 	/// The step that signs in again with Apple's token, which says only
 	/// what to do when Apple wasn't reached.
 	public static let couldNotReachApple = "Atelier couldn’t reach Apple"
+
+	/// What a step, or a sign-in with Apple's token, says when Apple's
+	/// servers failed (#42).
+	public static let serversDown = "Apple’s servers aren’t working right now. Try again later."
+	/// What a sign-in with the password says when Apple's servers failed
+	/// (#42).
+	public static let signInDown = "Apple’s sign-in isn’t working right now, so it isn’t your password or your connection. Try again later."
+	/// What a sign-in or a step says when Apple didn't answer in time (#42).
+	public static let noAnswerInTime = "Apple didn’t answer in time. Try again later."
+
+	/// Apple's System Status page, which the sign-in sheet links to when
+	/// Apple's servers failed (#42).
+	public static let systemStatus = URL(string: "https://www.apple.com/support/systemstatus/")!
+
+	/// Whether `message`, as the sign-in sheet shows it, says Apple's
+	/// servers failed or didn't answer, so the sheet links to Apple's
+	/// System Status under it.
+	public static func saysAppleIsDown(_ message: String) -> Bool {
+		message == signInDown || [serversDown, noAnswerInTime].contains { message == $0 || message.hasSuffix(", as \($0)") }
+	}
 
 	/// Apple's note on the last verification code, in plain words, for the
 	/// code alert (#182, 13 Nov 2026): isideload words a wrong code
@@ -109,6 +164,7 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		switch kind {
 		case .cancelled, .developer, .noTeam, .tokenRefused: return .final
 		case .signIn: return isWrongPassword || isLocked ? .final : .server
+		case .appleUnavailable, .noAnswer: return isAppleDown ? .final : .server
 		case .other: return .server
 		}
 	}
@@ -119,6 +175,8 @@ public struct AppleIDError: Error, Equatable, Sendable, CustomStringConvertible 
 		case .developer: "Apple's developer services said \(appleCode): \(message)"
 		case .cancelled: "Cancelled at the verification code"
 		case .tokenRefused: "Apple refused the token\(appleCode == 0 ? "" : " (\(appleCode))"): \(message)"
+		case .appleUnavailable: "Apple's servers failed\(appleCode == 0 ? ", with an answer Atelier can't read" : " with HTTP \(appleCode)"): \(message)"
+		case .noAnswer: "Apple didn't answer in time: \(message)"
 		case .noTeam, .other: message
 		}
 	}
