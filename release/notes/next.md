@@ -6,5 +6,6 @@
 
 - After the iPhone-only installer, Atelier's first launch shows its welcome, then Get Ready with the Apple ID already in, and no longer You're Signed In over the welcome. The sheet still opens when the sign-in needs you, or to offer Use for Installs while another certificate is in use (#28).
 - When Apple still won't make Atelier's certificate after a revoke, Revoke Another? now says the certificate you picked is revoked, that sometimes you have to wait a while, and asks whether to revoke another one instead. It used to name the revoked certificate, which read wrong when the list showed another with the same name. The list says to pick one, and its rows are no longer blue like links (#40).
+- On the website, the signing services page no longer scrolls sideways on smaller iPhones or with Display Zoom, and small buttons and links, such as Copy, Choose Files and the nav's Donate, take taps across 44 points (#45).
 
 ## Behind the scenes
