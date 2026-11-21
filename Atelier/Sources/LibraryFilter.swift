@@ -84,6 +84,8 @@ struct LibraryFilterMenu: View {
 		} label: {
 			Label("Filter", systemImage: selection == nil ? "line.3.horizontal.decrease.circle" : "line.3.horizontal.decrease.circle.fill")
 		}
+		// VoiceOver says which apps show, not only "Filter" (21 Nov 2026).
+		.accessibilityValue(signers.first { $0.id == selection }?.name ?? "All Apps")
 	}
 
 	/// A button, not a picker's option, which shows only its name (4
@@ -106,5 +108,62 @@ struct LibraryFilterMenu: View {
 	/// that didn't sign every app.
 	static func narrows(_ signers: [LibrarySigner], total: Int) -> Bool {
 		signers.count > 1 || signers.first.map { $0.appCount < total } == true
+	}
+}
+
+/// While the filter shows one certificate's or Apple ID's apps, the line
+/// under the Library's title that names it, so the other apps don't look
+/// gone; it goes once All Apps is picked again (21 Nov 2026). iOS 17 and
+/// 18 have no line under a large title, so there `LibraryFilterRow` says it
+/// at the top of the list instead.
+struct LibraryFilterSubtitle: ViewModifier {
+	let signer: LibrarySigner?
+
+	func body(content: Content) -> some View {
+		if #available(iOS 26.0, *) {
+			if let signer {
+				content.navigationSubtitle(Text("Signed with \(signer.name)"))
+			} else {
+				content
+			}
+		} else {
+			content
+		}
+	}
+}
+
+/// The filter's line on iOS 17 and 18 (`LibraryFilterSubtitle`): a row at
+/// the top of the list that names the certificate or Apple ID, with Show
+/// All to see every app again in one tap (21 Nov 2026).
+struct LibraryFilterRow: View {
+	let signer: LibrarySigner
+	let showAll: () -> Void
+
+	/// Before iOS 26, which has the line under the title.
+	static var isNeeded: Bool {
+		if #available(iOS 26.0, *) { return false }
+		return true
+	}
+
+	var body: some View {
+		HStack(spacing: 10) {
+			Image(systemName: signer.symbol)
+				.foregroundStyle(.tint)
+				.accessibilityHidden(true)
+			Text("Signed with \(signer.name)")
+			Spacer(minLength: 8)
+			Button(action: showAll) {
+				Text("Show All")
+					.fontWeight(.semibold)
+					// On one line: a long name wraps instead.
+					.fixedSize()
+					// Taps over the 44 points a finger needs, not only on
+					// the words.
+					.tapArea(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8))
+			}
+			// Only Show All, not the whole row.
+			.buttonStyle(.borderless)
+		}
+		.font(.subheadline)
 	}
 }

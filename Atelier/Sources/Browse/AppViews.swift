@@ -75,7 +75,7 @@ struct BetaTag: View {
 	var body: some View {
 		Text("BETA")
 			.font(.caption2.weight(.bold))
-			.foregroundStyle(.orange)
+			.foregroundStyle(.statusOrange)
 			.padding(.horizontal, 5)
 			.padding(.vertical, 1)
 			.background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 5, style: .continuous))

@@ -709,14 +709,14 @@ struct LibraryRow: View {
 					} else if dataWaits {
 						Label("Data not put back", systemImage: "exclamationmark.triangle.fill")
 							.font(.caption.weight(.medium))
-							.foregroundStyle(.orange)
+							.foregroundStyle(.statusOrange)
 					} else if needsSignIn {
 						NotSignedInToGitHubLabel()
 					} else if saysUnlisted {
 						// Its source's name is on the line above.
 						Label("No longer listed", systemImage: "exclamationmark.triangle.fill")
 							.font(.caption.weight(.medium))
-							.foregroundStyle(.orange)
+							.foregroundStyle(.statusOrange)
 					} else if justUpdated, case .daysLeft = item.status {
 						JustDoneLabel("Updated just now", short: "Updated", systemImage: "checkmark")
 					} else if justResigned, case .daysLeft = item.status {
@@ -873,7 +873,7 @@ struct JustDoneLabel: View {
 				.lineLimit(1)
 		}
 		.font(.caption.weight(.medium))
-		.foregroundStyle(.green)
+		.foregroundStyle(.statusGreen)
 	}
 }
 
@@ -927,13 +927,13 @@ struct ResignNoteLabel: View {
 			// Nov 2026).
 			Label("Reinstall required", systemImage: "exclamationmark.triangle.fill")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.orange)
+				.foregroundStyle(.statusOrange)
 				.lineLimit(1)
 				.minimumScaleFactor(0.7)
 		case .failed(let why):
 			Text(why.map { "Didn't re-sign: \($0)" } ?? "Didn't re-sign")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 				.lineLimit(2)
 		case .cannot(let why):
 			Text("Can't re-sign: \(why)")
@@ -1093,7 +1093,7 @@ struct UpdateDownloadLabel: View {
 		case .finished:
 			Label("Downloaded", systemImage: "arrow.down")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .failed:
 			EmptyView()
 		}
@@ -1119,7 +1119,7 @@ struct UpdateSummary: View {
 				systemImage: "exclamationmark.triangle.fill"
 			)
 			.font(.caption.weight(.medium))
-			.foregroundStyle(.orange)
+			.foregroundStyle(.statusOrange)
 			.lineLimit(2)
 		} else if sources.needsGitHubSignIn(item.install.sourceURL) {
 			// Its source needs a GitHub sign-in (#134): a newer version may
@@ -1158,7 +1158,7 @@ struct LibraryStatusLabel: View {
 		case .profileEnded:
 			Label("Profile ended", systemImage: "clock.badge.xmark")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 		case .update(let version):
 			Label("Update to \(version.displayVersion)", systemImage: "arrow.up.circle.fill")
 				.font(.caption.weight(.medium))
@@ -1174,7 +1174,7 @@ struct LibraryStatusLabel: View {
 		case .daysLeft(let text):
 			Label(text, systemImage: "checkmark.seal.fill")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .nothing:
 			EmptyView()
 		}
@@ -1197,13 +1197,13 @@ struct RenewDueLabel: View {
 		} else {
 			Label("Ends \(AppProfileDays.relative(profile.expires))", systemImage: "exclamationmark.circle.fill")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.orange)
+				.foregroundStyle(.statusOrange)
 				.lineLimit(1)
 		}
 		if let problem, problem.showsUnderApp {
 			Text(problem.message(isOwn: isOwn))
 				.font(.caption)
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
@@ -1219,7 +1219,7 @@ struct OwnSignInLabel: View {
 	var body: some View {
 		Label(Self.ends(need.expires), systemImage: "exclamationmark.circle.fill")
 			.font(.caption.weight(.medium))
-			.foregroundStyle(.orange)
+			.foregroundStyle(.statusOrange)
 			.lineLimit(1)
 		if need.hasOthers {
 			Text("Another Apple ID installed \(name), so yours can’t renew it. Sign in with that one too.")
@@ -2100,11 +2100,11 @@ struct UpdateGroupRow: View {
 		case .updated:
 			Label("Updated", systemImage: "checkmark")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .failed:
 			Text("Didn't update")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 		}
 	}
 
@@ -2132,7 +2132,7 @@ struct UpdateGroupRow: View {
 			// The stage line says so.
 			Image(systemName: "checkmark")
 				.font(.body.bold())
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 				.frame(width: 30, height: 30)
 				.accessibilityHidden(true)
 		case .failed:
@@ -2317,7 +2317,7 @@ struct ResignGroupRow: View {
 		case .resigned:
 			Label("Re-signed", systemImage: "checkmark")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .failed(let why):
 			ResignNoteLabel(note: ResignNote(kind: .failed(why), canResign: true), attention: nil)
 		}
@@ -2347,7 +2347,7 @@ struct ResignGroupRow: View {
 			// The stage line says so.
 			Image(systemName: "checkmark")
 				.font(.body.bold())
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 				.frame(width: 30, height: 30)
 				.accessibilityHidden(true)
 		case .failed:

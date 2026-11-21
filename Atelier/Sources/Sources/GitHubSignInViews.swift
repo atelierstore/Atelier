@@ -10,7 +10,7 @@ struct NotSignedInToGitHubLabel: View {
 			// Right before the words, also in a list row.
 			.labelStyle(InlineLabelStyle())
 			.font(.caption.weight(.medium))
-			.foregroundStyle(.orange)
+			.foregroundStyle(.statusOrange)
 			.lineLimit(1)
 	}
 }
