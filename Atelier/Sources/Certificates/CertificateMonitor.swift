@@ -56,8 +56,8 @@ enum CertificateAttention: Equatable {
 
 	var color: Color {
 		switch self {
-		case .revoked, .expired: .red
-		case .expiring: .orange
+		case .revoked, .expired: .statusRed
+		case .expiring: .statusOrange
 		}
 	}
 }

@@ -62,7 +62,7 @@ struct LibraryView: View {
 		let signers = LibrarySigner.all(in: installs, certificates: certificates, installer: installer)
 		let showsFilter = LibraryFilterMenu.narrows(signers, total: installs.count)
 		// One that no longer signs any app shows every app.
-		let shown = signers.first { $0.id == signedWith }?.id
+		let shown = signers.first { $0.id == signedWith }
 		NavigationStack(path: $path) {
 			library(signedWith: showsFilter ? shown : nil)
 				.navigationTitle("Library")
@@ -89,7 +89,7 @@ struct LibraryView: View {
 					// One certificate's or Apple ID's apps at a time, so it's
 					// plain which hold a free Apple ID's 3 places (#49).
 					if showsFilter {
-						LibraryFilterMenu(signers: signers, total: installs.count, selection: Binding(get: { shown }, set: { signedWith = $0 }))
+						LibraryFilterMenu(signers: signers, total: installs.count, selection: Binding(get: { shown?.id }, set: { signedWith = $0 }))
 					}
 					// Every install attempt, by any method (moved from Settings).
 					NavigationLink {
@@ -149,11 +149,12 @@ struct LibraryView: View {
 	}
 
 	/// The Library's sections, apart from `body` so that the compiler can
-	/// check each of them in reasonable time. Only the apps of `signer`,
+	/// check each of them in reasonable time. Only the apps of `shown`,
 	/// the certificate or Apple ID the filter shows, when it shows one
 	/// (#49).
-	private func library(signedWith signer: UUID?) -> some View {
+	private func library(signedWith shown: LibrarySigner?) -> some View {
 		_ = scenePhase
+		let signer = shown?.id
 		let actions = actions
 		let items = installs.map { LibraryItem($0, catalog: catalog.catalog, certificates: certificates, installer: installer) }
 		let group = updateGroup
@@ -222,6 +223,12 @@ struct LibraryView: View {
 		// Installed has a title when other sections come before it.
 		let titlesInstalled = !foundUpdates.isEmpty || !foundSkipped.isEmpty || !foundGrouped.isEmpty || !foundToResign.isEmpty || !foundResignGrouped.isEmpty || !foundToRenew.isEmpty
 		return List {
+			// Which apps the filter shows, where the title can't say it.
+			if let shown, LibraryFilterRow.isNeeded {
+				Section {
+					LibraryFilterRow(signer: shown) { signedWith = nil }
+				}
+			}
 			resignSection(foundToResign, grouped: foundResignGrouped, in: resigning, searching: narrowed, actions: actions)
 			renewSection(foundToRenew, all: toRenew, narrowed: narrowed, actions: actions)
 			if signer == nil {
@@ -302,6 +309,10 @@ struct LibraryView: View {
 				}
 			}
 		}
+		// Here rather than on the whole Library, as picking the filter
+		// redraws what it's on from scratch, and the handlers below, such
+		// as forgetting Renewed, mustn't run then.
+		.modifier(LibraryFilterSubtitle(signer: shown))
 		.animation(.default, value: updatedIDs)
 		.animation(.default, value: resignedIDs)
 		.animation(.default, value: renewIDs)

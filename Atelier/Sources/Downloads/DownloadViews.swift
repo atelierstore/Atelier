@@ -201,14 +201,14 @@ struct DownloadStatusView: View {
 				if GitHubAccess.downloadNeedsSignIn(url: download.url, failure: message) {
 					Label("GitHub can't find this file. If it's in a private repo, sign in to download it.", systemImage: "exclamationmark.triangle")
 						.font(.caption)
-						.foregroundStyle(.red)
+						.foregroundStyle(.statusRed)
 					// Then it downloads through the account (#134).
 					GitHubSignInButton { downloads.resume(download.id) }
 						.font(.subheadline)
 				} else {
 					Label(message, systemImage: "exclamationmark.triangle")
 						.font(.caption)
-						.foregroundStyle(.red)
+						.foregroundStyle(.statusRed)
 					Button {
 						downloads.resume(download.id)
 					} label: {
