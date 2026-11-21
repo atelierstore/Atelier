@@ -343,7 +343,10 @@ a.route.route-pick:hover { border-color: var(--pine); }
 }
 .text-link { font-weight: 600; text-decoration: none; }
 .text-link:hover { text-decoration: underline; }
-.file { font-family: var(--mono); font-size: .88em; }
+/* A file name can be longer than a phone is wide, such as
+   PlugIns/AtelierLiveActivity.appex, so it breaks where it has to rather
+   than push the page sideways. */
+.file { font-family: var(--mono); font-size: .88em; overflow-wrap: anywhere; }
 
 /* Step 1: the newest release (sideload.js fills it in), then Atelier's
    source, its address with Copy and a button for each store. */
@@ -660,6 +663,22 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
   .stats-cards { grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
   .stats-col { display: grid; gap: 12px; }
 }
+
+/* Tap areas: at least 44 points each way, as Apple asks, for the controls
+   drawn smaller than that. Each takes taps in an invisible box around
+   itself, so nothing looks or moves differently, and no box reaches a
+   neighbour's. */
+.btn-small, .nav-links .gh, .nav-links .donate, .crumb, .facts button, .actions .text-link, .fallback summary { position: relative; }
+.btn-small::after, .nav-links .gh::after, .nav-links .donate::after, .crumb::after, .facts button::after, .actions .text-link::after, .switch::after, .fallback summary::before { content: ""; position: absolute; }
+/* Inside the border, so these reach past it by 3 points or more. */
+.btn-small::after { inset: -5px 0; }
+.nav-links .donate::after { inset: -4px 0; }
+.nav-links .gh::after { inset: -11px -8px; }
+.crumb::after { inset: -11px -6px; }
+.facts button::after { inset: -12px -8px; }
+.actions .text-link::after { inset: -9px -4px; }
+.switch::after { inset: -7px -4px; }
+.fallback summary::before { inset: -1px 0; }
 
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
