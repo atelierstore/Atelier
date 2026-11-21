@@ -351,7 +351,12 @@ final class InstallModel {
 
 	static let endpointKey = "manifestEndpoint"
 	/// The current or last install's stage; nil when there's none to show.
-	private(set) var state: InstallStage?
+	private(set) var state: InstallStage? {
+		didSet {
+			let active = state?.isActive ?? false
+			if active != isRunning { isRunning = active }
+		}
+	}
 	/// The current or last install's log, shown under "Details".
 	private(set) var log: [String] = []
 	/// What won't work in the app the current or last install signed,
@@ -507,9 +512,10 @@ final class InstallModel {
 		state == nil && waiting.isEmpty
 	}
 
-	var isRunning: Bool {
-		state?.isActive ?? false
-	}
+	/// Whether an install is under way. Kept apart from `state`, which
+	/// changes at every step, so that what only asks whether one runs,
+	/// such as the Library's rows, doesn't redraw at each (19 Nov 2026).
+	private(set) var isRunning = false
 
 	/// Whether this download is waiting or installing: installed as it is,
 	/// or the download of an install from a source, which starts as it's
@@ -529,6 +535,16 @@ final class InstallModel {
 		if let job = waiting.first(where: { $0.app == app }) { return .waiting(job) }
 		// Atelier's own install, while it's asked about (#24).
 		return selfRequests.first { $0.job.app == app }.map { .waiting($0.job) }
+	}
+
+	/// Whether the app from this source is waiting or installing, as
+	/// `status(of:)` says, without reading the install's stage: the
+	/// Library's groups ask it for every app, and so don't redraw at every
+	/// step of an install (19 Nov 2026).
+	func isQueued(_ app: AppKey) -> Bool {
+		if isRunning, shownJob?.app == app { return true }
+		if currentApp == app { return true }
+		return waiting.contains { $0.app == app } || selfRequests.contains { $0.job.app == app }
 	}
 
 	/// Whether `version` of the app from this source is waiting or
@@ -614,6 +630,14 @@ final class InstallModel {
 		if currentID == id { return .running(.checking) }
 		if let job = waiting.first(where: { $0.id == id }) { return .waiting(job) }
 		return selfRequests.first { $0.id == id }.map { .waiting($0.job) }
+	}
+
+	/// Whether the install `id` is waiting or running, as `status(ofJob:)`
+	/// says, without reading its stage, for Re-sign All's group (19 Nov 2026).
+	func isQueued(job id: String) -> Bool {
+		if isRunning, shownJob?.id == id { return true }
+		if currentID == id { return true }
+		return waiting.contains { $0.id == id } || selfRequests.contains { $0.id == id }
 	}
 
 	/// The one-tap install (#16): checks, then downloads `version` of `app`
