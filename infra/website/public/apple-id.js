@@ -104,8 +104,8 @@ function rememberAdded(value) {
 }
 
 /** Shortcuts' link that runs the Shortcut, coming back here if it can't.
- *  Nothing comes back when it runs: it ends by opening the installer's page
- *  in Safari, which should stay in front. */
+ *  Nothing comes back when it runs: it shows the installer's page over
+ *  rootshell, which should stay in front. */
 function runLink(name, back) {
   return `shortcuts://x-callback-url/run-shortcut?name=${encodeURIComponent(name)}&x-error=${encodeURIComponent(back)}`;
 }
