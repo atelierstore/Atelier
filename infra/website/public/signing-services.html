@@ -21,6 +21,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/site.css">
+<script type="module" src="/press.js"></script>
 <!-- The newest release and the source's Copy button, as on the sideload
      page, from the same markup. -->
 <script type="module" src="/sideload.js"></script>
@@ -90,7 +91,7 @@
               <div><dt>Bundle ID</dt><dd>com.atelier.app</dd></div>
               <div><dt>Extension</dt><dd>com.atelier.app.LiveActivity</dd></div>
               <div><dt>iOS</dt><dd>17.0 or later</dd></div>
-              <div data-release-hash hidden><dt>SHA-256</dt><dd></dd><button type="button">Copy</button></div>
+              <div data-release-hash class="pending"><dt>SHA-256</dt><dd></dd><button type="button">Copy</button></div>
             </dl>
 
             <h4 class="sub-title">Follow new releases</h4>
@@ -139,7 +140,7 @@
             </div>
             <ul class="points">
               <li>Sign with the profile's entitlements as they are, as zsign and Feather do. Atelier asks for none of its own.</li>
-              <li>Sign its extension, <span class="file">PlugIns/AtelierLiveActivity.appex</span>, with the same profile, before the app, rather than removing it. It shows the pairing code during the setup for installs without iOS's alert.</li>
+              <li>Sign its extension, <span class="file">PlugIns/<wbr>AtelierLiveActivity.appex</span>, with the same profile, before the app, rather than removing it. It shows the pairing code during the setup for installs without iOS's alert.</li>
               <li>Development, ad hoc and enterprise profiles all work, for one App ID or a wildcard. App Store profiles don't.</li>
             </ul>
           </div>

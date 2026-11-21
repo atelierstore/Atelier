@@ -2,7 +2,7 @@
 // own source, whose address is in the page's Copy box, and the Copy buttons.
 // Until the source loads, or if it can't, the Download button opens the
 // releases page and the release's version, size, date and SHA-256 stay
-// hidden.
+// hidden, the SHA-256's row keeping its place.
 
 import { copies } from "./copy.js";
 import { formatSize } from "./link.js";
@@ -33,6 +33,6 @@ function showRelease(source) {
       shown.textContent = release.sha256;
       return shown;
     });
-    row.hidden = false;
+    row.classList.remove("pending");
   }
 }
