@@ -894,7 +894,7 @@ private struct AdvancedCopyView: View {
 				} else if let idProblem {
 					Text(idProblem).foregroundStyle(.red)
 				} else {
-					Text("This copy's ID, which follows its name until you change it here. Any ID works that no other app on this iPhone has. Its extensions get IDs under it, and its updates keep it.")
+					Text("This copy's ID, which follows its name until you change it here. Any ID works that no other app on this \(ThisDevice.name) has. Its extensions get IDs under it, and its updates keep it.")
 				}
 			}
 			Section {
