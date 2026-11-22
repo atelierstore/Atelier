@@ -21,6 +21,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/site.css">
+<script type="module" src="/press.js"></script>
 <script type="module" src="/apple-id.js"></script>
 <script type="module" src="/tally.js"></script>
 </head>
@@ -78,7 +79,8 @@
            Install Atelier Shortcut, then runs it. Under Without the
            Shortcut, it fills in the line from Atelier's source and shows
            the button that copies it and opens rootshell. On a computer it
-           shows a code that opens this page on the iPhone. -->
+           shows a code that opens this page on the iPhone, and says where
+           the button shows there. -->
       <ol class="steps">
         <li>
           <span class="n" aria-hidden="true">1</span>
@@ -116,9 +118,9 @@
             <p>Tap Install Atelier. It installs Atelier's newest release:</p>
             <div class="release" data-release data-source="https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json">
               <img src="/img/icon.png" alt="" width="52" height="52">
-              <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Newest release</span></span>
+              <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Reading the newest release…</span></span>
             </div>
-            <p class="small" data-release-wait aria-live="polite">Reading Atelier's newest release…</p>
+            <div data-release-error aria-live="polite"></div>
             <!-- On an iPhone or iPad: the Install Atelier Shortcut. The
                  first tap opens its iCloud link, where Shortcuts offers Add
                  Shortcut; later taps run it (apple-id.js). It connects
@@ -130,6 +132,7 @@
             </div>
             <p class="small" data-shortcut hidden>The first time, it adds the Install Atelier Shortcut. Tap Add Shortcut, come back here, and tap Install Atelier again.</p>
             <p class="small" data-shortcut hidden>The Shortcut connects LocalDevVPN and starts the installer in rootshell, then shows the installer's page over it. The page carries on from this step: pair, sign in, then install. There's nothing to type in rootshell.</p>
+            <p class="small" data-on-computer hidden>On your iPhone, the Install Atelier button shows here.</p>
             <details class="fallback">
               <summary>Without the Shortcut</summary>
               <p>Copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>

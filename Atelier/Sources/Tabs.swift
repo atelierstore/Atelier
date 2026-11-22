@@ -62,7 +62,7 @@ struct LibraryView: View {
 		let signers = LibrarySigner.all(in: installs, certificates: certificates, installer: installer)
 		let showsFilter = LibraryFilterMenu.narrows(signers, total: installs.count)
 		// One that no longer signs any app shows every app.
-		let shown = signers.first { $0.id == signedWith }?.id
+		let shown = signers.first { $0.id == signedWith }
 		NavigationStack(path: $path) {
 			library(signedWith: showsFilter ? shown : nil)
 				.navigationTitle("Library")
@@ -89,7 +89,7 @@ struct LibraryView: View {
 					// One certificate's or Apple ID's apps at a time, so it's
 					// plain which hold a free Apple ID's 3 places (#49).
 					if showsFilter {
-						LibraryFilterMenu(signers: signers, total: installs.count, selection: Binding(get: { shown }, set: { signedWith = $0 }))
+						LibraryFilterMenu(signers: signers, total: installs.count, selection: Binding(get: { shown?.id }, set: { signedWith = $0 }))
 					}
 					// Every install attempt, by any method (moved from Settings).
 					NavigationLink {
@@ -149,26 +149,24 @@ struct LibraryView: View {
 	}
 
 	/// The Library's sections, apart from `body` so that the compiler can
-	/// check each of them in reasonable time. Only the apps of `signer`,
+	/// check each of them in reasonable time. Only the apps of `shown`,
 	/// the certificate or Apple ID the filter shows, when it shows one
 	/// (#49).
-	private func library(signedWith signer: UUID?) -> some View {
+	private func library(signedWith shown: LibrarySigner?) -> some View {
 		_ = scenePhase
+		let signer = shown?.id
 		let actions = actions
 		let items = installs.map { LibraryItem($0, catalog: catalog.catalog, certificates: certificates, installer: installer) }
 		let group = updateGroup
 		// Each app leaves the group for Installed as soon as it's
 		// updated; the rest stay until they're done (22 Oct).
 		let members = group.map { group in group.bundleIDs.compactMap { id in items.first { $0.install.bundleID == id } } } ?? []
-		let updatedIDs = Set(members.filter { $0.update == nil && installer.status(of: $0.appKey) == nil }.map(\.install.bundleID))
+		let updatedIDs = Set(members.filter { $0.update == nil && !installer.isQueued($0.appKey) }.map(\.install.bundleID))
 		let grouped = members.filter { !updatedIDs.contains($0.install.bundleID) }
 		// Re-sign All's apps likewise leave its group once re-signed (#20).
 		let resigning = resignGroup
 		let resignMembers = resigning.map { group in group.bundleIDs.compactMap { id in items.first { $0.install.bundleID == id } } } ?? []
-		let resignedIDs = Set(resignMembers.filter { item in
-			if case .resigned? = resigning?.phase(of: item, installer: installer, downloads: downloads) { return true }
-			return false
-		}.map(\.install.bundleID))
+		let resignedIDs = Set(resignMembers.filter { resigning?.isResigned($0, installer: installer) == true }.map(\.install.bundleID))
 		let resignGrouped = resignMembers.filter { !resignedIDs.contains($0.install.bundleID) }
 		let resignGroupedIDs = Set(resignGrouped.map(\.install.bundleID))
 		// Apps whose certificate died are in Re-sign rather than Updates or
@@ -225,6 +223,12 @@ struct LibraryView: View {
 		// Installed has a title when other sections come before it.
 		let titlesInstalled = !foundUpdates.isEmpty || !foundSkipped.isEmpty || !foundGrouped.isEmpty || !foundToResign.isEmpty || !foundResignGrouped.isEmpty || !foundToRenew.isEmpty
 		return List {
+			// Which apps the filter shows, where the title can't say it.
+			if let shown, LibraryFilterRow.isNeeded {
+				Section {
+					LibraryFilterRow(signer: shown) { signedWith = nil }
+				}
+			}
 			resignSection(foundToResign, grouped: foundResignGrouped, in: resigning, searching: narrowed, actions: actions)
 			renewSection(foundToRenew, all: toRenew, narrowed: narrowed, actions: actions)
 			if signer == nil {
@@ -244,9 +248,7 @@ struct LibraryView: View {
 						Text(foundGrouped.count == 1 ? "Updating 1 app" : "Updating \(foundGrouped.count) apps")
 						Spacer()
 						if !narrowed {
-							Button("Cancel All", role: .destructive) { actions.cancel(group, items: items) }
-								.font(.subheadline.weight(.semibold))
-								.textCase(nil)
+							SectionHeaderButton("Cancel All", role: .destructive) { actions.cancel(group, items: items) }
 						}
 					}
 				}
@@ -261,20 +263,26 @@ struct LibraryView: View {
 						Text(foundUpdates.isEmpty ? "Updates" : "Updates · \(foundUpdates.count)")
 						Spacer()
 						if updates.count > 1, !narrowed {
-							Button("Update All") {
+							SectionHeaderButton("Update All") {
 								justUpdated = []
 								updateGroup = actions.updateAll(updates)
 							}
-							.font(.subheadline.weight(.semibold))
-							.textCase(nil)
 						}
 					}
 				} footer: {
 					if !foundSkipped.isEmpty {
 						HStack(spacing: 4) {
 							Text(foundSkipped.count == 1 ? "1 skipped update." : "\(foundSkipped.count) skipped updates.")
-							Button(showingSkipped ? "Hide" : "Show") { showingSkipped.toggle() }
-								.font(.footnote)
+							Button {
+								showingSkipped.toggle()
+							} label: {
+								// Taps over the 44 points a finger needs, mostly
+								// below the words, where the footer has its room
+								// (19 Nov 2026).
+								Text(showingSkipped ? "Hide" : "Show")
+									.tapArea(EdgeInsets(top: 10, leading: 8, bottom: 16, trailing: 8))
+							}
+							.font(.footnote)
 						}
 					}
 				}
@@ -301,6 +309,10 @@ struct LibraryView: View {
 				}
 			}
 		}
+		// Here rather than on the whole Library, as picking the filter
+		// redraws what it's on from scratch, and the handlers below, such
+		// as forgetting Renewed, mustn't run then.
+		.modifier(LibraryFilterSubtitle(signer: shown))
 		.animation(.default, value: updatedIDs)
 		.animation(.default, value: resignedIDs)
 		.animation(.default, value: renewIDs)
@@ -365,6 +377,8 @@ extension LibraryView {
 		ZStack {
 			NavigationLink(value: LibraryLink(item)) { EmptyView() }
 				.opacity(0)
+				// The row's text opens it for VoiceOver.
+				.accessibilityHidden(true)
 			LibraryRow(
 				item: item,
 				sourceName: sourceName(of: item),
@@ -373,7 +387,8 @@ extension LibraryView {
 				justUpdated: updated || justUpdated.contains(item.install.bundleID) || SelfUpdate.shared.justInstalled(item.install, as: .update),
 				resign: resign,
 				justResigned: isJustResigned(item) || SelfUpdate.shared.justInstalled(item.install, as: .resign),
-				renews: renews
+				renews: renews,
+				openPage: { path.append(LibraryLink(item)) }
 			) { action in
 				actions.perform(action, on: item, resign: requestResign, putBack: { confirmingPutBack = $0 })
 			}
@@ -423,7 +438,7 @@ extension LibraryView {
 	/// Whether no app of Update All's group is waiting or installing.
 	private func groupIsDone(_ items: [LibraryItem]) -> Bool {
 		guard let group = updateGroup else { return false }
-		return items.filter { group.contains($0.install.bundleID) }.allSatisfy { installer.status(of: $0.appKey) == nil }
+		return items.filter { group.contains($0.install.bundleID) }.allSatisfy { !installer.isQueued($0.appKey) }
 	}
 
 	/// Ends Update All's group, checked again a moment later, so a handoff
@@ -475,12 +490,10 @@ extension LibraryView {
 					// in (#152), which Renew can't do.
 					let renewable = all.filter { $0.needsAppleID == nil }
 					if renewable.count > 1, !narrowed {
-						Button("Renew All") {
+						SectionHeaderButton("Renew All") {
 							let ids = renewable.map(\.install.bundleID)
 							Task { await renewals.renew(ids) }
 						}
-						.font(.subheadline.weight(.semibold))
-						.textCase(nil)
 						.disabled(renewable.allSatisfy { renewals.isRenewing($0.install.bundleID) })
 					}
 				}
@@ -555,9 +568,7 @@ extension LibraryView {
 					Text(grouped.count == 1 ? "Re-signing 1 app" : "Re-signing \(grouped.count) apps")
 					Spacer()
 					if !searching {
-						Button("Cancel All", role: .destructive) { actions.cancel(group) }
-							.font(.subheadline.weight(.semibold))
-							.textCase(nil)
+						SectionHeaderButton("Cancel All", role: .destructive) { actions.cancel(group) }
 					}
 				}
 			}
@@ -580,9 +591,7 @@ extension LibraryView {
 					Text("Re-sign · \(items.count)")
 					Spacer()
 					if resignAll.count > 1, let target, !searching {
-						Button("Re-sign All") { requestResignAll(resignAll, with: target) }
-							.font(.subheadline.weight(.semibold))
-							.textCase(nil)
+						SectionHeaderButton("Re-sign All") { requestResignAll(resignAll, with: target) }
 					}
 				}
 			} footer: {
@@ -631,7 +640,7 @@ extension LibraryView {
 	/// Whether the app's last re-sign is done and didn't fail.
 	private func isJustResigned(_ item: LibraryItem) -> Bool {
 		guard let job = resignJobs[item.install.bundleID] else { return false }
-		return installer.status(ofJob: job) == nil && installer.failures[job] == nil
+		return !installer.isQueued(job: job) && installer.failures[job] == nil
 	}
 
 	/// Re-signs one app, asking first when it has to be deleted first, or
@@ -702,6 +711,31 @@ extension LibraryView {
 	private func confirmDelete(_ install: InstallRecord) {
 		deletingPresence = InstallModel.presence(of: install)
 		deleting = install
+	}
+}
+
+/// A button on the right of a Library section's header, such as Update
+/// All. It takes taps over the 44 points a finger needs rather than only on
+/// its words, mostly above them, where the header has its room, without
+/// making the header taller (19 Nov 2026).
+private struct SectionHeaderButton: View {
+	let title: LocalizedStringKey
+	var role: ButtonRole?
+	let action: () -> Void
+
+	init(_ title: LocalizedStringKey, role: ButtonRole? = nil, action: @escaping () -> Void) {
+		self.title = title
+		self.role = role
+		self.action = action
+	}
+
+	var body: some View {
+		Button(role: role, action: action) {
+			Text(title)
+				.tapArea(EdgeInsets(top: 14, leading: 8, bottom: 10, trailing: 8))
+		}
+		.font(.subheadline.weight(.semibold))
+		.textCase(nil)
 	}
 }
 

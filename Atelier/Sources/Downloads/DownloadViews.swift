@@ -165,11 +165,20 @@ struct DownloadStatusView: View {
 				}
 				HStack {
 					Text(downloads.notes[download.id] ?? Self.describe(progress))
-						.font(.caption)
+						// Digits of one width, so the sizes don't shimmer as
+						// they count up (19 Nov 2026).
+						.font(.caption.monospacedDigit())
 						.foregroundStyle(.secondary)
 					Spacer(minLength: 4)
-					Button("Pause", systemImage: "pause.fill") { downloads.pause(download.id) }
-						.labelStyle(.iconOnly)
+					Button {
+						downloads.pause(download.id)
+					} label: {
+						// Taps over the 44 points a finger needs, not only the
+						// glyph's 20 or so, as Resume and Try again (19 Nov 2026).
+						Label("Pause", systemImage: "pause.fill")
+							.labelStyle(.iconOnly)
+							.tapArea(14)
+					}
 				}
 			}
 			.buttonStyle(.borderless)
@@ -179,7 +188,12 @@ struct DownloadStatusView: View {
 					.font(.caption)
 					.foregroundStyle(.secondary)
 				Spacer(minLength: 4)
-				Button("Resume", systemImage: "play.fill") { downloads.resume(download.id) }
+				Button {
+					downloads.resume(download.id)
+				} label: {
+					Label("Resume", systemImage: "play.fill")
+						.tapArea(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8))
+				}
 			}
 			.buttonStyle(.borderless)
 		case .failed(let message):
@@ -187,16 +201,21 @@ struct DownloadStatusView: View {
 				if GitHubAccess.downloadNeedsSignIn(url: download.url, failure: message) {
 					Label("GitHub can't find this file. If it's in a private repo, sign in to download it.", systemImage: "exclamationmark.triangle")
 						.font(.caption)
-						.foregroundStyle(.red)
+						.foregroundStyle(.statusRed)
 					// Then it downloads through the account (#134).
 					GitHubSignInButton { downloads.resume(download.id) }
 						.font(.subheadline)
 				} else {
 					Label(message, systemImage: "exclamationmark.triangle")
 						.font(.caption)
-						.foregroundStyle(.red)
-					Button("Try again", systemImage: "arrow.clockwise") { downloads.resume(download.id) }
-						.font(.subheadline)
+						.foregroundStyle(.statusRed)
+					Button {
+						downloads.resume(download.id)
+					} label: {
+						Label("Try again", systemImage: "arrow.clockwise")
+							.tapArea(EdgeInsets(top: 12, leading: 8, bottom: 12, trailing: 8))
+					}
+					.font(.subheadline)
 				}
 			}
 			.buttonStyle(.borderless)

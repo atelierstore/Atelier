@@ -185,7 +185,9 @@ struct InstallStatusButton: View {
 					}
 				}
 				.frame(width: 30, height: 30)
-				.contentShape(Circle())
+				// Taps over the 44 points a finger needs, not only the
+				// ring's 30 (19 Nov 2026).
+				.tapArea(7)
 			}
 			.buttonStyle(.plain)
 			.accessibilityLabel("Cancel install")
