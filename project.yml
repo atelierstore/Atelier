@@ -172,7 +172,10 @@ targets:
         # the local network, and installs connect to it through LocalDevVPN.
         # Installs look up the port of iOS's own pairing service, which it
         # announces as _remotepairing._tcp and can move off 49152.
+        # iOS shows it in its own alert, so it can't say ThisDevice.name: an
+        # iPad reads the ~ipad copy instead (#61).
         NSLocalNetworkUsageDescription: Atelier pairs with this iPhone over the local network, and installs apps through that pairing.
+        NSLocalNetworkUsageDescription~ipad: Atelier pairs with this iPad over the local network, and installs apps through that pairing.
         NSBonjourServices:
           - _remotepairing-pairable-host._tcp
           - _remotepairing._tcp
