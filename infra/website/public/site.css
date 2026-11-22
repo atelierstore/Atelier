@@ -542,6 +542,10 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
 .faq-list summary::after { content: "+"; flex: none; font: 400 28px/0.8 var(--display); color: var(--pine-ink); transition: transform .2s ease; }
 .faq-list details[open] summary::after { transform: rotate(45deg); }
 .faq-list details p { padding-bottom: 20px; max-width: 38em; color: var(--ink-2); }
+/* How to say Atelier: its respelling and IPA each stay on one line. */
+.faq-list .say { white-space: nowrap; }
+.faq-list b.say { font-weight: 600; color: var(--ink); }
+.faq-list .say-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding-bottom: 10px; font-size: 1.1rem; line-height: 1.4; }
 
 /* Donate, the home page's last band: its title, and beside it on a wide
    screen, as the FAQ's questions are, why, the button and where it goes. */
