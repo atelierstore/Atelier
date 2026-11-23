@@ -133,6 +133,10 @@ test("the Apple ID page's Install Atelier button adds the Shortcut, then runs it
     assert.ok(fold.includes(part), part);
   }
   assert.ok(html.indexOf("data-shortcut-button") < html.indexOf('<details class="fallback">'));
+  // Only rootshell's terminal needs Location Diary Mode: the Shortcut's web
+  // view keeps rootshell in front.
+  assert.ok(fold.includes("set Location Diary Mode to Auto During Active Sessions"));
+  assert.equal(html.split("Location Diary Mode").length, 2);
 });
 
 test("gives no line for an IPA address a shell could read as something else", () => {
