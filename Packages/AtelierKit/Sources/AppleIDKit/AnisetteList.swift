@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The anisette servers Atelier signs in to Apple through, for free Apple ID
 /// signing (#49), and what it sends Apple in place of their client info.
@@ -18,11 +21,16 @@ public struct AnisetteList: Equatable, Sendable {
 		/// What it runs Apple's code on, as SideStore's list says: "mac",
 		/// "windows" or "other". Nil when the list doesn't say.
 		public var kind: String?
+		/// Whether Atelier sends Apple the client info the server hands out
+		/// rather than the list's: for a server that checks which ones Apple
+		/// takes and picks one itself, as anisette.lillq.me does every hour.
+		public var usesOwnClientInfo: Bool
 
-		public init(url: URL, name: String, kind: String? = nil) {
+		public init(url: URL, name: String, kind: String? = nil, usesOwnClientInfo: Bool = false) {
 			self.url = url
 			self.name = name
 			self.kind = kind
+			self.usesOwnClientInfo = usesOwnClientInfo
 		}
 
 		/// Its host, which also names the folder its state is kept in.
@@ -48,7 +56,9 @@ public struct AnisetteList: Equatable, Sendable {
 
 	/// What Atelier sends Apple in place of a server's own client info, while
 	/// the servers catch up with a change of Apple's: iloader 2.4.1 did, to
-	/// fix SMS codes failing with 403 (28 Oct 2026).
+	/// fix SMS codes failing with 403 (28 Oct 2026), and since 20 Nov 2026
+	/// Apple's sign-in answers HTTP 503 to one that names the system
+	/// "macOS", as the servers' and the list's did then.
 	public struct ClientInfo: Equatable, Sendable {
 		public var clientInfo: String
 		public var userAgent: String
@@ -63,7 +73,8 @@ public struct AnisetteList: Equatable, Sendable {
 	public var updated: String
 	/// The most servers one sign-in tries.
 	public var tries: Int
-	/// Nil to send what each server says.
+	/// Nil to send what each server says. `clientInfo(for:)` says what one
+	/// sign-in sends.
 	public var clientInfo: ClientInfo?
 	public var servers: [Server]
 
@@ -100,11 +111,18 @@ extension AnisetteList {
 			var url: String
 			var name: String?
 			var kind: String?
+			var ownClientInfo: Bool?
 		}
 
 		struct ClientInfo: Decodable {
 			var clientInfo: String
 			var userAgent: String
+		}
+
+		/// As an anisette server hands it out, at /v3/client_info.
+		struct ServersClientInfo: Decodable {
+			var client_info: String
+			var user_agent: String
 		}
 
 		var version: Int
@@ -131,7 +149,7 @@ extension AnisetteList {
 				return nil
 			}
 			let name = server.name?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-			return Server(url: url, name: name.isEmpty ? host : name, kind: server.kind)
+			return Server(url: url, name: name.isEmpty ? host : name, kind: server.kind, usesOwnClientInfo: server.ownClientInfo ?? false)
 		}
 		guard !servers.isEmpty else { throw Problem.noServers }
 		self.init(
@@ -166,6 +184,63 @@ extension AnisetteList {
 	/// Printable ASCII, as an HTTP header's value has to be.
 	static func isHeaderValue(_ value: String) -> Bool {
 		!value.isEmpty && value.utf8.allSatisfy { (0x20...0x7E).contains($0) }
+	}
+}
+
+// MARK: The client info
+
+extension AnisetteList {
+	public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+
+	public enum ClientInfoProblem: LocalizedError, Equatable {
+		/// The server didn't hand one out, or not one that can go in a header.
+		case notHandedOut(String)
+
+		public var errorDescription: String? {
+			switch self {
+			case .notHandedOut(let why): "The anisette server didn't hand out its client info: \(why)"
+			}
+		}
+	}
+
+	/// What a sign-in through `server` sends Apple: the list's client info,
+	/// unless the server picks its own or the list has none, when it's the
+	/// one the server hands out, asked for here so that the sign-in and the
+	/// note beside the server's state (`AnisetteMachine`) are of the same.
+	/// Throws when the server doesn't hand one out.
+	public func clientInfo(
+		for server: Server,
+		fetch: Fetch = { try await URLSession.shared.data(for: $0) }
+	) async throws -> ClientInfo {
+		if let clientInfo, !server.usesOwnClientInfo { return clientInfo }
+		return try await Self.handedOutClientInfo(at: server.url, fetch: fetch)
+	}
+
+	/// The client info the anisette server at `url` hands out, as isideload
+	/// asks for it.
+	public static func handedOutClientInfo(at url: URL, fetch: Fetch) async throws -> ClientInfo {
+		var request = URLRequest(url: url.appendingPathComponent("v3").appendingPathComponent("client_info"), cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 15)
+		request.setValue("application/json", forHTTPHeaderField: "Accept")
+		let data: Data
+		let response: URLResponse
+		do {
+			(data, response) = try await fetch(request)
+		} catch {
+			throw ClientInfoProblem.notHandedOut(error.localizedDescription)
+		}
+		guard let status = (response as? HTTPURLResponse)?.statusCode, status == 200 else {
+			let status = (response as? HTTPURLResponse)?.statusCode
+			throw ClientInfoProblem.notHandedOut(status.map { "HTTP \($0)" } ?? "no HTTP answer")
+		}
+		guard let wire = try? JSONDecoder().decode(Wire.ServersClientInfo.self, from: data) else {
+			throw ClientInfoProblem.notHandedOut("an answer that can't be read")
+		}
+		let clientInfo = wire.client_info.trimmingCharacters(in: .whitespaces)
+		let userAgent = wire.user_agent.trimmingCharacters(in: .whitespaces)
+		guard isHeaderValue(clientInfo), isHeaderValue(userAgent) else {
+			throw ClientInfoProblem.notHandedOut("one that can't go in a header")
+		}
+		return ClientInfo(clientInfo: clientInfo, userAgent: userAgent)
 	}
 }
 

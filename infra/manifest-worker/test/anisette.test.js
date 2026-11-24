@@ -39,6 +39,7 @@ test("lists HTTPS servers Atelier can use, each once", () => {
     hosts.add(url.host);
     assert.ok(server.name.trim().length > 0, server.url);
     assert.ok(server.kind === undefined || ["mac", "windows", "other"].includes(server.kind), server.url);
+    assert.ok(server.ownClientInfo === undefined || server.ownClientInfo === true, server.url);
   }
 });
 
@@ -51,6 +52,9 @@ test("tries a few servers, and sends a client info Apple can be sent", () => {
   for (const value of [clientInfo, userAgent]) {
     assert.match(value, /^[\x20-\x7e]+$/, "a header value: printable ASCII");
   }
+  // Since 20 Nov 2026 Apple's sign-in answers HTTP 503 to a client that
+  // names the system "macOS"; "Mac OS X" goes through.
+  assert.doesNotMatch(clientInfo, /<macOS;/);
 });
 
 test("Atelier's built-in copy is the same list", () => {

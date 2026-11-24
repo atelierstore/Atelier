@@ -522,6 +522,10 @@ final class CertificatesModel {
 			}
 			try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
 			try state.write(to: file, options: .atomic)
+			// What it was made as, so a sign-in sending the same keeps it.
+			if let clientInfo = signIn.token?.clientInfo {
+				try AnisetteMachine(server: server, storage: AppleIDSignIn.storage()).note(clientInfo)
+			}
 			AppleIDLog.note("Installer: its machine for \(server.host) is Atelier's now")
 		} catch {
 			AppleIDLog.note("Installer: couldn't keep its machine for \(server.host): \(error)")

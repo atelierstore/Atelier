@@ -43,7 +43,8 @@ enum AppleIDRoute {
 			throw Stop.failed("Your anisette server in Settings › Installs › Advanced can't be used. \(problem.description)")
 		}
 		let source = AnisetteListSource(folder: storage)
-		// Its client info goes to Apple through the user's server too.
+		// Its client info goes to Apple through the user's server too, or
+		// the server's own when it has none.
 		let (list, origin) = await source.current()
 		var route = custom.map(AnisetteRoute.init(custom:)) ?? AnisetteRoute(list: list, lastWorked: source.lastWorked, first: firstServer)
 		if let custom {
@@ -60,11 +61,13 @@ enum AppleIDRoute {
 			AppleIDLog.note("sign-in: through \(current.host)\(previous == current ? ", once more" : "")")
 			previous = current
 			do {
+				let clientInfo = try await list.clientInfo(for: current)
+				try ready(AnisetteMachine(server: current, storage: storage), for: clientInfo, server: current)
 				let signedIn = try await AppleIDSession.signIn(
 					email: email,
 					password: password,
 					server: current.url.absoluteString,
-					clientInfo: list.clientInfo,
+					clientInfo: clientInfo,
 					storage: storage,
 					askCode: askCode
 				)
@@ -86,6 +89,20 @@ enum AppleIDRoute {
 		}
 		guard let explanation = route.explanation(of: last, appleIDIsSet: appleIDIsSet) else { throw Stop.cancelled }
 		throw Stop.failed(explanation)
+	}
+
+	/// Gets `server`'s machine ready for a sign-in that sends Apple
+	/// `clientInfo`, a new one unless the last was made as that, and says so
+	/// in the log.
+	private static func ready(_ machine: AnisetteMachine, for clientInfo: AnisetteList.ClientInfo, server: AnisetteList.Server) throws {
+		let readiness = try machine.ready(for: clientInfo.clientInfo)
+		let what = switch readiness {
+		case .kept: "its machine"
+		case .new: "a new machine"
+		case .replaced(let madeAs?): "a new machine, as the last was made as \(madeAs)"
+		case .replaced(nil): "a new machine, as the last was made before Atelier noted the client info"
+		}
+		AppleIDLog.note("sign-in: \(what), sending \(clientInfo.clientInfo)\(server.usesOwnClientInfo ? ", the server's own" : "")")
 	}
 
 	/// "Apple didn’t register this iPhone. Apple says: “Your development
