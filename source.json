@@ -17,6 +17,17 @@
       "category": "utilities",
       "versions": [
         {
+          "version": "0.8.0",
+          "marketingVersion": "0.8.0-alpha",
+          "buildVersion": "1166",
+          "date": "2026-11-24T17:33:02Z",
+          "localizedDescription": "Atelier now installs from the iPhone alone, with no computer: on iOS 27, its website installs it with your Apple ID, free or paid, through a Shortcut and rootshell, a free app, and Atelier opens signed in, on its welcome and then Get Ready with your Apple ID already in. The Library is easier to tap and to use with VoiceOver, its status colours are easier to read in light mode, and its filter says whose apps it shows. On an iPad, Atelier says this iPad.",
+          "downloadURL": "https://github.com/atelierstore/Atelier/releases/download/v0.8.0-alpha/Atelier-0.8.0-alpha.ipa",
+          "size": 12815023,
+          "sha256": "65502741d095fc204472f32b4e983449394644997e4f9479888bbea2f9f37a96",
+          "minOSVersion": "17.0"
+        },
+        {
           "version": "0.7.0",
           "marketingVersion": "0.7.0-alpha",
           "buildVersion": "1101",
@@ -50,6 +61,14 @@
     }
   ],
   "news": [
+    {
+      "identifier": "release-0.8.0-alpha",
+      "title": "Atelier 0.8.0-alpha is out",
+      "caption": "Atelier now installs from the iPhone alone, with no computer: on iOS 27, its website installs it with your Apple ID, free or paid, through a Shortcut and rootshell, a free app, and Atelier opens signed in, on its welcome and then Get Ready with your Apple ID already in. The Library is easier to tap and to use with VoiceOver, its status colours are easier to read in light mode, and its filter says whose apps it shows. On an iPad, Atelier says this iPad.",
+      "date": "2026-11-24T17:33:02Z",
+      "tintColor": "4B8B65",
+      "appID": "com.atelier.app"
+    },
     {
       "identifier": "release-0.7.0-alpha",
       "title": "Atelier 0.7.0-alpha is out",
