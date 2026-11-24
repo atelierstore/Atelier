@@ -1,15 +1,5 @@
 ## New
 
-- The website installs Atelier with your Apple ID, free or paid, from the iPhone alone on iOS 27: Get Atelier's With your Apple ID opens a page whose Install Atelier button adds and runs a Shortcut, which starts the installer in rootshell, a free app, and shows the installer's own page over it, with nothing to type in rootshell. With LocalDevVPN, it pairs the iPhone, signs Atelier and installs it, and Atelier opens signed in. The line to copy into rootshell is still there, without the Shortcut. On an iPhone with an older iOS, Get Atelier lists the signing service first and the page says the installer needs iOS 27 (#22, #29, #30, #31, #32, #33, #41, #48).
-- The website's FAQ says how to pronounce Atelier: ə-TEL-yay, or /əˈtɛlˌjeɪ/ in the International Phonetic Alphabet (#49).
-
 ## Fixes
-
-- After the iPhone-only installer, Atelier's first launch shows its welcome, then Get Ready with the Apple ID already in, and no longer You're Signed In over the welcome. The sheet still opens when the sign-in needs you, or to offer Use for Installs while another certificate is in use (#28).
-- When Apple still won't make Atelier's certificate after a revoke, Revoke Another? now says the certificate you picked is revoked, that sometimes you have to wait a while, and asks whether to revoke another one instead. It used to name the revoked certificate, which read wrong when the list showed another with the same name. The list says to pick one, and its rows are no longer blue like links (#40).
-- In the Library, the install rings, the buttons beside the section titles such as Update All, and Show and Hide under Updates take taps around them, not only on themselves, as do Pause, Resume and Try again on downloads. VoiceOver reads each app's name, version and status together, which opens its page, and then its button. Percentages and sizes no longer shimmer as they count up, Update All's and Re-sign All's Waiting button looks like every other, and the Library redraws less while apps install (#43).
-- On the website, the signing services page no longer scrolls sideways on smaller iPhones or with Display Zoom, and small buttons and links, such as Copy, Choose Files and the nav's Donate, take taps across 44 points. On a phone, the home page's ways to install Atelier and its features are shorter, its screenshots swipe edge to edge, and taps no longer flash grey or leave buttons looking hovered (#45).
-- In light mode, the Library's green, orange and red status lines, such as days left, Reinstall required and Didn't re-sign, and the BETA tag are darker, so they're easier to read. While the Library's filter shows one certificate's or Apple ID's apps, the line under its title says which, or on iOS 17 and 18 a row at the top, with Show All (#46).
-- On an iPad, a new copy's App ID note in Custom Install, and iOS's alert asking for the local network the first time Atelier pairs, say this iPad rather than this iPhone, as the rest of Atelier does (#47).
 
 ## Behind the scenes
