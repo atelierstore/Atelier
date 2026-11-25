@@ -16,8 +16,20 @@
 //   two only iloader lists have none.
 // - tries: the most servers one sign-in tries, starting with the one that
 //   worked last.
-// - clientInfo: iloader's override while the servers catch up with Apple
-//   (2.4.1). Without it, Atelier sends what each server says.
+// - clientInfo: what Atelier sends Apple in place of each server's own. Since
+//   about 02:20 UTC on 20 Nov 2026, Apple's sign-in (GsService2) answers HTTP
+//   503 to every client info that names the system "macOS", and lets "Mac OS
+//   X", the spelling Apple's own frameworks send, through. So it's a current
+//   Mac spelled that way, as SideInstaller 2.2.0 sends (24 Nov 2026). The
+//   servers' own, a Mac on 10.12.6, got some Apple IDs -23782 ("a Mac with
+//   macOS 10.13 or later is required"). Without it, Atelier sends what each
+//   server says. Ateliers after 0.8.0-alpha note the client info each
+//   server's anisette state was made as, and make a new state when this
+//   changes, as Apple answers a sign-in whose client info isn't the one its
+//   state was made as with -22410; older ones don't.
+// - ownClientInfo: true for a server that picks a client info Apple takes
+//   by itself, which Atelier then sends rather than the list's (after
+//   0.8.0-alpha). anisette.lillq.me checks which ones Apple takes every hour.
 // - version: the format. A change older Ateliers can't read goes to a new
 //   address, so they keep this one.
 //
@@ -25,11 +37,11 @@
 
 export const ANISETTE_LIST = {
   version: 1,
-  updated: "2026-11-02",
+  updated: "2026-11-24",
   tries: 4,
   clientInfo: {
-    clientInfo: "<Mac15,7> <macOS;27.0;26A5378j> <com.apple.AuthKit/1 (com.apple.akd/1.0)>",
-    userAgent: "akd/1.0 CFNetwork/811.5.4",
+    clientInfo: "<MacBookPro18,3> <Mac OS X;26.6;25F84> <com.apple.AuthKit/1 (com.apple.akd/1.0)>",
+    userAgent: "AuthKit/1 (Macintosh; OS X 26.6) (com.apple.akd/1.0)",
   },
   servers: [
     { url: "https://mac-ani.jkcoxson.com", name: "jkcoxson (Mac)", kind: "mac" },
@@ -54,7 +66,7 @@ export const ANISETTE_LIST = {
     { url: "https://omni.ethxn.xyz", name: "ethxn's omnisette server", kind: "other" },
     { url: "https://ani.sjwon0368.dpdns.org", name: "koremi", kind: "other" },
     { url: "https://ani.uwucloud.fun", name: "uwucloud", kind: "other" },
-    { url: "https://anisette.lillq.me", name: "Lill q", kind: "mac" },
+    { url: "https://anisette.lillq.me", name: "Lill q", kind: "mac", ownClientInfo: true },
   ],
 };
 

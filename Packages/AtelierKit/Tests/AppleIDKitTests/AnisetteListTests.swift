@@ -31,6 +31,15 @@ final class AnisetteListTests: XCTestCase {
 		XCTAssertEqual(read.servers.count, (raw?["servers"] as? [Any])?.count)
 	}
 
+	func testBuiltInCopySendsAMacOSXClientInfoAndLetsLillqPickItsOwn() throws {
+		let read = try AnisetteList(json: Data(contentsOf: builtInFile()))
+		// Apple's sign-in answers HTTP 503 to "macOS" since 20 Nov 2026.
+		let clientInfo = try XCTUnwrap(read.clientInfo?.clientInfo)
+		XCTAssertFalse(clientInfo.contains("<macOS;"), clientInfo)
+		XCTAssertTrue(clientInfo.contains("<Mac OS X;"), clientInfo)
+		XCTAssertEqual(read.servers.filter(\.usesOwnClientInfo).map(\.host), ["anisette.lillq.me"])
+	}
+
 	/// The copy in the package's sources.
 	private func builtInFile() -> URL {
 		URL(fileURLWithPath: #filePath)
@@ -55,6 +64,16 @@ final class AnisetteListTests: XCTestCase {
 			// No name: its host.
 			AnisetteList.Server(url: URL(string: "https://b.example:8443")!, name: "b.example"),
 		])
+	}
+
+	func testReadsWhichServersPickTheirOwnClientInfo() throws {
+		let read = try list(#"""
+		{"version": 1, "servers": [
+		 {"url": "https://own.example", "ownClientInfo": true},
+		 {"url": "https://list.example", "ownClientInfo": false},
+		 {"url": "https://unsaid.example"}]}
+		"""#)
+		XCTAssertEqual(read.servers.map(\.usesOwnClientInfo), [true, false, false])
 	}
 
 	func testKeepsOnlyHTTPSServersWithNothingButAHostEachOnce() throws {
@@ -96,6 +115,67 @@ final class AnisetteListTests: XCTestCase {
 		}
 		XCTAssertThrowsError(try list(#"{"version": 1, "servers": [\#(server("http://a.example"))]}"#)) {
 			XCTAssertEqual($0 as? AnisetteList.Problem, .noServers)
+		}
+	}
+
+	// MARK: The client info
+
+	private let listsClientInfo = AnisetteList.ClientInfo(clientInfo: "<MacBookPro18,3> <Mac OS X;26.6;25F84> <com.apple.AuthKit/1 (com.apple.akd/1.0)>", userAgent: "AuthKit/1")
+	private let serversClientInfo = AnisetteList.ClientInfo(clientInfo: "<MacBookPro13,3> <Mac OS X;10.12.6;16G29> <com.apple.AuthKit/1 (com.apple.akd/1.0)>", userAgent: "akd/1.0 CFNetwork/811.5.4 Darwin/16.7.0")
+
+	/// A server answering /v3/client_info with `body`, or not at all.
+	private func handingOut(_ body: String?, status: Int = 200, asked: AskedURLs? = nil) -> AnisetteList.Fetch {
+		{ request in
+			asked?.append(request)
+			guard let body else { throw URLError(.timedOut) }
+			return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
+		}
+	}
+
+	private var serversAnswer: String {
+		#"{"client_info": " \#(serversClientInfo.clientInfo)", "user_agent": "\#(serversClientInfo.userAgent)"}"#
+	}
+
+	func testSendsTheListsClientInfoWithoutAskingTheServer() async throws {
+		let asked = AskedURLs()
+		let list = AnisetteList(updated: "", tries: 1, clientInfo: listsClientInfo, servers: [])
+		let server = AnisetteList.Server(url: URL(string: "https://a.example")!, name: "a")
+		let sent = try await list.clientInfo(for: server, fetch: handingOut(serversAnswer, asked: asked))
+		XCTAssertEqual(sent, listsClientInfo)
+		XCTAssertTrue(asked.requests.isEmpty)
+	}
+
+	func testSendsTheServersOwnWhenItPicksItOrTheListHasNone() async throws {
+		let own = AnisetteList.Server(url: URL(string: "https://own.example:8443")!, name: "own", usesOwnClientInfo: true)
+		let plain = AnisetteList.Server(url: URL(string: "https://plain.example")!, name: "plain")
+		let cases: [(AnisetteList, AnisetteList.Server, String)] = [
+			(AnisetteList(updated: "", tries: 1, clientInfo: listsClientInfo, servers: []), own, "https://own.example:8443/v3/client_info"),
+			(AnisetteList(updated: "", tries: 1, clientInfo: nil, servers: []), plain, "https://plain.example/v3/client_info"),
+		]
+		for (list, server, address) in cases {
+			let asked = AskedURLs()
+			let sent = try await list.clientInfo(for: server, fetch: handingOut(serversAnswer, asked: asked))
+			XCTAssertEqual(sent, serversClientInfo)
+			XCTAssertEqual(asked.requests.map { $0.url?.absoluteString }, [address])
+		}
+	}
+
+	func testFailsWhenTheServerDoesntHandOneOut() async {
+		let own = AnisetteList.Server(url: URL(string: "https://own.example")!, name: "own", usesOwnClientInfo: true)
+		let list = AnisetteList(updated: "", tries: 1, clientInfo: listsClientInfo, servers: [])
+		let answers: [AnisetteList.Fetch] = [
+			handingOut(nil),
+			handingOut(serversAnswer, status: 502),
+			handingOut("<html>"),
+			handingOut(#"{"client_info": "<Mac>", "user_agent": "akd\n"}"#),
+		]
+		for answer in answers {
+			do {
+				_ = try await list.clientInfo(for: own, fetch: answer)
+				XCTFail("a client info")
+			} catch {
+				guard case .notHandedOut = error as? AnisetteList.ClientInfoProblem else { return XCTFail("\(error)") }
+			}
 		}
 	}
 
