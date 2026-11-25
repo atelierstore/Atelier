@@ -546,7 +546,7 @@ final class AppleIDSession: @unchecked Sendable {
 
 extension AppleIDError {
 	/// The bridge's error: `bridgeCode` says whose it is, `appleCode` is
-	/// Apple's.
+	/// Apple's, or the HTTP status Apple's servers failed with.
 	init(bridgeCode: Int32, appleCode: Int32, message: String) {
 		let kind: Kind = switch bridgeCode {
 		case ATELIER_APPLEID_SIGN_IN_ERROR: .signIn
@@ -554,8 +554,11 @@ extension AppleIDError {
 		case ATELIER_APPLEID_CANCELLED: .cancelled
 		case ATELIER_APPLEID_NO_TEAM: .noTeam
 		case ATELIER_APPLEID_TOKEN_REFUSED: .tokenRefused
+		case ATELIER_APPLEID_APPLE_FAILED: .appleUnavailable
+		case ATELIER_APPLEID_NO_ANSWER: .noAnswer
 		default: .other
 		}
-		self.init(kind: kind, appleCode: kind == .signIn || kind == .developer || kind == .tokenRefused ? appleCode : 0, message: message)
+		let keepsCode = kind == .signIn || kind == .developer || kind == .tokenRefused || kind == .appleUnavailable
+		self.init(kind: kind, appleCode: keepsCode ? appleCode : 0, message: message)
 	}
 }

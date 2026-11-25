@@ -56,6 +56,11 @@ features = ["ring"]
 [dependencies.rootcause]
 version = "0.12"
 
+# isideload's AnisetteProvider is an async_trait: Atelier's own wraps its
+# anisette server's calls in a time limit (#42).
+[dependencies.async-trait]
+version = "0.1"
+
 # isideload's HTTP errors, which tell whether Apple refused a kept sign-in's
 # token (HTTP 401 or 403) or didn't answer (#182).
 [dependencies.reqwest]

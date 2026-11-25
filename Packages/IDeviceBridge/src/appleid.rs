@@ -23,7 +23,12 @@
 //! ([`ATELIER_APPLEID_SIGN_IN_ERROR`], [`ATELIER_APPLEID_DEVELOPER_ERROR`])
 //! and `sub_code` is Apple's, such as -20101 for a wrong password, -80045
 //! for "This action cannot be completed at this time" or 7460 for the most
-//! certificates the team may have.
+//! certificates the team may have. Apple's own servers failing, with an
+//! HTTP error or an answer that can't be read, is told from the anisette
+//! server's failures ([`ATELIER_APPLEID_APPLE_FAILED`]), and each call
+//! gives up on Apple after [`APPLE_TIME_LIMIT`]
+//! ([`ATELIER_APPLEID_NO_ANSWER`]), as on 17 Nov 2026 Apple's sign-in
+//! failed for hours (#42).
 //!
 //! Only builds inside idevice-ffi, which `build-rust.sh` adds it to along
 //! with isideload, sharing idevice-ffi's idevice. The crate around
@@ -34,15 +39,16 @@ use std::path::{Path, PathBuf};
 use std::ptr::null_mut;
 use std::sync::Arc;
 use std::sync::Once;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::SystemTime;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant, SystemTime};
 
 use isideload::SideloadError;
-use isideload::anisette::AnisetteClientInfo;
 use isideload::anisette::remote_v3::RemoteV3AnisetteProvider;
+use isideload::anisette::{AnisetteClientInfo, AnisetteDataResponse, AnisetteProvider};
 use isideload::auth::apple_account::{
     AppToken, AppleAccount, TwoFactorCallbackParams, TwoFactorCallbackResponse,
 };
+use isideload::auth::grandslam::GrandSlam;
 use isideload::dev::app_groups::AppGroupsApi;
 use isideload::dev::app_ids::{AppId, AppIdsApi};
 use isideload::dev::certificates::{CertificatesApi, DevelopmentCertificate};
@@ -84,9 +90,30 @@ pub const ATELIER_APPLEID_NO_TEAM: i32 = 9004;
 /// opposed to a resume that failed for want of an answer, which fails with
 /// [`ATELIER_APPLEID_OTHER_ERROR`].
 pub const ATELIER_APPLEID_TOKEN_REFUSED: i32 = 9005;
+/// `IdeviceFfiError.code` when Apple's own servers failed (#42): an
+/// `apple.com` host answered with an HTTP error, `sub_code` being its
+/// status, such as 401 when Apple refused a new anisette machine or 503,
+/// or with an answer that couldn't be read, `sub_code` being 0. The
+/// anisette server's own failures are [`ATELIER_APPLEID_OTHER_ERROR`].
+pub const ATELIER_APPLEID_APPLE_FAILED: i32 = 9006;
+/// `IdeviceFfiError.code` when the call got no answer within
+/// [`APPLE_TIME_LIMIT`], not counting the time Swift's code prompt was up
+/// (#42).
+pub const ATELIER_APPLEID_NO_ANSWER: i32 = 9007;
 /// `IdeviceFfiError.code` for anything else, such as no network or an
 /// anisette server that doesn't answer.
 pub const ATELIER_APPLEID_OTHER_ERROR: i32 = 9000;
+
+/// How long each call waits for Apple, the time Swift's code prompt is up
+/// aside (#42). isideload's HTTP client has no time limit of its own, so a
+/// request Apple never answers would hold the call, and Swift's Apple ID
+/// queue with it, until iOS dropped the connection. A sign-in takes 2 to 6
+/// seconds.
+const APPLE_TIME_LIMIT: Duration = Duration::from_secs(60);
+/// How long each of the anisette server's own calls waits for it (#42),
+/// within [`APPLE_TIME_LIMIT`]: a server that doesn't answer then fails as
+/// the server, so Swift tries the next one, rather than as Apple.
+const ANISETTE_TIME_LIMIT: Duration = Duration::from_secs(30);
 
 /// Asks Swift for Apple's verification code, on the thread signing in, which
 /// waits for the answer. `request` is an XML plist: `sms` (the code went to
@@ -188,8 +215,9 @@ pub unsafe extern "C" fn atelier_appleid_sign_in(
         context: context as usize,
         asked: AtomicBool::new(false),
         cancelled: AtomicBool::new(false),
+        asking: AtomicU64::new(0),
     });
-    let result: Result<Option<(AtelierAppleIdSession, Vec<Dictionary>)>, Report> = run_sync_local({
+    let result: Result<Option<(AtelierAppleIdSession, Vec<Dictionary>)>, Report> = run_apple(Some(&*asker), {
         let asker = asker.clone();
         let email = email.clone();
         async move {
@@ -199,7 +227,7 @@ pub unsafe extern "C" fn atelier_appleid_sign_in(
                 async move { Ok(asker.ask(&params)) }
             };
             let mut account = AppleAccount::builder(&email)
-                .anisette_provider(provider)
+                .anisette_provider(Limited(provider))
                 .login(&password, ask)
                 .await?;
             // As isideload's `DeveloperSession::from_account`, keeping the
@@ -295,10 +323,10 @@ pub unsafe extern "C" fn atelier_appleid_resume(
         expiry,
     };
     let result: Result<Option<(AtelierAppleIdSession, Vec<Dictionary>)>, Report> =
-        run_sync_local(async move {
+        run_apple(None, async move {
             let provider = provider(&anisette_url, &storage, client_override)?;
             let account = AppleAccount::builder(&email)
-                .anisette_provider(provider)
+                .anisette_provider(Limited(provider))
                 .build()
                 .await?;
             let developer = DeveloperSession::new(
@@ -315,8 +343,14 @@ pub unsafe extern "C" fn atelier_appleid_resume(
         Err(report) => {
             let error = apple_error(&report, false);
             if refused(&report) {
-                // Apple's code, if any, stays in `sub_code`.
-                unsafe { (*error).code = ATELIER_APPLEID_TOKEN_REFUSED };
+                // Apple's code, if any, stays in `sub_code`, but not an
+                // HTTP status.
+                unsafe {
+                    if (*error).code == ATELIER_APPLEID_APPLE_FAILED {
+                        (*error).sub_code = 0;
+                    }
+                    (*error).code = ATELIER_APPLEID_TOKEN_REFUSED;
+                }
             }
             return error;
         }
@@ -375,6 +409,42 @@ fn provider(
         "0".to_string(),
     )?
     .set_client_info_override(client_info))
+}
+
+/// An anisette server, each of whose calls fails after
+/// [`ANISETTE_TIME_LIMIT`] without an answer (#42). Provisioning a machine
+/// counts as the server's, though it makes two requests to Apple between
+/// the server's messages: Apple failing one of them fails with its HTTP
+/// status all the same.
+struct Limited(RemoteV3AnisetteProvider);
+
+#[async_trait::async_trait]
+impl AnisetteProvider for Limited {
+    async fn get_anisette_data(&self) -> Result<AnisetteDataResponse, Report> {
+        server_call(ANISETTE_TIME_LIMIT, self.0.get_anisette_data()).await
+    }
+
+    async fn resync(&self, sim: &str) -> Result<AnisetteDataResponse, Report> {
+        server_call(ANISETTE_TIME_LIMIT, self.0.resync(sim)).await
+    }
+
+    async fn get_client_info(&self) -> Result<AnisetteClientInfo, Report> {
+        server_call(ANISETTE_TIME_LIMIT, self.0.get_client_info()).await
+    }
+
+    async fn provision(&mut self, gs: &Arc<GrandSlam>, force_recheck: bool) -> Result<(), Report> {
+        server_call(ANISETTE_TIME_LIMIT, self.0.provision(gs, force_recheck)).await
+    }
+}
+
+/// One of the anisette server's calls, for `limit` at most.
+async fn server_call<T>(
+    limit: Duration,
+    call: impl Future<Output = Result<T, Report>>,
+) -> Result<T, Report> {
+    tokio::time::timeout(limit, call)
+        .await
+        .unwrap_or_else(|_| Err(report!("The anisette server didn't answer in time")))
 }
 
 /// The session for `developer`, in the first team Apple lists, with the
@@ -454,7 +524,8 @@ fn signed_in_info(
 /// Whether Apple refused the token a resume went with, rather than not
 /// answering: its developer services said no, with a code of theirs, or
 /// with HTTP's 401 or 403, as the iPhone-only installer tells
-/// (atelierstore/atelier-install, `src/apple.rs`).
+/// (atelierstore/atelier-install, `src/apple.rs`). Not GrandSlam's 401,
+/// which refuses the anisette machine rather than the token (#42).
 fn refused(report: &Report) -> bool {
     report.iter_reports().any(|node| {
         matches!(
@@ -462,10 +533,18 @@ fn refused(report: &Report) -> bool {
             Some(SideloadError::DeveloperError(..))
         ) || node
             .downcast_current_context::<reqwest::Error>()
+            .filter(|error| {
+                error
+                    .url()
+                    .is_some_and(|url| url.host_str() == Some(DEVELOPER_SERVICES))
+            })
             .and_then(reqwest::Error::status)
             .is_some_and(|status| status.as_u16() == 401 || status.as_u16() == 403)
     })
 }
+
+/// The host of Apple's developer services, which a resume's token goes to.
+const DEVELOPER_SERVICES: &str = "developerservices2.apple.com";
 
 /// Makes the session's calls use the team `team_id`, one of those the
 /// sign-in listed, rather than the first: for an Apple ID in more than one
@@ -515,7 +594,7 @@ pub unsafe extern "C" fn atelier_appleid_register_device(
         return ffi_err!(IdeviceError::FfiInvalidString);
     };
     let session = unsafe { &mut *session };
-    let result: Result<(bool, usize), Report> = run_sync_local(async {
+    let result: Result<(bool, usize), Report> = run_apple(None, async {
         let devices = session.developer.list_devices(&session.team, None).await?;
         if devices
             .iter()
@@ -556,7 +635,7 @@ pub unsafe extern "C" fn atelier_appleid_certificates(
     }
     let session = unsafe { &mut *session };
     let result: Result<Vec<DevelopmentCertificate>, Report> =
-        run_sync_local(async { session.developer.list_ios_certs(&session.team).await });
+        run_apple(None, async { session.developer.list_ios_certs(&session.team).await });
     let certificates = match result {
         Ok(certificates) => certificates,
         Err(report) => return apple_error(&report, false),
@@ -604,7 +683,7 @@ pub unsafe extern "C" fn atelier_appleid_certificate(
         return ffi_err!(IdeviceError::FfiInvalidString);
     };
     let session = unsafe { &mut *session };
-    let result: Result<(Vec<u8>, Dictionary), Report> = run_sync_local(async {
+    let result: Result<(Vec<u8>, Dictionary), Report> = run_apple(None, async {
         let before = session.developer.list_ios_certs(&session.team).await?;
         let keys = FsStorage::new(PathBuf::from(keys_path));
         let identity = CertificateIdentity::retrieve(
@@ -688,7 +767,7 @@ pub unsafe extern "C" fn atelier_appleid_adopt_certificate(
         }
         (None, info)
     };
-    let result: Result<(Option<Vec<u8>>, Dictionary), Report> = run_sync_local(async {
+    let result: Result<(Option<Vec<u8>>, Dictionary), Report> = run_apple(None, async {
         let keys = FsStorage::new(PathBuf::from(keys_path));
         let key_name = key_storage_name(&session.email);
         let der = match &given {
@@ -756,7 +835,7 @@ pub unsafe extern "C" fn atelier_appleid_revoke_certificate(
         return ffi_err!(IdeviceError::FfiInvalidString);
     };
     let session = unsafe { &mut *session };
-    let result: Result<(), Report> = run_sync_local(async {
+    let result: Result<(), Report> = run_apple(None, async {
         session
             .developer
             .revoke_development_cert(&session.team, &serial_number, None)
@@ -783,7 +862,7 @@ pub unsafe extern "C" fn atelier_appleid_app_ids(
         return ffi_err!(IdeviceError::FfiInvalidArg);
     }
     let session = unsafe { &mut *session };
-    let result = run_sync_local(async {
+    let result = run_apple(None, async {
         session
             .developer
             .list_app_ids(&session.team, None)
@@ -870,7 +949,7 @@ pub unsafe extern "C" fn atelier_appleid_profile(
         }
     };
     let session = unsafe { &mut *session };
-    let result: Result<(Vec<u8>, Dictionary), Report> = run_sync_local(async {
+    let result: Result<(Vec<u8>, Dictionary), Report> = run_apple(None, async {
         let listed = session
             .developer
             .list_app_ids(&session.team, None)
@@ -982,10 +1061,21 @@ struct CodeAsker {
     context: usize,
     asked: AtomicBool,
     cancelled: AtomicBool,
+    /// How long the prompt was up, in milliseconds, which
+    /// [`APPLE_TIME_LIMIT`] doesn't count.
+    asking: AtomicU64,
 }
 
 impl CodeAsker {
     fn ask(&self, params: &TwoFactorCallbackParams) -> TwoFactorCallbackResponse {
+        let started = Instant::now();
+        let answer = self.ask_swift(params);
+        let millis = u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX);
+        self.asking.fetch_add(millis, Ordering::SeqCst);
+        answer
+    }
+
+    fn ask_swift(&self, params: &TwoFactorCallbackParams) -> TwoFactorCallbackResponse {
         self.asked.store(true, Ordering::SeqCst);
         let mut request = Dictionary::new();
         request.insert("sms".into(), params.sms.into());
@@ -1308,6 +1398,17 @@ fn apple_error(report: &Report, cancelled: bool) -> *mut IdeviceFfiError {
             _ => {}
         }
     }
+    if code == ATELIER_APPLEID_OTHER_ERROR {
+        if report
+            .iter_reports()
+            .any(|node| node.downcast_current_context::<NoAnswer>().is_some())
+        {
+            code = ATELIER_APPLEID_NO_ANSWER;
+        } else if let Some(status) = apple_failure(report) {
+            code = ATELIER_APPLEID_APPLE_FAILED;
+            sub_code = i32::from(status);
+        }
+    }
     if cancelled {
         code = ATELIER_APPLEID_CANCELLED;
     }
@@ -1317,6 +1418,101 @@ fn apple_error(report: &Report, cancelled: bool) -> *mut IdeviceFfiError {
         sub_code,
         message: message.into_raw(),
     }))
+}
+
+/// Whether Apple's own servers failed (#42), rather than the anisette
+/// server or the connection: an `apple.com` host answered with an HTTP
+/// error, its status, or with an answer that couldn't be read, 0. When
+/// isideload has used up its retries of a 429, it only says so in words.
+fn apple_failure(report: &Report) -> Option<u16> {
+    let mut unreadable = false;
+    for node in report.iter_reports() {
+        if let Some(error) = node.downcast_current_context::<reqwest::Error>()
+            && let Some(status) = error.status()
+            && error
+                .url()
+                .is_some_and(|url| url.host_str().is_some_and(is_apple))
+        {
+            return Some(status.as_u16());
+        }
+        let context = node.format_current_context().to_string();
+        if context.contains("Received 429 Too Many Requests") {
+            return Some(429);
+        }
+        unreadable |= UNREADABLE_FROM_APPLE
+            .iter()
+            .any(|said| context.contains(said));
+    }
+    unreadable.then_some(0)
+}
+
+/// What isideload 0.5.2 says when Apple's answer isn't the plist it should
+/// be, as when a server of Apple's that's down answers with a web page:
+/// GrandSlam's (the URL bag, sign-in, the anisette machine's provisioning)
+/// and the developer services'.
+const UNREADABLE_FROM_APPLE: [&str; 5] = [
+    "Failed to parse URL Bag plist",
+    "URL Bag plist missing 'urls' dictionary",
+    "Failed to parse grandslam response plist",
+    "grandslam response missing 'Response'",
+    "Failed to parse developer request plist",
+];
+
+/// Whether `host` is Apple's.
+fn is_apple(host: &str) -> bool {
+    host == "apple.com" || host.ends_with(".apple.com")
+}
+
+/// What a call fails with once it got no answer within
+/// [`APPLE_TIME_LIMIT`].
+#[derive(Debug)]
+struct NoAnswer(Duration);
+
+impl std::fmt::Display for NoAnswer {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "No answer within {} seconds", self.0.as_secs())
+    }
+}
+
+impl std::error::Error for NoAnswer {}
+
+/// Runs `work`, a call to Apple, on idevice-ffi's runtime, for
+/// [`APPLE_TIME_LIMIT`] at most, not counting the time `asker`'s code
+/// prompt was up.
+fn run_apple<T: 'static>(
+    asker: Option<&CodeAsker>,
+    work: impl Future<Output = Result<T, Report>>,
+) -> Result<T, Report> {
+    run_sync_local(within(
+        APPLE_TIME_LIMIT,
+        asker.map(|asker| &asker.asking),
+        work,
+    ))
+}
+
+/// `work` for `limit` at most, not counting the milliseconds in `paused`,
+/// which the code prompt adds to while it blocks the thread. The limit is
+/// then checked again from the start, the prompt's time added.
+async fn within<T>(
+    limit: Duration,
+    paused: Option<&AtomicU64>,
+    work: impl Future<Output = Result<T, Report>>,
+) -> Result<T, Report> {
+    let started = Instant::now();
+    let deadline = || {
+        started
+            + limit
+            + Duration::from_millis(paused.map_or(0, |paused| paused.load(Ordering::SeqCst)))
+    };
+    let mut work = std::pin::pin!(work);
+    loop {
+        let until = tokio::time::Instant::from_std(deadline());
+        match tokio::time::timeout_at(until, work.as_mut()).await {
+            Ok(result) => return result,
+            Err(_) if Instant::now() < deadline() => continue,
+            Err(_) => return Err(Report::new(NoAnswer(limit)).into_dynamic()),
+        }
+    }
 }
 
 /// The report's chain of contexts, without its attachments, which can hold
@@ -1468,6 +1664,180 @@ mod tests {
             .into_dynamic();
         assert!(!refused(&other));
         assert!(!refused(&report!("the anisette server didn't answer").into_dynamic()));
+    }
+
+    /// What `apple_error` gives Swift for `report`: the code and the
+    /// sub-code.
+    fn codes(report: &Report) -> (i32, i32) {
+        let error = apple_error(report, false);
+        let codes = unsafe { ((*error).code, (*error).sub_code) };
+        unsafe { crate::errors::idevice_error_free(error) };
+        codes
+    }
+
+    /// An HTTP error from `url`, with `status`, as `error_for_status` makes
+    /// it: answered by a server on this machine, then given `url`.
+    fn http_error(status: u16, url: &str) -> reqwest::Error {
+        use std::io::{Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut request = [0u8; 4096];
+            let _ = stream.read(&mut request);
+            let reply = format!(
+                "HTTP/1.1 {status} Whatever\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            );
+            stream.write_all(reply.as_bytes()).unwrap();
+        });
+        setup();
+        let error = run_sync_local(async move {
+            reqwest::Client::new()
+                .post(format!("http://127.0.0.1:{port}/"))
+                .send()
+                .await
+                .unwrap()
+                .error_for_status()
+                .unwrap_err()
+        });
+        server.join().unwrap();
+        error.with_url(reqwest::Url::parse(url).unwrap())
+    }
+
+    #[test]
+    fn apples_http_errors_are_apple_failing() {
+        // Apple refusing a new anisette machine on 17 Nov 2026, under
+        // isideload's contexts.
+        let provisioning = Report::new(http_error(
+            401,
+            "https://gsa.apple.com/grandslam/MidService/finishMachineProvisioning",
+        ))
+        .context("Received error response from grandslam")
+        .context("Failed to send end provisioning request")
+        .context("Failed to provision")
+        .context("Failed to get anisette data for login")
+        .into_dynamic();
+        assert_eq!(apple_failure(&provisioning), Some(401));
+        assert_eq!(codes(&provisioning), (ATELIER_APPLEID_APPLE_FAILED, 401));
+        let developer = Report::new(http_error(
+            503,
+            "https://developerservices2.apple.com/services/QH65B2/listTeams.action",
+        ))
+        .context("Developer request failed")
+        .into_dynamic();
+        assert_eq!(codes(&developer), (ATELIER_APPLEID_APPLE_FAILED, 503));
+        // isideload retries a 429 itself, then says so in words.
+        let busy = report!("Received 429 Too Many Requests, no retries left")
+            .context("Failed to get anisette data for login")
+            .into_dynamic();
+        assert_eq!(codes(&busy), (ATELIER_APPLEID_APPLE_FAILED, 429));
+    }
+
+    #[test]
+    fn a_page_from_apple_that_isnt_a_plist_is_apple_failing() {
+        let page =
+            plist::from_bytes::<Dictionary>(b"<html><body>Service Unavailable</body></html>")
+                .unwrap_err();
+        let report = Report::new(page)
+            .context("Failed to parse grandslam response plist")
+            .context("Failed to send start provisioning request")
+            .into_dynamic();
+        assert_eq!(codes(&report), (ATELIER_APPLEID_APPLE_FAILED, 0));
+        let bag = report!("URL Bag plist missing 'urls' dictionary").into_dynamic();
+        assert_eq!(apple_failure(&bag), Some(0));
+    }
+
+    #[test]
+    fn the_anisette_servers_own_failures_are_not_apples() {
+        let server = Report::new(http_error(500, "https://ani.example.org/v3/get_headers"))
+            .context("Failed to get anisette data for login")
+            .into_dynamic();
+        assert_eq!(apple_failure(&server), None);
+        assert_eq!(codes(&server), (ATELIER_APPLEID_OTHER_ERROR, 0));
+        let socket = report!("Provisioning socket closed unexpectedly")
+            .context("Failed to provision")
+            .into_dynamic();
+        assert_eq!(codes(&socket), (ATELIER_APPLEID_OTHER_ERROR, 0));
+        // Nor a host that only ends like Apple's.
+        let lookalike = Report::new(http_error(503, "https://notapple.com/")).into_dynamic();
+        assert_eq!(apple_failure(&lookalike), None);
+    }
+
+    #[test]
+    fn apples_own_code_still_wins() {
+        let refused = Report::new(SideloadError::AuthWithMessage(
+            -27589,
+            "Error Description not available".into(),
+        ))
+        .context("Failed to get anisette data for login")
+        .into_dynamic();
+        assert_eq!(codes(&refused), (ATELIER_APPLEID_SIGN_IN_ERROR, -27589));
+    }
+
+    #[test]
+    fn grandslams_401_is_not_the_token_refused() {
+        let provisioning = Report::new(http_error(
+            401,
+            "https://gsa.apple.com/grandslam/MidService/finishMachineProvisioning",
+        ))
+        .context("Received error response from grandslam")
+        .into_dynamic();
+        assert!(!refused(&provisioning));
+        let developer = Report::new(http_error(
+            401,
+            "https://developerservices2.apple.com/services/QH65B2/listTeams.action",
+        ))
+        .context("Developer request failed")
+        .into_dynamic();
+        assert!(refused(&developer));
+    }
+
+    #[test]
+    fn a_call_apple_never_answers_ends() {
+        let started = Instant::now();
+        let result: Result<(), Report> = run_sync_local(within(
+            Duration::from_millis(50),
+            None,
+            std::future::pending(),
+        ));
+        assert!(started.elapsed() >= Duration::from_millis(50));
+        let report = result.unwrap_err();
+        assert_eq!(codes(&report), (ATELIER_APPLEID_NO_ANSWER, 0));
+    }
+
+    #[test]
+    fn an_anisette_server_that_never_answers_is_the_servers_failure() {
+        // Within Apple's limit, the server's runs out first, and Swift
+        // tries the next server.
+        let result: Result<(), Report> = run_sync_local(within(
+            Duration::from_millis(500),
+            None,
+            server_call(Duration::from_millis(30), std::future::pending()),
+        ));
+        assert_eq!(
+            codes(&result.unwrap_err()),
+            (ATELIER_APPLEID_OTHER_ERROR, 0)
+        );
+    }
+
+    #[test]
+    fn the_code_prompts_time_isnt_counted() {
+        let paused = AtomicU64::new(0);
+        let result = run_sync_local(within(Duration::from_millis(60), Some(&paused), async {
+            // The prompt blocks the thread, as Swift's does.
+            std::thread::sleep(Duration::from_millis(120));
+            paused.fetch_add(120, Ordering::SeqCst);
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok::<_, Report>(7)
+        }));
+        assert_eq!(result.unwrap(), 7);
+        // Without the prompt's time, the same call ends.
+        let result = run_sync_local(within(Duration::from_millis(60), None, async {
+            std::thread::sleep(Duration::from_millis(120));
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            Ok::<_, Report>(7)
+        }));
+        assert!(result.is_err());
     }
 
     #[test]

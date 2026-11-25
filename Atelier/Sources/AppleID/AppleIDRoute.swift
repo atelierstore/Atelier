@@ -76,14 +76,14 @@ enum AppleIDRoute {
 				return signedIn
 			} catch let error as AppleIDError {
 				AppleIDLog.note("sign-in via \(current.host): \(error)")
-				last = error
+				last = AnisetteRoute.telling(error, over: last)
 				// Apple's "Try again" goes through the same server once more,
 				// a moment later.
 				if error.isTryAgain { try? await Task.sleep(for: .seconds(2)) }
 				server = route.next(after: error.routeFailure)
 			} catch {
 				AppleIDLog.note("sign-in via \(current.host): \(error.localizedDescription)")
-				last = AppleIDError(kind: .other, message: error.localizedDescription)
+				last = AnisetteRoute.telling(AppleIDError(kind: .other, message: error.localizedDescription), over: last)
 				server = route.next(after: .server)
 			}
 		}
