@@ -86,10 +86,31 @@ version = "0.4.3"
 default-features = false
 features = ["alloc"]
 TOML
+# isideload as published, with patches/isideload-one-text.patch, the change
+# atelier-install makes so an account that takes its codes by text gets one
+# text, not two (#54). Unpacked from the crate each time, so a change to the
+# patch is picked up. The crate is checked against crates.io's checksum.
+ISIDELOAD=isideload-0.5.2
+ISIDELOAD_SHA256=7cab6348bffd8f32c9358b80c8723bc1da45ad97b0c1f30a1533ade22d4d9496
+CRATE="$ROOT/vendor/$ISIDELOAD.crate"
+published() { echo "$ISIDELOAD_SHA256  $CRATE" | shasum -a 256 -c - >/dev/null 2>&1; }
+if ! { [ -f "$CRATE" ] && published; }; then
+	curl -fsSL --retry 3 -o "$CRATE" "https://static.crates.io/crates/isideload/$ISIDELOAD.crate"
+	if ! published; then
+		echo "$ISIDELOAD.crate isn't the one published on crates.io" >&2
+		exit 1
+	fi
+fi
+rm -rf "$ROOT/vendor/isideload"
+mkdir -p "$ROOT/vendor/isideload"
+tar -xzf "$CRATE" -C "$ROOT/vendor/isideload" --strip-components 1
+( cd "$ROOT/vendor/isideload" && patch -p1 --quiet < "$ROOT/patches/isideload-one-text.patch" )
+
 grep -q '^\[patch.crates-io\]' "$ROOT/vendor/idevice/Cargo.toml" || cat >> "$ROOT/vendor/idevice/Cargo.toml" <<'TOML'
 
 [patch.crates-io]
 idevice = { path = "idevice" }
+isideload = { path = "../isideload" }
 TOML
 cp "$ROOT/idevice.Cargo.lock" "$ROOT/vendor/idevice/Cargo.lock"
 
