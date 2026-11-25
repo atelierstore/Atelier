@@ -145,7 +145,8 @@ enum AppleIDLog {
 	}
 
 	/// What Apple asked for, never the number in full: "Apple asked for a
-	/// code, by text to +30 ••• •••• ••12".
+	/// code, by text to +30 ••• •••• ••12", and whether Apple said it texted
+	/// one as it gave the trusted numbers, with its answer's fields.
 	static func describe(_ request: AppleIDSession.CodeRequest) -> String {
 		var line: String
 		if request.unknown {
@@ -157,6 +158,10 @@ enum AppleIDLog {
 		}
 		if let error = request.lastError, !error.isEmpty {
 			line += " (after: \(error))"
+		}
+		if let first = request.firstAnswer {
+			let said = first.texted ? "says a code was texted" : "doesn't say a code was texted"
+			line += "; Apple's first answer \(said): \(first.fields.joined(separator: ", "))"
 		}
 		return line
 	}

@@ -13,7 +13,7 @@ It uses, or plans to reuse code from, the projects below. Keep this list in sync
 | [ZIPFoundation](https://github.com/weichsel/ZIPFoundation) | Unpacking and repacking IPAs for signing | MIT | Thomas Zoechling |
 | [idevice](https://github.com/jkcoxson/idevice) | Talking to AFC and installd for the pairing-file install route, and pairing the iPhone on the phone itself (built from source, `Packages/IDeviceBridge`) | MIT | Jackson Coxson |
 | [IDeviceKit](https://github.com/khcrysalis/IDeviceKit) | Swift wrapper for idevice | MIT | khcrysalis |
-| [isideload](https://github.com/nab138/isideload) | Signing in with an Apple ID and asking Apple's developer services for certificates, App IDs and provisioning profiles, for free Apple ID signing (built from source with idevice, `Packages/IDeviceBridge`) | MIT | nab138 (Nicholas Sharp) |
+| [isideload](https://github.com/nab138/isideload) | Signing in with an Apple ID and asking Apple's developer services for certificates, App IDs and provisioning profiles, for free Apple ID signing (built from source with idevice, `Packages/IDeviceBridge`, with Atelier's change for codes by text in `patches/isideload-one-text.patch`) | MIT | nab138 (Nicholas Sharp) |
 | [apple-codesign-quick](https://github.com/Dadoum/apple-crates) | Comes in with isideload, which signs apps with it; Atelier signs with zsign | LGPL-2.1-or-later | Dadoum |
 | [Octicons](https://github.com/primer/octicons) | The GitHub mark on sources that are GitHub repos. GitHub and its logo are trademarks of GitHub, Inc. | MIT | GitHub Inc. |
 

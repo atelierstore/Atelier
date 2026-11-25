@@ -72,6 +72,15 @@ final class AppleIDSession: @unchecked Sendable {
 		var selected: UInt32?
 		/// Why the last code didn't work.
 		var lastError: String?
+		/// What Apple answered when asked for the trusted numbers, for the
+		/// log: whether it said a code was texted, which spares a second
+		/// text with another code (#54), and its fields, without the numbers.
+		var firstAnswer: FirstAnswer?
+
+		struct FirstAnswer: Equatable {
+			var texted: Bool
+			var fields: [String]
+		}
 
 		init?(xml: Data) {
 			guard let request = (try? PropertyListSerialization.propertyList(from: xml, format: nil)) as? [String: Any] else {
@@ -85,6 +94,9 @@ final class AppleIDSession: @unchecked Sendable {
 			}
 			selected = (request["selected"] as? NSNumber)?.uint32Value
 			lastError = request["lastError"] as? String
+			firstAnswer = (request["firstAnswer"] as? [String: Any]).map { answer in
+				FirstAnswer(texted: answer["texted"] as? Bool ?? false, fields: answer["fields"] as? [String] ?? [])
+			}
 		}
 
 		/// The number the code went to, as Apple shows it.

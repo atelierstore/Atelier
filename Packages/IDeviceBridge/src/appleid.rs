@@ -120,7 +120,10 @@ const ANISETTE_TIME_LIMIT: Duration = Duration::from_secs(30);
 /// a trusted phone number rather than the user's devices), `unknown` (the
 /// last way failed, so another must be picked), `numbers` (the trusted
 /// numbers, each an `id` and its masked `number`), `selected` (the number
-/// the code went to) and `lastError` (why the last code didn't work).
+/// the code went to), `lastError` (why the last code didn't work) and
+/// `firstAnswer` (what Apple answered when asked for the trusted numbers:
+/// `texted`, whether it said a code was texted, and its `fields`, without
+/// the numbers).
 ///
 /// The answer goes into `response`, NUL-terminated, in at most `capacity`
 /// bytes: `code:<the code>`, `sms:<number id>`, `devices` or `resend`.
@@ -1077,25 +1080,7 @@ impl CodeAsker {
 
     fn ask_swift(&self, params: &TwoFactorCallbackParams) -> TwoFactorCallbackResponse {
         self.asked.store(true, Ordering::SeqCst);
-        let mut request = Dictionary::new();
-        request.insert("sms".into(), params.sms.into());
-        request.insert("unknown".into(), params.unknown.into());
-        let numbers: Vec<Value> = params
-            .numbers
-            .iter()
-            .map(|number| {
-                let mut entry = Dictionary::new();
-                entry.insert("id".into(), u64::from(number.id).into());
-                entry.insert("number".into(), number.number_with_dial_code.clone().into());
-                Value::Dictionary(entry)
-            })
-            .collect();
-        request.insert("numbers".into(), Value::Array(numbers));
-        if let Some(selected) = params.selected_number_id {
-            request.insert("selected".into(), u64::from(selected).into());
-        }
-        insert_some(&mut request, "lastError", params.last_error.clone());
-        let request = xml_string(request);
+        let request = xml_string(code_request(params));
         if request.is_null() {
             self.cancelled.store(true, Ordering::SeqCst);
             return TwoFactorCallbackResponse::Abort;
@@ -1543,6 +1528,40 @@ unsafe fn string(s: *const c_char) -> Option<String> {
     unsafe { CStr::from_ptr(s) }.to_str().ok().map(str::to_owned)
 }
 
+/// Apple's request for a code, as Swift reads it
+/// ([`AtelierAppleIdCodeCallback`]).
+fn code_request(params: &TwoFactorCallbackParams) -> Dictionary {
+    let mut request = Dictionary::new();
+    request.insert("sms".into(), params.sms.into());
+    request.insert("unknown".into(), params.unknown.into());
+    let numbers: Vec<Value> = params
+        .numbers
+        .iter()
+        .map(|number| {
+            let mut entry = Dictionary::new();
+            entry.insert("id".into(), u64::from(number.id).into());
+            entry.insert("number".into(), number.number_with_dial_code.clone().into());
+            Value::Dictionary(entry)
+        })
+        .collect();
+    request.insert("numbers".into(), Value::Array(numbers));
+    if let Some(selected) = params.selected_number_id {
+        request.insert("selected".into(), u64::from(selected).into());
+    }
+    insert_some(&mut request, "lastError", params.last_error.clone());
+    // Whether Apple said it texted a code as it gave the trusted numbers,
+    // which spares a second text with another code (#54), and its fields,
+    // without the numbers, for the log.
+    if let Some(first) = &params.first_answer {
+        let mut answer = Dictionary::new();
+        answer.insert("texted".into(), first.text_sent_to.is_some().into());
+        let fields = first.fields.iter().cloned().map(Value::from).collect();
+        answer.insert("fields".into(), Value::Array(fields));
+        request.insert("firstAnswer".into(), Value::Dictionary(answer));
+    }
+    request
+}
+
 fn insert_some(dictionary: &mut Dictionary, key: &str, value: Option<String>) {
     if let Some(value) = value {
         dictionary.insert(key.into(), value.into());
@@ -1572,6 +1591,7 @@ unsafe fn write_bytes(bytes: Vec<u8>, out: *mut *mut u8, out_length: *mut libc::
 #[cfg(test)]
 mod tests {
     use super::*;
+    use isideload::auth::apple_account::{FirstAnswer, TrustedNumber};
     use x509_cert::der::Encode;
 
     /// One `listTeams` entry, as Apple's XML plist gives it.
@@ -1989,5 +2009,45 @@ mod tests {
         assert_eq!(parsed.status.as_deref(), Some("active"));
         assert_eq!(membership_names(&raw), ["Xcode Free Provisioning Program"]);
         assert!(developer_team(&Dictionary::new()).is_none());
+    }
+
+    fn code_params(first_answer: Option<FirstAnswer>) -> TwoFactorCallbackParams {
+        TwoFactorCallbackParams {
+            last_error: None,
+            unknown: false,
+            sms: true,
+            numbers: vec![TrustedNumber {
+                number_with_dial_code: "+30 ••• •••• ••12".into(),
+                last_two_digits: "12".into(),
+                push_mode: "sms".into(),
+                id: 2,
+            }],
+            selected_number_id: Some(2),
+            first_answer,
+        }
+    }
+
+    #[test]
+    fn apples_first_answer_goes_to_swift_without_the_numbers() {
+        let request = code_request(&code_params(Some(FirstAnswer {
+            text_sent_to: Some(2),
+            fields: vec!["mode=sms".into(), "trustedPhoneNumbers".into()],
+        })));
+        assert_eq!(request.get("selected").and_then(Value::as_unsigned_integer), Some(2));
+        let first = request.get("firstAnswer").and_then(Value::as_dictionary).unwrap();
+        assert_eq!(first.get("texted").and_then(Value::as_boolean), Some(true));
+        let fields: Vec<&str> = first
+            .get("fields")
+            .and_then(Value::as_array)
+            .unwrap()
+            .iter()
+            .filter_map(Value::as_string)
+            .collect();
+        assert_eq!(fields, ["mode=sms", "trustedPhoneNumbers"]);
+
+        let not_said = code_request(&code_params(Some(FirstAnswer::default())));
+        let first = not_said.get("firstAnswer").and_then(Value::as_dictionary).unwrap();
+        assert_eq!(first.get("texted").and_then(Value::as_boolean), Some(false));
+        assert!(code_request(&code_params(None)).get("firstAnswer").is_none());
     }
 }
