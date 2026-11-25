@@ -616,6 +616,8 @@ struct LibraryRow: View {
 	/// In the Renew section (#49): when its profile ends, why Atelier
 	/// didn't renew it by itself, and Renew on the right.
 	var renews = false
+	/// Opens the app's page, as tapping the row does, for VoiceOver.
+	let openPage: () -> Void
 	let perform: (LibraryItem.Action) -> Void
 	@Environment(InstallModel.self) private var installer
 	@Environment(DownloadManager.self) private var downloads
@@ -633,12 +635,17 @@ struct LibraryRow: View {
 		)
 		let deleted = item.presence == .deleted && installing == nil
 		HStack(spacing: 12) {
-			if item.disabled != nil {
-				DisabledAppIcon(url: item.iconURL, tint: item.tint, size: 48)
-			} else {
-				SourceIcon(url: item.iconURL, tint: item.tint, size: 48)
-					.opacity(deleted ? 0.45 : 1)
+			Group {
+				if item.disabled != nil {
+					DisabledAppIcon(url: item.iconURL, tint: item.tint, size: 48)
+				} else {
+					SourceIcon(url: item.iconURL, tint: item.tint, size: 48)
+						.opacity(deleted ? 0.45 : 1)
+				}
 			}
+			// Not for VoiceOver: the name says which app it is, and the
+			// status line when it's offloaded (19 Nov 2026).
+			.accessibilityHidden(true)
 			VStack(alignment: .leading, spacing: 2) {
 				HStack(spacing: 6) {
 					Text(item.install.name)
@@ -702,14 +709,14 @@ struct LibraryRow: View {
 					} else if dataWaits {
 						Label("Data not put back", systemImage: "exclamationmark.triangle.fill")
 							.font(.caption.weight(.medium))
-							.foregroundStyle(.orange)
+							.foregroundStyle(.statusOrange)
 					} else if needsSignIn {
 						NotSignedInToGitHubLabel()
 					} else if saysUnlisted {
 						// Its source's name is on the line above.
 						Label("No longer listed", systemImage: "exclamationmark.triangle.fill")
 							.font(.caption.weight(.medium))
-							.foregroundStyle(.orange)
+							.foregroundStyle(.statusOrange)
 					} else if justUpdated, case .daysLeft = item.status {
 						JustDoneLabel("Updated just now", short: "Updated", systemImage: "checkmark")
 					} else if justResigned, case .daysLeft = item.status {
@@ -725,6 +732,12 @@ struct LibraryRow: View {
 			// Icons close to their text, as Browse's, rather than in a
 			// column of their own, so a status fits next to Open (12 Nov 2026).
 			.labelStyle(InlineLabelStyle())
+			// VoiceOver reads the name, version and status as one, which
+			// opens the app's page, then the button on the right, rather
+			// than each line on its own (19 Nov 2026).
+			.accessibilityElement(children: .combine)
+			.accessibilityAddTraits(.isButton)
+			.accessibilityAction(.default, openPage)
 			Spacer(minLength: 8)
 			if installing == nil, let fetching = installer.fetchingIPA(of: item.install.bundleID), downloads.download(id: fetching) != nil {
 				// Its IPA downloads, for Re-sign or Custom Install… to install
@@ -831,7 +844,9 @@ struct LibraryInstallLine: View {
 
 	var body: some View {
 		Text(text)
-			.font(.caption.weight(.medium))
+			// Digits of one width, so the line doesn't shimmer as the
+			// percentage counts up (19 Nov 2026).
+			.font(.caption.weight(.medium).monospacedDigit())
 			.foregroundStyle(active ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
 			.lineLimit(1)
 	}
@@ -858,7 +873,7 @@ struct JustDoneLabel: View {
 				.lineLimit(1)
 		}
 		.font(.caption.weight(.medium))
-		.foregroundStyle(.green)
+		.foregroundStyle(.statusGreen)
 	}
 }
 
@@ -912,13 +927,13 @@ struct ResignNoteLabel: View {
 			// Nov 2026).
 			Label("Reinstall required", systemImage: "exclamationmark.triangle.fill")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.orange)
+				.foregroundStyle(.statusOrange)
 				.lineLimit(1)
 				.minimumScaleFactor(0.7)
 		case .failed(let why):
 			Text(why.map { "Didn't re-sign: \($0)" } ?? "Didn't re-sign")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 				.lineLimit(2)
 		case .cannot(let why):
 			Text("Can't re-sign: \(why)")
@@ -1069,7 +1084,7 @@ struct UpdateDownloadLabel: View {
 		case .downloading:
 			let fraction = downloads.progress[download.id]?.fraction
 			Text(fraction.map { "Downloading… \(Int($0 * 100))%" } ?? "Downloading…")
-				.font(.caption.weight(.medium))
+				.font(.caption.weight(.medium).monospacedDigit())
 				.foregroundStyle(.tint)
 		case .paused:
 			Text("Download paused")
@@ -1078,7 +1093,7 @@ struct UpdateDownloadLabel: View {
 		case .finished:
 			Label("Downloaded", systemImage: "arrow.down")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .failed:
 			EmptyView()
 		}
@@ -1104,7 +1119,7 @@ struct UpdateSummary: View {
 				systemImage: "exclamationmark.triangle.fill"
 			)
 			.font(.caption.weight(.medium))
-			.foregroundStyle(.orange)
+			.foregroundStyle(.statusOrange)
 			.lineLimit(2)
 		} else if sources.needsGitHubSignIn(item.install.sourceURL) {
 			// Its source needs a GitHub sign-in (#134): a newer version may
@@ -1143,7 +1158,7 @@ struct LibraryStatusLabel: View {
 		case .profileEnded:
 			Label("Profile ended", systemImage: "clock.badge.xmark")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 		case .update(let version):
 			Label("Update to \(version.displayVersion)", systemImage: "arrow.up.circle.fill")
 				.font(.caption.weight(.medium))
@@ -1159,7 +1174,7 @@ struct LibraryStatusLabel: View {
 		case .daysLeft(let text):
 			Label(text, systemImage: "checkmark.seal.fill")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .nothing:
 			EmptyView()
 		}
@@ -1182,13 +1197,13 @@ struct RenewDueLabel: View {
 		} else {
 			Label("Ends \(AppProfileDays.relative(profile.expires))", systemImage: "exclamationmark.circle.fill")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.orange)
+				.foregroundStyle(.statusOrange)
 				.lineLimit(1)
 		}
 		if let problem, problem.showsUnderApp {
 			Text(problem.message(isOwn: isOwn))
 				.font(.caption)
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 				.fixedSize(horizontal: false, vertical: true)
 		}
 	}
@@ -1204,7 +1219,7 @@ struct OwnSignInLabel: View {
 	var body: some View {
 		Label(Self.ends(need.expires), systemImage: "exclamationmark.circle.fill")
 			.font(.caption.weight(.medium))
-			.foregroundStyle(.orange)
+			.foregroundStyle(.statusOrange)
 			.lineLimit(1)
 		if need.hasOthers {
 			Text("Another Apple ID installed \(name), so yours can’t renew it. Sign in with that one too.")
@@ -2035,6 +2050,9 @@ struct UpdateGroupRow: View {
 	var body: some View {
 		HStack(spacing: 12) {
 			SourceIcon(url: item.iconURL, tint: item.tint, size: 48)
+				.accessibilityHidden(true)
+			// VoiceOver reads the name, versions and stage as one, then
+			// the button on the right (19 Nov 2026).
 			VStack(alignment: .leading, spacing: 2) {
 				Text(item.install.name)
 					.font(.headline)
@@ -2045,6 +2063,7 @@ struct UpdateGroupRow: View {
 					.lineLimit(1)
 				stageLine
 			}
+			.accessibilityElement(children: .combine)
 			Spacer(minLength: 8)
 			trailing
 		}
@@ -2065,11 +2084,11 @@ struct UpdateGroupRow: View {
 			SelfInstallLine(text: "Go to the Home Screen to finish", handingOver: true)
 		case .running(let stage):
 			Text(Self.describe(stage))
-				.font(.caption.weight(.medium))
+				.font(.caption.weight(.medium).monospacedDigit())
 				.foregroundStyle(.tint)
 		case .waiting(_, let fraction?, _):
 			Text("Downloading… \(Int(fraction * 100))%")
-				.font(.caption.weight(.medium))
+				.font(.caption.weight(.medium).monospacedDigit())
 				.foregroundStyle(.tint)
 		case .waiting(let job, nil, let downloaded) where job.isSelf:
 			// After every other install (#24).
@@ -2081,11 +2100,11 @@ struct UpdateGroupRow: View {
 		case .updated:
 			Label("Updated", systemImage: "checkmark")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .failed:
 			Text("Didn't update")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.red)
+				.foregroundStyle(.statusRed)
 		}
 	}
 
@@ -2106,16 +2125,16 @@ struct UpdateGroupRow: View {
 				.buttonStyle(.plain)
 				.accessibilityLabel("Take off the install queue")
 		case .waiting(let job, nil, _):
-			Button("Waiting") { installer.remove(job) }
-				.font(.subheadline.bold())
-				.buttonStyle(.bordered)
-				.buttonBorderShape(.capsule)
-				.accessibilityHint("Takes the app off the install queue.")
+			// The Waiting capsule every other row has, which takes it off
+			// the queue (19 Nov 2026).
+			LibraryButton(action: .update, status: .waiting(job)) {}
 		case .updated:
+			// The stage line says so.
 			Image(systemName: "checkmark")
 				.font(.body.bold())
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 				.frame(width: 30, height: 30)
+				.accessibilityHidden(true)
 		case .failed:
 			LibraryButton(action: .update, perform: tryAgain)
 		}
@@ -2155,7 +2174,9 @@ struct GroupRing: View {
 				.foregroundStyle(Color.accentColor)
 		}
 		.frame(width: 30, height: 30)
-		.contentShape(Circle())
+		// Taps over the 44 points a finger needs, not only the ring's 30
+		// (19 Nov 2026).
+		.tapArea(7)
 	}
 }
 
@@ -2211,10 +2232,19 @@ struct ResignGroup: Equatable {
 		}
 	}
 
+	/// Whether the app is re-signed, as `phase(of:)` says, without reading
+	/// its install's stage or its download, for the Library to move it
+	/// into Installed without redrawing at every step (19 Nov 2026).
+	@MainActor
+	func isResigned(_ item: LibraryItem, installer: InstallModel) -> Bool {
+		guard let job = jobIDs[item.install.bundleID], !installer.isQueued(job: job) else { return false }
+		return installer.failures[job] == nil && !item.needsResign
+	}
+
 	/// Whether no app of the group is waiting or installing.
 	@MainActor
 	func isDone(installer: InstallModel) -> Bool {
-		jobIDs.values.allSatisfy { installer.status(ofJob: $0) == nil }
+		jobIDs.values.allSatisfy { !installer.isQueued(job: $0) }
 	}
 }
 
@@ -2235,6 +2265,9 @@ struct ResignGroupRow: View {
 	var body: some View {
 		HStack(spacing: 12) {
 			SourceIcon(url: item.iconURL, tint: item.tint, size: 48)
+				.accessibilityHidden(true)
+			// VoiceOver reads the name, versions and stage as one, then
+			// the button on the right (19 Nov 2026).
 			VStack(alignment: .leading, spacing: 2) {
 				Text(item.install.name)
 					.font(.headline)
@@ -2245,6 +2278,7 @@ struct ResignGroupRow: View {
 					.lineLimit(1)
 				stageLine
 			}
+			.accessibilityElement(children: .combine)
 			Spacer(minLength: 8)
 			trailing
 		}
@@ -2267,11 +2301,11 @@ struct ResignGroupRow: View {
 			SelfInstallLine(text: "Go to the Home Screen to finish", handingOver: true)
 		case .running(let stage):
 			Text(UpdateGroupRow.describe(stage))
-				.font(.caption.weight(.medium))
+				.font(.caption.weight(.medium).monospacedDigit())
 				.foregroundStyle(.tint)
 		case .waiting(_, let fraction?, _):
 			Text("Downloading… \(Int(fraction * 100))%")
-				.font(.caption.weight(.medium))
+				.font(.caption.weight(.medium).monospacedDigit())
 				.foregroundStyle(.tint)
 		case .waiting(let job, nil, _) where job.isSelf:
 			// After every other install (#24).
@@ -2283,7 +2317,7 @@ struct ResignGroupRow: View {
 		case .resigned:
 			Label("Re-signed", systemImage: "checkmark")
 				.font(.caption.weight(.medium))
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 		case .failed(let why):
 			ResignNoteLabel(note: ResignNote(kind: .failed(why), canResign: true), attention: nil)
 		}
@@ -2306,16 +2340,16 @@ struct ResignGroupRow: View {
 				.buttonStyle(.plain)
 				.accessibilityLabel("Take off the install queue")
 		case .waiting(let job, nil, _):
-			Button("Waiting") { installer.remove(job) }
-				.font(.subheadline.bold())
-				.buttonStyle(.bordered)
-				.buttonBorderShape(.capsule)
-				.accessibilityHint("Takes the app off the install queue.")
+			// The Waiting capsule every other row has, which takes it off
+			// the queue (19 Nov 2026).
+			LibraryButton(action: .resign, status: .waiting(job)) {}
 		case .resigned:
+			// The stage line says so.
 			Image(systemName: "checkmark")
 				.font(.body.bold())
-				.foregroundStyle(.green)
+				.foregroundStyle(.statusGreen)
 				.frame(width: 30, height: 30)
+				.accessibilityHidden(true)
 		case .failed:
 			LibraryButton(action: .resign, perform: tryAgain)
 		}

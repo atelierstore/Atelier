@@ -21,7 +21,7 @@ public struct AnisetteListSource: Sendable {
 	/// Atelier's worker, the one that serves its install manifests.
 	public static let defaultURL = URL(string: "https://api.atelierstore.app/anisette")!
 
-	public typealias Fetch = @Sendable (URLRequest) async throws -> (Data, URLResponse)
+	public typealias Fetch = AnisetteList.Fetch
 
 	private let folder: URL
 	private let url: URL

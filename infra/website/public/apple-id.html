@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Install Atelier with your Apple ID · Atelier</title>
-<meta name="description" content="Install Atelier from your iPhone alone, signed with your free or paid Apple ID, with two free apps and no computer.">
+<meta name="description" content="Install Atelier from your iPhone alone, signed with your free or paid Apple ID, with two free apps from the App Store and no computer.">
 <meta name="theme-color" content="#3A5A47">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png">
@@ -12,7 +12,7 @@
 <meta property="og:type" content="website">
 <meta property="og:site_name" content="Atelier">
 <meta property="og:title" content="Install Atelier with your Apple ID">
-<meta property="og:description" content="From your iPhone alone, signed with your Apple ID, with two free apps and no computer.">
+<meta property="og:description" content="From your iPhone alone, signed with your Apple ID, with two free apps from the App Store and no computer.">
 <meta property="og:url" content="https://atelierstore.app/apple-id">
 <meta property="og:image" content="https://atelierstore.app/img/og.png">
 <meta property="og:image:width" content="1200">
@@ -21,6 +21,7 @@
 <meta name="twitter:card" content="summary_large_image">
 <link rel="preload" href="/fonts/bricolage-grotesque-latin.woff2" as="font" type="font/woff2" crossorigin>
 <link rel="stylesheet" href="/site.css">
+<script type="module" src="/press.js"></script>
 <script type="module" src="/apple-id.js"></script>
 <script type="module" src="/tally.js"></script>
 </head>
@@ -37,7 +38,7 @@
         <div class="page-head">
       <a class="crumb" href="/#install"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5.5L8.5 12l6.5 6.5"/></svg>Get Atelier</a>
       <h1>Install with your Apple ID</h1>
-      <p class="lede">Your iPhone signs Atelier with your Apple ID and installs it by itself, with two free apps. No computer, and no certificate to buy.</p>
+      <p class="lede">Your iPhone signs Atelier with your Apple ID and installs it by itself, with two free apps from the App Store. No computer, and no certificate to buy.</p>
     </div>
   </div>
 </header>
@@ -59,7 +60,7 @@
         <ul class="needs">
           <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="2.5" width="11" height="19" rx="2.5"/><path d="M10.5 18.5h3"/></svg><span><strong>An iPhone with iOS 27 or later, on Wi&#8209;Fi.</strong> iOS only lets the installer reach your iPhone over Wi&#8209;Fi.</span></li>
           <li><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8.2" r="3.8"/><path d="M4.8 20c1.1-3.7 3.8-5.6 7.2-5.6s6.1 1.9 7.2 5.6"/></svg><span><strong>Your Apple ID, free or paid.</strong> With a free one, Atelier renews itself every week, and takes 1 of the 3 places your iPhone has for apps signed with free Apple IDs.</span></li>
-          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg><span><strong>rootshell and LocalDevVPN,</strong> two free apps. rootshell runs the installer, and LocalDevVPN lets it reach your iPhone's install service.</span></li>
+          <li><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="2"/><rect x="13.5" y="3.5" width="7" height="7" rx="2"/><rect x="3.5" y="13.5" width="7" height="7" rx="2"/><rect x="13.5" y="13.5" width="7" height="7" rx="2"/></svg><span><strong>rootshell and LocalDevVPN,</strong> two free apps from the App Store. rootshell runs the installer, and LocalDevVPN lets it reach your iPhone's install service.</span></li>
         </ul>
         <!-- What the README of atelierstore/atelier-install says, under
              "Your Apple ID". -->
@@ -78,7 +79,8 @@
            Install Atelier Shortcut, then runs it. Under Without the
            Shortcut, it fills in the line from Atelier's source and shows
            the button that copies it and opens rootshell. On a computer it
-           shows a code that opens this page on the iPhone. -->
+           shows a code that opens this page on the iPhone, and says where
+           the button shows there. -->
       <ol class="steps">
         <li>
           <span class="n" aria-hidden="true">1</span>
@@ -94,12 +96,12 @@
               </div>
             </div>
             <h3>Get the two apps</h3>
-            <p>Both are free. rootshell runs the installer, and for now it takes rootshell's beta, until its next version reaches the App Store. Keep LocalDevVPN afterwards: Atelier needs it to install and renew your apps.</p>
+            <p>Both are free on the App Store. rootshell runs the installer. Keep LocalDevVPN afterwards: Atelier needs it to install and renew your apps.</p>
             <div class="add-row">
-              <a class="btn btn-secondary btn-small" href="https://testflight.apple.com/join/DEVnH3N2">rootshell beta</a>
+              <a class="btn btn-secondary btn-small" href="https://apps.apple.com/app/rootshell-local-terminal-ssh/id6755794662">rootshell</a>
               <a class="btn btn-secondary btn-small" href="https://apps.apple.com/app/id6755608044">LocalDevVPN</a>
             </div>
-            <p class="small">rootshell beta opens in TestFlight, Apple's app for betas. Without TestFlight, the page says how to get it first. The beta takes the place of rootshell from the App Store. If you already have LocalDevVPN, update it.</p>
+            <p class="small">If you already have them, update both to their latest versions from the App Store.</p>
           </div>
         </li>
         <li>
@@ -113,25 +115,27 @@
           <span class="n" aria-hidden="true">3</span>
           <div>
             <h3>Install Atelier</h3>
-            <p>First, in rootshell's Settings › General, set Location Diary Mode to Auto During Active Sessions, so it keeps running while you're in Settings.</p>
-            <p>Then tap Install Atelier. It installs Atelier's newest release:</p>
+            <p>Tap Install Atelier. It installs Atelier's newest release:</p>
             <div class="release" data-release data-source="https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json">
               <img src="/img/icon.png" alt="" width="52" height="52">
-              <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Newest release</span></span>
+              <span class="release-name"><strong data-release-name>Atelier</strong><span data-release-meta>Reading the newest release…</span></span>
             </div>
-            <p class="small" data-release-wait aria-live="polite">Reading Atelier's newest release…</p>
+            <div data-release-error aria-live="polite"></div>
             <!-- On an iPhone or iPad: the Install Atelier Shortcut. The
                  first tap opens its iCloud link, where Shortcuts offers Add
                  Shortcut; later taps run it (apple-id.js). It connects
                  LocalDevVPN, has rootshell run the installer with --page,
-                 then opens the installer's page in Safari. -->
+                 then shows the installer's page over rootshell, in its own
+                 web view, which keeps rootshell in front. -->
             <div class="actions go-row" data-shortcut hidden>
-              <a class="btn btn-primary" href="https://www.icloud.com/shortcuts/e522f1adbcf34bc28baf3dbde4f7b699" data-shortcut-button>Install Atelier</a>
+              <a class="btn btn-primary" href="https://www.icloud.com/shortcuts/2910bbeeb22c4cb492bbf1d09ecce700" data-shortcut-button>Install Atelier</a>
             </div>
             <p class="small" data-shortcut hidden>The first time, it adds the Install Atelier Shortcut. Tap Add Shortcut, come back here, and tap Install Atelier again.</p>
-            <p class="small" data-shortcut hidden>The Shortcut connects LocalDevVPN and starts the installer in rootshell. Safari then opens the installer's page, which carries on from this step: pair, sign in, then install. There's nothing to type in rootshell.</p>
+            <p class="small" data-shortcut hidden>The Shortcut connects LocalDevVPN and starts the installer in rootshell, then shows the installer's page over it. The page carries on from this step: pair, sign in, then install. There's nothing to type in rootshell.</p>
+            <p class="small" data-on-computer hidden>On your iPhone, the Install Atelier button shows here.</p>
             <details class="fallback">
               <summary>Without the Shortcut</summary>
+              <p>First, in rootshell's Settings › General, set Location Diary Mode to Auto During Active Sessions, so it keeps running while you're in Settings.</p>
               <p>Then copy this line into rootshell. It downloads the installer, gives it your iPhone's Wi&#8209;Fi address, which pairing needs, and installs Atelier's newest release, checked against its SHA&#8209;256.</p>
               <div class="url-box" data-command data-after-release hidden>
                 <code data-install-line></code>

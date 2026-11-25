@@ -47,6 +47,7 @@
   --ok: #34A853;
   --bad: #B83A2E;
   --shadow: rgba(22, 34, 26, .16);
+  --focus: #87582A;
 
   --display: "Bricolage Grotesque", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
   --body: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -69,6 +70,7 @@
     --ok: #4CC27A;
     --bad: #F08377;
     --shadow: rgba(0, 0, 0, .5);
+    --focus: var(--pine);
     color-scheme: dark;
   }
 }
@@ -88,10 +90,13 @@
   --ok: #4CC27A;
   --bad: #F08377;
   --shadow: rgba(0, 0, 0, .5);
+  --focus: var(--pine);
   color-scheme: dark;
 }
 
-html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; }
+/* No grey box over what's tapped on iOS: buttons and rows shrink a little
+   while pressed, and links dim, instead (press.js lets iOS show it). */
+html { scroll-behavior: smooth; -webkit-text-size-adjust: 100%; -webkit-tap-highlight-color: transparent; }
 body {
   background: var(--bg);
   color: var(--ink);
@@ -101,7 +106,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 a { color: var(--link); }
-:focus-visible { outline: 3px solid var(--pine); outline-offset: 3px; border-radius: 6px; }
+:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; border-radius: 6px; }
+/* Focus rings at 3:1 or more on every surface: the darker pine on the
+   light page and its white cards, cream on the forest. */
+.hero :focus-visible, .foot :focus-visible { outline-color: var(--on-forest); }
+/* Paragraphs don't end on a word alone, where the browser can help it. */
+p, .r-text > span, .needs li > span, .points li { text-wrap: pretty; }
 h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; }
 p { margin: 0; }
 
@@ -123,12 +133,9 @@ p { margin: 0; }
 .btn:active { transform: scale(.97); }
 .btn svg { width: 18px; height: 18px; flex: none; }
 .btn-pine { background: var(--pine); color: #1C140B; }
-.btn-pine:hover { background: #D49E66; }
 .btn-ghost { color: var(--on-forest); border-color: var(--on-forest-line); }
-.btn-ghost:hover { border-color: var(--on-forest); }
 .btn-primary { background: var(--btn); color: var(--btn-ink); }
 .btn-secondary { color: var(--ink); border-color: var(--line-strong); background: transparent; }
-.btn-secondary:hover { border-color: var(--ink-2); }
 .btn-small { min-height: 38px; padding: 0 16px; font-size: 15px; }
 
 /* Hero */
@@ -144,7 +151,6 @@ p { margin: 0; }
 .brand img { width: 36px; height: 36px; border-radius: 8px; outline: 1px solid rgba(255, 255, 255, .18); outline-offset: -1px; }
 .nav-links { display: flex; align-items: center; gap: 26px; }
 .nav-links a { color: var(--on-forest-2); text-decoration: none; font-size: 15px; font-weight: 500; }
-.nav-links a:hover { color: var(--on-forest); }
 .nav-links .gh { display: inline-flex; align-items: center; gap: 7px; color: var(--on-forest); }
 .nav-links .gh svg { width: 20px; height: 20px; }
 @media (max-width: 719px) {
@@ -165,7 +171,6 @@ p { margin: 0; }
   border: 1px solid var(--on-forest-line); color: var(--on-forest);
   transition: border-color .15s ease, transform .15s ease;
 }
-.nav-links .donate:hover { border-color: var(--on-forest); }
 .nav-links .donate:active { transform: scale(.97); }
 .nav-links .donate svg { width: 16px; height: 16px; flex: none; fill: var(--pine); }
 
@@ -203,7 +208,7 @@ p { margin: 0; }
 .wood { fill: var(--pine); }
 .wood-shade { fill: var(--pine-shade); }
 .bezel { fill: var(--bezel); }
-.phone { transform-box: fill-box; animation: settle 1s cubic-bezier(.2, .75, .25, 1) .2s both; }
+.phone { transform-box: fill-box; animation: settle .6s cubic-bezier(.2, .75, .25, 1) .1s both; }
 @keyframes settle { from { transform: translateY(-26px); } to { transform: none; } }
 
 @media (min-width: 880px) {
@@ -254,6 +259,14 @@ h3 { font-size: 1.3rem; font-weight: 700; line-height: 1.2; letter-spacing: -.01
 .f-icon { width: 42px; height: 42px; border-radius: 12px; display: grid; place-items: center; color: var(--pine-ink); background: color-mix(in srgb, var(--pine) 18%, transparent); margin-bottom: 4px; }
 .f-icon svg { width: 23px; height: 23px; fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round; }
 .feature p { color: var(--ink-2); }
+/* On a phone, each icon sits beside its title, and the text runs under
+   both. */
+@media (max-width: 639px) {
+  .features { gap: 30px; margin-top: 44px; }
+  .feature { grid-template-columns: 42px minmax(0, 1fr); column-gap: 14px; align-items: center; padding-top: 20px; }
+  .f-icon { margin-bottom: 0; }
+  .feature p { grid-column: 1 / -1; }
+}
 .also { margin-top: 44px; padding-top: 22px; border-top: 1px solid var(--line); color: var(--ink-2); font-size: 15px; }
 .also strong { color: var(--ink); font-weight: 600; }
 
@@ -262,6 +275,15 @@ h3 { font-size: 1.3rem; font-weight: 700; line-height: 1.2; letter-spacing: -.01
   margin-top: 48px; display: grid; grid-auto-flow: column; grid-auto-columns: minmax(232px, 72%);
   gap: 24px; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 12px;
   scrollbar-width: thin;
+}
+/* Until the three fit side by side, the screenshots swipe off the screen's
+   edges, past the column's gutters, and rest lined up with the text. */
+@media (max-width: 819px) {
+  .shots {
+    margin-inline: calc(-1 * max(20px, env(safe-area-inset-left, 0px))) calc(-1 * max(20px, env(safe-area-inset-right, 0px)));
+    padding-inline: max(20px, env(safe-area-inset-left, 0px)) max(20px, env(safe-area-inset-right, 0px));
+    scroll-padding-inline: max(20px, env(safe-area-inset-left, 0px));
+  }
 }
 @media (min-width: 820px) { .shots { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; gap: 32px; } }
 .shot { margin: 0; scroll-snap-align: start; min-width: 0; }
@@ -288,7 +310,6 @@ a.route {
   box-shadow: 0 18px 32px -24px var(--shadow);
   transition: transform .15s ease, border-color .15s ease;
 }
-a.route:hover { border-color: var(--line-strong); }
 a.route:active { transform: scale(.985); }
 .r-icon { width: 44px; height: 44px; border-radius: 12px; display: grid; place-items: center; color: var(--pine-ink); background: color-mix(in srgb, var(--pine) 18%, transparent); }
 .route:not(a) .r-icon { color: var(--ink-2); background: color-mix(in srgb, var(--ink) 7%, transparent); }
@@ -308,8 +329,21 @@ a.route:active { transform: scale(.985); }
 /* The Apple ID row: first and recommended on iOS 27, with the same pine
    border. iOS keeps its case in the uppercase label. */
 a.route.route-pick { border: 1.5px solid color-mix(in srgb, var(--pine) 75%, transparent); }
-a.route.route-pick:hover { border-color: var(--pine); }
 .r-label .as-is { text-transform: none; }
+/* On a phone, each way's icon and chevron sit beside its name (and its
+   label, when it has one), and its text runs the row's full width. */
+@media (max-width: 519px) {
+  .route, a.route { grid-template-columns: 40px minmax(0, 1fr) 20px; column-gap: 12px; row-gap: 4px; align-items: center; padding: 14px 16px; }
+  .route .r-text { display: contents; }
+  .route .r-icon { width: 40px; height: 40px; border-radius: 11px; grid-column: 1; grid-row: 1; }
+  .route .r-icon svg { width: 22px; height: 22px; }
+  .route .r-head { grid-column: 2; grid-row: 1; }
+  .route .chev { grid-column: 3; grid-row: 1; }
+  .route:has(.r-label) .r-icon, .route:has(.r-label) .chev { grid-row: 1 / span 2; }
+  .route .r-label { grid-column: 2; grid-row: 1; align-self: end; }
+  .route:has(.r-label) .r-head { grid-row: 2; align-self: start; }
+  .route .r-text > span:last-child { grid-column: 1 / -1; margin-top: 6px; }
+}
 .routes-label { margin: 14px 0 0 4px; font-size: 13px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--ink-2); }
 
 /* The sideload and certificate pages (sideload.html, certificate.html):
@@ -318,7 +352,6 @@ a.route.route-pick:hover { border-color: var(--pine); }
    home page. */
 .page-hero .page-head { padding-block: 10px clamp(44px, 7vw, 72px); max-width: 38em; }
 .crumb { display: inline-flex; align-items: center; gap: 4px; color: var(--on-forest-2); text-decoration: none; font-size: 15px; font-weight: 500; }
-.crumb:hover { color: var(--on-forest); }
 .crumb svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
 .page-hero h1 { margin-top: 16px; font-size: clamp(2.4rem, 1.7rem + 2.8vw, 3.7rem); font-weight: 800; font-stretch: 88%; line-height: 1; letter-spacing: -.026em; }
 .page-hero .lede { margin-top: 18px; }
@@ -342,8 +375,10 @@ a.route.route-pick:hover { border-color: var(--pine); }
   .steps .n { font-size: 38px; }
 }
 .text-link { font-weight: 600; text-decoration: none; }
-.text-link:hover { text-decoration: underline; }
-.file { font-family: var(--mono); font-size: .88em; }
+/* A file name can be longer than a phone is wide, such as
+   PlugIns/AtelierLiveActivity.appex, so it breaks where it has to rather
+   than push the page sideways. */
+.file { font-family: var(--mono); font-size: .88em; overflow-wrap: anywhere; }
 
 /* Step 1: the newest release (sideload.js fills it in), then Atelier's
    source, its address with Copy and a button for each store. */
@@ -361,11 +396,15 @@ a.route.route-pick:hover { border-color: var(--pine); }
 .facts div { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; min-width: 0; }
 .facts dt { min-width: 5.2em; }
 .facts dd { margin: 0; min-width: 0; font: 13px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+/* The SHA-256's row keeps its place until sideload.js fills it in, so
+   nothing under it moves. */
+.facts .pending { visibility: hidden; }
 .facts button { border: 0; background: none; padding: 0; font: 600 14px/1.5 var(--body); color: var(--link); cursor: pointer; }
 .sub-title { margin: 30px 0 0; font-size: 1.05rem; scroll-margin-top: 24px; }
 .steps .sub-title + p { margin-top: 6px; }
 .url-box { margin-top: 14px; display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 16px; border-radius: 16px; background: var(--surface); border: 1px solid var(--line); }
-.url-box code { flex: 1; min-width: 0; font: 14px/1.4 var(--mono); white-space: nowrap; overflow-x: auto; padding-block: 8px; scrollbar-width: none; }
+/* The address fades out under Copy, so it reads as longer than the box. */
+.url-box code { flex: 1; min-width: 0; font: 14px/1.4 var(--mono); white-space: nowrap; overflow-x: auto; padding-block: 8px; scrollbar-width: none; -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 28px), transparent); }
 .add-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
 
 /* Step 2: the one thing to get right, the certificate (#24). */
@@ -503,6 +542,10 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
 .faq-list summary::after { content: "+"; flex: none; font: 400 28px/0.8 var(--display); color: var(--pine-ink); transition: transform .2s ease; }
 .faq-list details[open] summary::after { transform: rotate(45deg); }
 .faq-list details p { padding-bottom: 20px; max-width: 38em; color: var(--ink-2); }
+/* How to say Atelier: its respelling and IPA each stay on one line. */
+.faq-list .say { white-space: nowrap; }
+.faq-list b.say { font-weight: 600; color: var(--ink); }
+.faq-list .say-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 16px; padding-bottom: 10px; font-size: 1.1rem; line-height: 1.4; }
 
 /* Donate, the home page's last band: its title, and beside it on a wide
    screen, as the FAQ's questions are, why, the button and where it goes. */
@@ -533,9 +576,10 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
 .foot .wrap { display: grid; gap: 28px; padding-block: 52px max(40px, env(safe-area-inset-bottom, 0px)); }
 .foot-top { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 20px 32px; }
 .foot .brand { font-size: 21px; }
-.foot-links { display: flex; flex-wrap: wrap; gap: 10px 24px; }
-.foot-links a { color: var(--on-forest); text-decoration: none; }
-.foot-links a:hover { text-decoration: underline; }
+/* 44 points tall each, with the rows touching, so wrapped links are as
+   easy to tap as buttons; the margin keeps the spacing around them. */
+.foot-links { display: flex; flex-wrap: wrap; gap: 0 24px; margin-block: -10.5px; }
+.foot-links a { padding-block: 10.5px; color: var(--on-forest); text-decoration: none; }
 .fine { font-size: 13px; line-height: 1.6; border-top: 1px solid var(--on-forest-line); padding-top: 22px; }
 .fine a { color: var(--on-forest); }
 
@@ -570,7 +614,9 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
 .install-what strong { color: var(--ink); font-weight: 600; overflow-wrap: anywhere; }
 .install-main .btn { box-sizing: border-box; width: 100%; margin-top: 28px; }
 .install-note { margin-top: 14px; font-size: 14px; color: var(--ink-2); }
-.install-more { margin-top: 32px; padding-top: 20px; border-top: 1px solid var(--line); display: grid; gap: 12px; font-size: 15px; }
+.install-more { margin-top: 32px; padding-top: 9.5px; border-top: 1px solid var(--line); display: grid; font-size: 15px; }
+/* Each link 44 points tall, as in the footer. */
+.install-more a { padding-block: 10.5px; }
 /* The page the certificate page's code opens (certificate/install.html):
    why it can't install here, over what it does. */
 .install-main .callout { margin-top: 20px; text-align: left; }
@@ -661,10 +707,44 @@ code.key { font: .86em/1.4 var(--mono); color: var(--ink); overflow-wrap: anywhe
   .stats-col { display: grid; gap: 12px; }
 }
 
+/* Tap areas: at least 44 points each way, as Apple asks, for the controls
+   drawn smaller than that. Each takes taps in an invisible box around
+   itself, so nothing looks or moves differently, and no box reaches a
+   neighbour's. */
+.btn-small, .nav-links .gh, .nav-links .donate, .crumb, .facts button, .actions .text-link, .fallback summary { position: relative; }
+.btn-small::after, .nav-links .gh::after, .nav-links .donate::after, .crumb::after, .facts button::after, .actions .text-link::after, .switch::after, .fallback summary::before { content: ""; position: absolute; }
+/* Inside the border, so these reach past it by 3 points or more. */
+.btn-small::after { inset: -5px 0; }
+.nav-links .donate::after { inset: -4px 0; }
+.nav-links .gh::after { inset: -11px -8px; }
+.crumb::after { inset: -11px -6px; }
+.facts button::after { inset: -12px -8px; }
+.actions .text-link::after { inset: -9px -4px; }
+.switch::after { inset: -7px -4px; }
+.fallback summary::before { inset: -1px 0; }
+
+/* Hover, only with a mouse or trackpad: iOS applies :hover on a tap and
+   keeps it until the next one. */
+@media (hover: hover) and (pointer: fine) {
+  .btn-pine:hover { background: #D49E66; }
+  .btn-ghost:hover { border-color: var(--on-forest); }
+  .btn-secondary:hover { border-color: var(--ink-2); }
+  .nav-links a:hover { color: var(--on-forest); }
+  .nav-links .donate:hover { border-color: var(--on-forest); }
+  a.route:hover { border-color: var(--line-strong); }
+  a.route.route-pick:hover { border-color: var(--pine); }
+  .crumb:hover { color: var(--on-forest); }
+  .text-link:hover { text-decoration: underline; }
+  .foot-links a:hover { text-decoration: underline; }
+}
+/* Pressed, for what doesn't shrink as buttons do: it dims. */
+.text-link, .crumb, .brand, .nav-links .gh, .foot-links a, .faq-list summary, .fallback summary, .facts button, .install-more a { transition: opacity .12s ease-out; }
+:is(.text-link, .crumb, .brand, .nav-links .gh, .foot-links a, .faq-list summary, .fallback summary, .facts button, .install-more a):active { opacity: .6; }
+
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
   .phone, .ring.spin, .install-main.has-app { animation: none; }
-  .btn, a.route, .nav-links .donate, .switch, .switch::before { transition: none; }
+  .btn, a.route, .nav-links .donate, .switch, .switch::before, .faq-list summary::after { transition: none; }
 }
 
 html { color-scheme: light dark; }
