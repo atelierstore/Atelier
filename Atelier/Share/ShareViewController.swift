@@ -159,10 +159,14 @@ private struct OpenFailedView: View {
 				.buttonBorderShape(.capsule)
 				.controlSize(.large)
 				.padding(.top, 18)
-				Button("Done", action: done)
-					.frame(maxWidth: .infinity, minHeight: 44)
-					.keyboardShortcut(.cancelAction)
-					.padding(.top, 6)
+				Button(action: done) {
+					// The whole width and 44pt tall take the tap, not just the word.
+					Text("Done")
+						.frame(maxWidth: .infinity, minHeight: 44)
+						.contentShape(Rectangle())
+				}
+				.keyboardShortcut(.cancelAction)
+				.padding(.top, 6)
 			}
 			.padding(.horizontal, 22)
 			.padding(.top, 24)

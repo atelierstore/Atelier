@@ -1,5 +1,6 @@
 ## New
 
+- Atelier is in other apps' share sheets for links. Share a link to an .ipa, from a chat, Safari or any other app, and Atelier opens and asks to install it, as an install link does, then downloads, signs and installs it. A link to a source or a GitHub repo opens Add Source. Shared .ipa files keep installing straight away. If iOS won't let Atelier open from the share sheet, a sheet says so, with the link to copy (#56).
 - The website's Apple ID page takes rootshell from the App Store again, instead of its beta on TestFlight: the App Store's rootshell 1.0.16 has what the installer and its Shortcut need (#52).
 
 ## Fixes
