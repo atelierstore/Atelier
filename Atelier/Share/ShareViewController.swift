@@ -1,4 +1,3 @@
-import InstallKit
 import SourceKit
 import SwiftUI
 import UIKit
@@ -12,9 +11,10 @@ import UniformTypeIdentifiers
 /// Share extensions have no supported way to open their app:
 /// `NSExtensionContext.open(_:completionHandler:)` only works for widgets.
 /// So it calls `open(_:options:completionHandler:)` on the UIApplication up
-/// its responder chain, as other apps' share extensions do, which needs
-/// `APPLICATION_EXTENSION_API_ONLY` off (project.yml). When iOS refuses, it
-/// says so, with the link to copy (`OpenFailedView`).
+/// its responder chain, as other apps' share extensions do. Xcode 26 only
+/// builds extensions with `APPLICATION_EXTENSION_API_ONLY`, which hides that
+/// method, so the call goes through the Objective-C runtime (`open(_:in:)`).
+/// When iOS refuses, it says so, with the link to copy (`OpenFailedView`).
 final class ShareViewController: UIViewController {
 	private var link: URL?
 	/// Whether the shared link has been read, if there was one.
@@ -52,13 +52,29 @@ final class ShareViewController: UIViewController {
 			showOpenFailed(link)
 			return
 		}
-		application.open(atelierLink, options: [:]) { [weak self] opened in
+		Self.open(atelierLink, in: application) { [weak self] opened in
 			guard let self else { return }
 			if opened {
 				extensionContext?.completeRequest(returningItems: nil)
 			} else {
 				showOpenFailed(link)
 			}
+		}
+	}
+
+	/// `application.open(url, options: [:], completionHandler:)`, called by its
+	/// selector, as extension-safe code can't name it. `completion` runs on the
+	/// main queue; false when the application doesn't have the method.
+	private static func open(_ url: URL, in application: UIApplication, completion: @escaping (Bool) -> Void) {
+		let selector = NSSelectorFromString("openURL:options:completionHandler:")
+		guard application.responds(to: selector), let method = application.method(for: selector) else {
+			completion(false)
+			return
+		}
+		typealias Open = @convention(c) (UIApplication, Selector, NSURL, NSDictionary, @convention(block) (Bool) -> Void) -> Void
+		let open = unsafeBitCast(method, to: Open.self)
+		open(application, selector, url as NSURL, NSDictionary()) { opened in
+			DispatchQueue.main.async { completion(opened) }
 		}
 	}
 
@@ -85,12 +101,16 @@ final class ShareViewController: UIViewController {
 		return nil
 	}
 
-	/// The scheme only this Atelier answers (`SwitchBackScheme`), so a copy
-	/// of Atelier's extension opens that copy, not whichever Atelier iOS
-	/// picks for `atelier://`. The app is two folders up, from PlugIns.
+	/// The scheme only this Atelier answers, its switch-back one
+	/// (InstallKit's `SwitchBackScheme`, which isn't extension-safe as a
+	/// whole), so a copy of Atelier's extension opens that copy, not whichever
+	/// Atelier iOS picks for `atelier://`. The app is two folders up, from
+	/// PlugIns.
 	private static var ownScheme: String {
 		let app = Bundle.main.bundleURL.deletingLastPathComponent().deletingLastPathComponent()
-		return Bundle(url: app)?.infoDictionary.flatMap(SwitchBackScheme.scheme(in:)) ?? "atelier"
+		let types = Bundle(url: app)?.infoDictionary?["CFBundleURLTypes"] as? [[String: Any]] ?? []
+		let switchBack = types.first { $0["CFBundleURLName"] as? String == "com.atelier.app.switch-back" }
+		return (switchBack?["CFBundleURLSchemes"] as? [String])?.first ?? "atelier"
 	}
 
 	private func showOpenFailed(_ link: URL) {

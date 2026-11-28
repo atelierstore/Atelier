@@ -251,8 +251,6 @@ targets:
     dependencies:
       - package: AtelierKit
         product: SourceKit
-      - package: AtelierKit
-        product: InstallKit
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.atelier.app.Share
@@ -261,10 +259,10 @@ targets:
         CURRENT_PROJECT_VERSION: "1"
         SWIFT_VERSION: "5.0"
         TARGETED_DEVICE_FAMILY: "1,2"
-        # Share extensions have no supported way to open their app, so it
-        # opens Atelier through UIApplication, which the extension-safe API
-        # leaves out (ShareViewController).
-        APPLICATION_EXTENSION_API_ONLY: "NO"
+        # Xcode 26 builds extensions, and what they link, with this on only.
+        # So the extension links SourceKit alone, and opens Atelier through
+        # UIApplication by selector (ShareViewController).
+        APPLICATION_EXTENSION_API_ONLY: "YES"
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         CODE_SIGN_IDENTITY: ""
