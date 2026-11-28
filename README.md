@@ -47,7 +47,7 @@ Atelier is a SwiftUI app for iOS 17 and later. It reads AltStore sources and Git
 - **Custom Install.** Side-by-side copies of any app under new bundle IDs, each with its own name, icon tint or picture, reported version and URL schemes.
 - **App Groups that work.** Under an Apple ID, Atelier registers each app's own App Group names. With a certificate that comes with App Groups, it gives each app a folder inside one. Widgets and extensions keep seeing their app's data.
 - **Revocation checks.** Atelier asks Apple's OCSP responders about each certificate and only believes answers signed by the issuer. When one is revoked or expires, Re-sign All moves every app to a certificate that still works.
-- **Speaks everyone's formats.** AltStore sources, GitHub repos, `atelier://` links and AltStore's, SideStore's and Feather's, and `.ipa`, `.tipa` and `.mobileprovision` files. Go back to an older version, pick a build when a release ships several, and see every install in Install History.
+- **Speaks everyone's formats.** AltStore sources, GitHub repos, `atelier://` links and AltStore's, SideStore's and Feather's, `.ipa`, `.tipa` and `.mobileprovision` files, and links to an `.ipa` or a source shared from any app's share sheet. Go back to an older version, pick a build when a release ships several, and see every install in Install History.
 
 ### Under the hood
 
@@ -87,9 +87,9 @@ https://raw.githubusercontent.com/atelierstore/Atelier/source/source.json
 
 ## Repository layout
 
-- `Atelier/`: the SwiftUI app, with its pairing Live Activity (`LiveActivity/`) and the App Groups library it puts in apps it signs with an Apple ID (`AppGroups/`).
+- `Atelier/`: the SwiftUI app, with its pairing Live Activity (`LiveActivity/`), its share extension for links (`Share/`) and the App Groups library it puts in apps it signs with an Apple ID (`AppGroups/`).
 - `Packages/AtelierKit/`: everything else, one module per concern, each with its own tests:
-  - `SourceKit`: AltStore source models and parsing, store links (`atelier://`, and AltStore's, SideStore's and Feather's schemes) and conditional fetching.
+  - `SourceKit`: AltStore source models and parsing, store links (`atelier://`, and AltStore's, SideStore's and Feather's schemes), links shared to Atelier, and conditional fetching.
   - `GitHubKit`: GitHub repos as sources (each release with an IPA is a version) and GitHub sign-in.
   - `CertKit`: certificates, provisioning profiles and Apple IDs: parsing, storage, and OCSP checks.
   - `AppleIDKit`: the anisette servers an Apple ID sign-in goes through.

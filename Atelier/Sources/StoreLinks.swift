@@ -224,6 +224,9 @@ struct StoreLinkHandling: ViewModifier {
 		}
 		// LocalDevVPN switching back after connecting (#9).
 		if RouteASetup.isCallback(url) { return }
+		// A link shared to a copy of Atelier, which its share extension opens
+		// on the copy's own scheme (#56).
+		let url = SharedLink.atelierLink(url, ownScheme: RouteASetup.callbackScheme) ?? url
 		do {
 			guard let link = try StoreLink(url) else { return }
 			follow(link)
