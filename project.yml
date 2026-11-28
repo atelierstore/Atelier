@@ -49,6 +49,8 @@ targets:
         embed: false
       # The pairing Live Activity (#54).
       - target: AtelierLiveActivity
+      # Atelier in other apps' share sheets, for links (#56).
+      - target: AtelierShare
       # The App Groups library (#49), which Atelier puts in apps it signs
       # with an Apple ID: copied into its Frameworks, not linked.
       - target: AtelierAppGroups
@@ -235,6 +237,53 @@ targets:
         CODE_SIGNING_ALLOWED: "NO"
         CODE_SIGNING_REQUIRED: "NO"
         CODE_SIGN_IDENTITY: ""
+
+  # Atelier in other apps' share sheets, for links (#56): it opens Atelier
+  # with the link, which installs an .ipa as an install link does, or adds a
+  # source. Files shared to Atelier go to the app itself (CFBundleDocumentTypes
+  # above). Built unsigned like the app; scripts/sign_ipa.py, and Atelier when
+  # it signs itself, sign it with the app's profile.
+  AtelierShare:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Atelier/Share
+    dependencies:
+      - package: AtelierKit
+        product: SourceKit
+      - package: AtelierKit
+        product: InstallKit
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.atelier.app.Share
+        PRODUCT_NAME: AtelierShare
+        MARKETING_VERSION: "0.1"
+        CURRENT_PROJECT_VERSION: "1"
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        # Share extensions have no supported way to open their app, so it
+        # opens Atelier through UIApplication, which the extension-safe API
+        # leaves out (ShareViewController).
+        APPLICATION_EXTENSION_API_ONLY: "NO"
+        CODE_SIGNING_ALLOWED: "NO"
+        CODE_SIGNING_REQUIRED: "NO"
+        CODE_SIGN_IDENTITY: ""
+    info:
+      path: Atelier/Share/Info.plist
+      properties:
+        # Its name in the share sheet, under the app's icon.
+        CFBundleDisplayName: Atelier
+        # The app's version, which iOS expects an extension to share.
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.share-services
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
+          NSExtensionAttributes:
+            # One web link. iOS can't offer it only for links to an .ipa, so
+            # it shows for every link; files and text don't bring it up.
+            NSExtensionActivationRule:
+              NSExtensionActivationSupportsWebURLWithMaxCount: 1
 
   # Route A's pairing steps and code as a Live Activity (#54): the Lock Screen
   # and the Dynamic Island. Built unsigned like the app; scripts/sign_ipa.py,
